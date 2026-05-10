@@ -89,17 +89,7 @@ def calculate_trimp_from_streams(
     hr_data: list[int],
     zone_boundaries: list[tuple[float, float]],
 ) -> tuple[float, dict[str, float]]:
-    """Calculate TRIMP from HR stream data.
-
-    Args:
-        time_data: Elapsed time in seconds at each sample point.
-        hr_data: Heart rate at each sample point.
-        zone_boundaries: HR zone boundaries.
-
-    Returns:
-        Tuple of (trimp_score, zone_seconds_dict).
-        zone_seconds_dict maps "zone_1" through "zone_5" to seconds spent.
-    """
+    """Calculate TRIMP from HR stream data."""
     zone_seconds = {f"zone_{i}": 0.0 for i in range(1, 6)}
 
     for i in range(1, len(time_data)):
@@ -120,6 +110,50 @@ def calculate_trimp_from_streams(
         trimp += (seconds / 60.0) * ZONE_WEIGHTS[zone_num]
 
     return trimp, zone_seconds
+
+
+def get_power_zone_boundaries(ftp: int) -> list[tuple[float, float]]:
+    """Return Power zone boundaries as (min, max) watts.
+    Based on standard Coggan 7-zone model.
+    """
+    return [
+        (0, ftp * 0.55),     # Zone 1: Active Recovery
+        (ftp * 0.55, ftp * 0.75),  # Zone 2: Endurance
+        (ftp * 0.75, ftp * 0.90),  # Zone 3: Tempo
+        (ftp * 0.90, ftp * 1.05),  # Zone 4: Threshold
+        (ftp * 1.05, ftp * 1.20),  # Zone 5: VO2 Max
+        (ftp * 1.20, ftp * 1.50),  # Zone 6: Anaerobic Capacity
+        (ftp * 1.50, ftp * 10.0),  # Zone 7: Neuromuscular Power
+    ]
+
+
+def calculate_power_zones(
+    time_data: list[int],
+    power_data: list[int],
+    zone_boundaries: list[tuple[float, float]],
+) -> dict[str, float]:
+    """Calculate time spent in each power zone."""
+    zone_seconds = {f"zone_{i}": 0.0 for i in range(1, 8)}
+
+    for i in range(1, len(time_data)):
+        dt = time_data[i] - time_data[i - 1]
+        if dt <= 0:
+            continue
+
+        power = power_data[i]
+        if power < 0:
+            continue
+
+        # Classify power to zone
+        zone = 7
+        for z_idx, (low, high) in enumerate(zone_boundaries):
+            if power < high:
+                zone = z_idx + 1
+                break
+        
+        zone_seconds[f"zone_{zone}"] += dt
+
+    return zone_seconds
 
 
 def estimate_trimp_without_hr(sport_type: str, moving_time_seconds: int) -> float:

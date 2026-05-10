@@ -444,7 +444,7 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
       "id": 30,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -502,7 +502,7 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
       "id": 31,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -516,6 +516,98 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = ${activity_id}\n  AND hr_zone_seconds IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 64 },
+      "id": 104,
+      "title": "Power Zone Breakdown",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Zone 1" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#96D98D" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 2" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#73BF69" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 3" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8EE5E5" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 4" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FADE2A" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 5" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FF9830" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 6" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F2495C" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 7" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#7057FF" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 65 },
+      "id": 40,
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "pieType": "donut",
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] }
+      },
+      "title": "Time in Power Zones",
+      "type": "piechart",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = ${activity_id}\n  AND power_zone_seconds IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#96D98D", "value": null }
+            ]
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Zone 1" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#96D98D" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 2" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#73BF69" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 3" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8EE5E5" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 4" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FADE2A" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 5" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FF9830" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 6" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F2495C" } }] },
+          { "matcher": { "id": "byName", "options": "Zone 7" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#7057FF" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 65 },
+      "id": 41,
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "displayMode": "lcd",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      },
+      "title": "Power Zone Distribution",
+      "type": "bargauge",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = ${activity_id}\n  AND power_zone_seconds IS NOT NULL",
           "format": "table",
           "refId": "A"
         }

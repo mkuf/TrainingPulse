@@ -46,6 +46,7 @@ class AthleteSettings(Base):
     max_hr: Mapped[int] = mapped_column(Integer, nullable=False, default=190)
     rest_hr: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     hr_zones: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    ftp: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -72,6 +73,7 @@ class Activity(Base):
     suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     trimp: Mapped[float | None] = mapped_column(Float, nullable=True)
     hr_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    power_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     synced_streams: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )

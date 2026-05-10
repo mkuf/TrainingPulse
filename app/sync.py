@@ -10,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from metrics import (
     calculate_trimp_from_streams,
+    calculate_power_zones,
     estimate_trimp_without_hr,
     get_hr_zone_boundaries,
+    get_power_zone_boundaries,
     recalculate_daily_metrics,
 )
 from models import Activity, ActivityStream, AthleteSettings, StravaToken
@@ -65,8 +67,19 @@ async def fetch_and_store_athlete_settings(
                     len(hr_zones),
                     max_hr,
                 )
+        
+        # Also fetch FTP if available
+        ftp = 200
+        try:
+            athlete_data = await client.get_athlete()
+            ftp = athlete_data.get("ftp") or 200
+            logger.info("Fetched athlete FTP from Strava: %d", ftp)
+        except Exception:
+            pass
+            
     except Exception as e:
-        logger.warning("Could not fetch HR zones from Strava: %s. Using defaults.", e)
+        logger.warning("Could not fetch HR zones/FTP from Strava: %s. Using defaults.", e)
+        ftp = 200
 
     # Upsert athlete settings
     stmt = pg_insert(AthleteSettings).values(
@@ -74,6 +87,7 @@ async def fetch_and_store_athlete_settings(
         max_hr=max_hr,
         rest_hr=rest_hr,
         hr_zones=hr_zones,
+        ftp=ftp,
     )
     stmt = stmt.on_conflict_do_update(
         index_elements=["athlete_id"],
@@ -81,6 +95,7 @@ async def fetch_and_store_athlete_settings(
             "max_hr": stmt.excluded.max_hr,
             "rest_hr": stmt.excluded.rest_hr,
             "hr_zones": stmt.excluded.hr_zones,
+            "ftp": stmt.excluded.ftp,
         },
     )
     await session.execute(stmt)
@@ -139,9 +154,10 @@ async def _process_activity_streams(
     client: StravaClient,
     session: AsyncSession,
     activity: Activity,
-    zone_boundaries: list[tuple[float, float]],
+    hr_zone_boundaries: list[tuple[float, float]],
+    power_zone_boundaries: list[tuple[float, float]],
 ):
-    """Fetch all stream data for an activity, store it, and calculate TRIMP."""
+    """Fetch all stream data for an activity, store it, and calculate TRIMP/Zones."""
     if not activity.has_heartrate:
         # Estimate TRIMP from duration and sport type
         trimp = estimate_trimp_without_hr(activity.sport_type, activity.moving_time)
@@ -187,30 +203,39 @@ async def _process_activity_streams(
         # Calculate TRIMP from HR stream
         time_stream = streams.get("time", {}).get("data", [])
         hr_stream = streams.get("heartrate", {}).get("data", [])
+        power_stream = streams.get("watts", {}).get("data", [])
+
+        trimp = activity.trimp
+        hr_zones = activity.hr_zone_seconds
+        power_zones = activity.power_zone_seconds
 
         if time_stream and hr_stream and len(time_stream) == len(hr_stream):
-            trimp, zone_seconds = calculate_trimp_from_streams(
-                time_stream, hr_stream, zone_boundaries
+            trimp, hr_zones = calculate_trimp_from_streams(
+                time_stream, hr_stream, hr_zone_boundaries
             )
-            await session.execute(
-                update(Activity)
-                .where(Activity.id == activity.id)
-                .values(
-                    trimp=trimp,
-                    hr_zone_seconds=zone_seconds,
-                    synced_streams=True,
-                )
-            )
-        else:
-            # HR stream not available despite has_heartrate=True
+        elif not trimp:
+            # Fall back to estimation if TRIMP not yet set
             trimp = estimate_trimp_without_hr(
                 activity.sport_type, activity.moving_time
             )
-            await session.execute(
-                update(Activity)
-                .where(Activity.id == activity.id)
-                .values(trimp=trimp, synced_streams=True)
+
+        if time_stream and power_stream and len(time_stream) == len(power_stream):
+            power_zones = calculate_power_zones(
+                time_stream, power_stream, power_zone_boundaries
             )
+        else:
+            power_zones = None
+
+        await session.execute(
+            update(Activity)
+            .where(Activity.id == activity.id)
+            .values(
+                trimp=trimp,
+                hr_zone_seconds=hr_zones,
+                power_zone_seconds=power_zones,
+                synced_streams=True,
+            )
+        )
 
         await session.commit()
 
@@ -252,15 +277,16 @@ async def run_sync(session: AsyncSession):
 
         athlete_id = token.athlete_id
 
-        # Fetch/update athlete settings (HR zones)
+        # Fetch/update athlete settings (HR/Power zones)
         athlete_settings = await fetch_and_store_athlete_settings(
             client, session, athlete_id
         )
-        zone_boundaries = get_hr_zone_boundaries(
+        hr_zone_boundaries = get_hr_zone_boundaries(
             athlete_settings.max_hr,
             athlete_settings.rest_hr,
             athlete_settings.hr_zones,
         )
+        power_zone_boundaries = get_power_zone_boundaries(athlete_settings.ftp)
 
         # Check what we already have
         count_result = await session.execute(
@@ -272,13 +298,13 @@ async def run_sync(session: AsyncSession):
 
         if existing_count == 0:
             # Full backfill
-            await _backfill(client, session, athlete_id, zone_boundaries)
+            await _backfill(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
         else:
             # Incremental sync
-            await _incremental_sync(client, session, athlete_id, zone_boundaries)
+            await _incremental_sync(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
 
         # Process any activities that don't have streams yet
-        await _process_pending_streams(client, session, athlete_id, zone_boundaries)
+        await _process_pending_streams(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
 
         # Recalculate daily metrics
         sync_state.phase = "calculating"
@@ -303,7 +329,8 @@ async def _backfill(
     client: StravaClient,
     session: AsyncSession,
     athlete_id: int,
-    zone_boundaries: list[tuple[float, float]],
+    hr_zone_boundaries: list[tuple[float, float]],
+    power_zone_boundaries: list[tuple[float, float]],
 ):
     """Fetch all historical activities from Strava."""
     sync_state.phase = "backfilling"
@@ -341,7 +368,8 @@ async def _incremental_sync(
     client: StravaClient,
     session: AsyncSession,
     athlete_id: int,
-    zone_boundaries: list[tuple[float, float]],
+    hr_zone_boundaries: list[tuple[float, float]],
+    power_zone_boundaries: list[tuple[float, float]],
 ):
     """Fetch only new activities since the last sync."""
     sync_state.phase = "incremental"
@@ -385,7 +413,8 @@ async def _process_pending_streams(
     client: StravaClient,
     session: AsyncSession,
     athlete_id: int,
-    zone_boundaries: list[tuple[float, float]],
+    hr_zone_boundaries: list[tuple[float, float]],
+    power_zone_boundaries: list[tuple[float, float]],
 ):
     """Process HR streams for activities that haven't been processed yet."""
     sync_state.phase = "backfilling"
@@ -411,7 +440,7 @@ async def _process_pending_streams(
     for i, activity in enumerate(pending):
         try:
             await _process_activity_streams(
-                client, session, activity, zone_boundaries
+                client, session, activity, hr_zone_boundaries, power_zone_boundaries
             )
             sync_state.streams_fetched = i + 1
 
