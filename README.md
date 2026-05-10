@@ -13,6 +13,20 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 - **Handles OAuth automatically** — authenticates once, never expires.
 - **Respects Strava rate limits** — sleeps when approaching limits, resumes on restart.
 
+## Dashboards
+
+### Fitness & Freshness
+![Fitness Dashboard](assets/screenshots/fitness_dashboard.png)
+*The main performance management chart tracking Fitness (CTL), Fatigue (ATL), and Form (TSB).*
+
+### Activity Analysis
+![Activity Detail](assets/screenshots/activity_detail.png)
+*Detailed telemetry breakdown including Heart Rate, Power, Cadence, and Temperature streams.*
+
+### Power Duration Curve
+![Power Curve](assets/screenshots/power_curve.png)
+*All-time Peak Power sustained across different time intervals.*
+
 ## Metrics Explained
 
 | Metric | Also Known As | Description |
