@@ -19,17 +19,21 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 
 ## Dashboards
 
-### Fitness & Freshness
-![Fitness Dashboard](screenshots/fitness_dashboard.png)
+### Status
+![Status](screenshots/status.png)
+
+### Grafana
+#### Fitness & Freshness
+![Fitness Dashboard](screenshots/fitness_freshness_1.png)
+![Fitness Dashboard](screenshots/fitness_freshness_2.png)
+![Fitness Dashboard](screenshots/fitness_freshness_3.png)
 *The main performance management chart tracking Fitness (CTL), Fatigue (ATL), and Form (TSB).*
 
-### Activity Analysis
-![Activity Detail](screenshots/activity_detail.png)
+#### Activity Analysis
+![Activity Detail](screenshots/activity_1.png)
+![Activity Detail](screenshots/activity_2.png)
+![Activity Detail](screenshots/activity_3.png)
 *Detailed telemetry breakdown including Heart Rate, Power, Cadence, and Temperature streams.*
-
-### Power Duration Curve
-![Power Curve](screenshots/power_curve.png)
-*All-time Peak Power sustained across different time intervals.*
 
 ## Metrics Explained
 
