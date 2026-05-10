@@ -33,7 +33,7 @@
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "fixed", "fixedColor": "#FC4C02" },
-          "unit": "none",
+          "unit": "lengthm",
           "decimals": 0
         },
         "overrides": []
@@ -279,7 +279,7 @@
       "targets": [
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-          "rawSql": "SELECT\n  a.start_date + (t.val * INTERVAL '1 second') AS time,\n  h.val::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  h.val::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": "A"
         }
@@ -321,7 +321,7 @@
       "targets": [
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-          "rawSql": "SELECT\n  a.start_date + (t.val * INTERVAL '1 second') AS time,\n  ROUND(v.val::numeric, 2) AS \"Speed\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'velocity_smooth') WITH ORDINALITY AS v(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'velocity_smooth'\n  AND t.idx = v.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(v.val::numeric, 2) AS \"Speed\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'velocity_smooth') WITH ORDINALITY AS v(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'velocity_smooth'\n  AND t.idx = v.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": "A"
         }
@@ -361,7 +361,43 @@
       "targets": [
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-          "rawSql": "SELECT\n  a.start_date + (t.val * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "color": { "mode": "fixed", "fixedColor": "#FADE2A" },
+          "unit": "watt",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 47 },
+      "id": 23,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "title": "Power",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  p.val::int AS \"Power\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'watts') WITH ORDINALITY AS p(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'watts'\n  AND t.idx = p.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": "A"
         }
@@ -369,7 +405,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
       "id": 103,
       "title": "HR Zone Breakdown",
       "type": "row"
