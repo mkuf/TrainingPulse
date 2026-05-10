@@ -5,10 +5,13 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 ## What It Does
 
 - **Syncs all activities** from your Strava account (full historical backfill + ongoing polling)
-- **Calculates Relative Effort (TRIMP)** from heart rate stream data
-- **Tracks Fitness, Fatigue, and Form** (CTL/ATL/TSB) — the same "Fitness & Freshness" chart that requires a Strava subscription
-- **Handles OAuth automatically** — authenticates once, never expires
-- **Respects Strava rate limits** — sleeps when approaching limits, resumes on restart
+- **Metadata & Notes**: Syncs activity names, descriptions, and sport types for rich filtering.
+- **Calculates Relative Effort (TRIMP)** from heart rate stream data.
+- **Power Analysis**: Tracks Power (Watts) and calculates **Best 20-minute Power** and **Estimated FTP**.
+- **Full Telemetry**: Persists raw streams for Heart Rate, Power, Cadence, Temperature, and Grade.
+- **Tracks Fitness, Fatigue, and Form** (CTL/ATL/TSB) — the same "Fitness & Freshness" chart that requires a Strava subscription.
+- **Handles OAuth automatically** — authenticates once, never expires.
+- **Respects Strava rate limits** — sleeps when approaching limits, resumes on restart.
 
 ## Metrics Explained
 
@@ -18,6 +21,8 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 | **CTL** | Fitness | 42-day exponential moving average of daily TRIMP |
 | **ATL** | Fatigue | 7-day exponential moving average of daily TRIMP |
 | **TSB** | Form | CTL − ATL. Positive = fresh, negative = fatigued |
+| **Best 20m** | — | Highest average power sustained for 20 continuous minutes |
+| **Est. FTP** | — | 95% of your best 20-minute power |
 
 ## Quick Start
 
@@ -89,6 +94,12 @@ Strava API → [strava-fitness app] → PostgreSQL → Grafana
 | `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password |
 | `POSTGRES_DB` | `strava_fitness` | PostgreSQL database name |
 | `APP_BASE_URL` | `http://localhost:8000` | Public URL of the app (for OAuth callback) |
-| `DEFAULT_MAX_HR` | `190` | Fallback max HR if Strava zones unavailable |
-| `DEFAULT_REST_HR` | `60` | Fallback resting HR |
+| `MAX_HR` | *(Strava)* | **Override** for Max HR. If set, ignores Strava zones. |
+| `REST_HR` | *(Strava)* | **Override** for Resting HR. |
+| `FTP` | *(Strava)* | **Override** for FTP. |
 | `SYNC_INTERVAL_MINUTES` | `15` | Polling interval |
+
+### Overriding Metrics
+By default, the app fetches your **Max HR** and **FTP** from your Strava profile. However, if you want to manually set these (e.g., if Strava's auto-detected Max HR is incorrect), you can set `MAX_HR`, `REST_HR`, or `FTP` in your `.env` file.
+
+**Note:** If you override `MAX_HR` or `REST_HR`, the app will ignore any custom heart rate zones from Strava and calculate consistent percentage-based zones instead.
