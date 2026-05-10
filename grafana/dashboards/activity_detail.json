@@ -19,6 +19,28 @@
   ],
   "panels": [
     {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 9 },
+      "id": 15,
+      "options": {
+        "content": "${description_var}",
+        "mode": "markdown"
+      },
+      "title": "Ride Notes",
+      "type": "text",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT description FROM activities WHERE id = ${activity_id}",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "id": 100,
@@ -506,8 +528,80 @@
       ]
     },
     {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 55 },
+      "id": 24,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "title": "Cadence",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  c.val::int AS \"Cadence\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'cadence') WITH ORDINALITY AS c(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'cadence'\n  AND t.idx = c.idx2\nORDER BY t.idx",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "color": { "mode": "fixed", "fixedColor": "#FF9830" },
+          "unit": "celsius",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 63 },
+      "id": 25,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "title": "Temperature",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  temp.val::float AS \"Temperature\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'temp') WITH ORDINALITY AS temp(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'temp'\n  AND t.idx = temp.idx2\nORDER BY t.idx",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 71 },
       "id": 103,
       "title": "HR Zone Breakdown",
       "type": "row"
@@ -546,7 +640,7 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 72 },
       "id": 30,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -604,7 +698,7 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 72 },
       "id": 31,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -625,7 +719,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 64 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 80 },
       "id": 104,
       "title": "Power Zone Breakdown",
       "type": "row"
@@ -651,7 +745,7 @@
           { "matcher": { "id": "byName", "options": "Zone 7" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#7057FF" } }] }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 65 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 81 },
       "id": 40,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -696,7 +790,7 @@
           { "matcher": { "id": "byName", "options": "Zone 7" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#7057FF" } }] }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 65 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 81 },
       "id": 41,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -745,6 +839,19 @@
         "refresh": 2,
         "regex": "",
         "sort": 0,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT description FROM activities WHERE id = ${activity_id}",
+        "hide": 2,
+        "includeAll": false,
+        "name": "description_var",
+        "query": "SELECT description FROM activities WHERE id = ${activity_id}",
+        "refresh": 2,
         "type": "query"
       }
     ]

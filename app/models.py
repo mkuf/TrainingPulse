@@ -61,6 +61,7 @@ class Activity(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     athlete_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sport_type: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     start_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True

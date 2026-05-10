@@ -120,6 +120,7 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
                 "id": a["id"],
                 "athlete_id": a["athlete"]["id"],
                 "name": a.get("name", ""),
+                "description": a.get("description"),
                 "sport_type": a.get("sport_type", a.get("type", "")),
                 "start_date": datetime.fromisoformat(
                     a["start_date"].replace("Z", "+00:00")
@@ -141,6 +142,7 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
         index_elements=["id"],
         set_={
             "name": stmt.excluded.name,
+            "description": stmt.excluded.description,
             "sport_type": stmt.excluded.sport_type,
             "average_heartrate": stmt.excluded.average_heartrate,
             "max_heartrate": stmt.excluded.max_heartrate,
