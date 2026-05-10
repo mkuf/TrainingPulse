@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
-async def scheduled_sync():
+async def trigger_sync_task(force_resync: bool = False):
     """Background task: sync activities from Strava."""
     async with async_session() as session:
-        await run_sync(session)
+        await run_sync(session, force_resync=force_resync)
 
 
 @asynccontextmanager
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 
     # Start the scheduler
     scheduler.add_job(
-        scheduled_sync,
+        trigger_sync_task,
         "interval",
         minutes=settings.SYNC_INTERVAL_MINUTES,
         id="strava_sync",
@@ -154,7 +154,7 @@ async def auth_callback(code: str | None = None, error: str | None = None):
     )
 
     # Trigger an immediate sync
-    asyncio.create_task(scheduled_sync())
+    asyncio.create_task(trigger_sync_task())
 
     return HTMLResponse(
         _page(
@@ -236,6 +236,14 @@ async def home():
             <tr><td>Streams processed</td><td>{processed_count}/{activity_count}</td></tr>
             {"<tr><td>Error</td><td class='error'>" + sync_state.last_error + "</td></tr>" if sync_state.last_error else ""}
         </table>
+        <div class="sync-actions">
+            <form action="/sync/trigger" method="post" style="display:inline;">
+                <button type="submit" class="btn" {"disabled" if sync_state.is_running else ""}>Sync Now</button>
+            </form>
+            <form action="/sync/full" method="post" style="display:inline;" onsubmit="return confirm('Full resync will re-fetch all data and may take a long time. Continue?');">
+                <button type="submit" class="btn btn-warning" {"disabled" if sync_state.is_running else ""}>Full Resync</button>
+            </form>
+        </div>
     </div>
     """
 
@@ -320,9 +328,18 @@ async def sync_status():
 async def trigger_sync():
     """Manually trigger a sync."""
     if sync_state.is_running:
-        return {"status": "already_running"}
-    asyncio.create_task(scheduled_sync())
-    return {"status": "started"}
+        return RedirectResponse("/", status_code=303)
+    asyncio.create_task(trigger_sync_task())
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/sync/full")
+async def full_resync():
+    """Manually trigger a full historical resync."""
+    if sync_state.is_running:
+        return RedirectResponse("/", status_code=303)
+    asyncio.create_task(trigger_sync_task(force_resync=True))
+    return RedirectResponse("/", status_code=303)
 
 
 # ── HTML template ───────────────────────────────────────────────────
@@ -384,6 +401,10 @@ def _page(title: str, body: str) -> str:
         .btn-strava:hover {{ background: #e04400; }}
         .btn {{ background: #333; color: #fff; }}
         .btn:hover {{ background: #444; }}
+        .btn-warning {{ background: #ff9800; color: #000; }}
+        .btn-warning:hover {{ background: #f57c00; }}
+        .btn[disabled] {{ opacity: 0.5; cursor: not-allowed; }}
+        .sync-actions {{ margin-top: 1.5rem; display: flex; gap: 0.5rem; }}
         .error {{ color: #ef5350; }}
         .metrics-grid {{
             display: grid;

@@ -291,7 +291,7 @@ async def _process_activity_streams(
         await session.commit()
 
 
-async def run_sync(session: AsyncSession):
+async def run_sync(session: AsyncSession, force_resync: bool = False):
     """Main sync entry point. Handles both backfill and incremental sync."""
     if sync_state.is_running:
         logger.info("Sync already in progress, skipping")
@@ -313,6 +313,10 @@ async def run_sync(session: AsyncSession):
 
         athlete_id = token.athlete_id
 
+        if force_resync:
+            logger.info("Forcing full resync for athlete %d", athlete_id)
+            await force_full_resync(session, athlete_id)
+
         # Fetch/update athlete settings (HR/Power zones)
         athlete_settings = await fetch_and_store_athlete_settings(
             client, session, athlete_id
@@ -332,7 +336,7 @@ async def run_sync(session: AsyncSession):
         )
         existing_count = count_result.scalar_one()
 
-        if existing_count == 0:
+        if existing_count == 0 or force_resync:
             # Full backfill
             await _backfill(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
         else:
@@ -559,3 +563,20 @@ async def _backfill_power_curves(session: AsyncSession, athlete_id: int):
 
     await session.commit()
     logger.info("Power curve backfill complete")
+
+async def force_full_resync(session: AsyncSession, athlete_id: int):
+    """Mark all activities for re-sync and clear calculated metrics."""
+    logger.info("Resetting sync state for all activities of athlete %d", athlete_id)
+    await session.execute(
+        update(Activity)
+        .where(Activity.athlete_id == athlete_id)
+        .values(
+            synced_streams=False,
+            trimp=None,
+            hr_zone_seconds=None,
+            power_zone_seconds=None,
+            best_20min_power=None,
+            power_curve=None,
+        )
+    )
+    await session.commit()
