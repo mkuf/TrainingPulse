@@ -20,7 +20,7 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 ## Dashboards
 
 ### Status
-![Status](screenshots/status.png)
+<img src="screenshots/status.png" width="500" alt="Strava Fitness Tracker Logo">
 
 ### Grafana
 #### Fitness & Freshness
