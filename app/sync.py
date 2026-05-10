@@ -43,44 +43,65 @@ sync_state = SyncState()
 async def fetch_and_store_athlete_settings(
     client: StravaClient, session: AsyncSession, athlete_id: int
 ) -> AthleteSettings:
-    """Fetch HR zones from Strava and store them in the database."""
+    """Fetch HR zones/FTP from Strava and store them, allowing for environment overrides."""
+    # Priority 1: Environment Overrides
+    max_hr = settings.MAX_HR
+    rest_hr = settings.REST_HR
+    ftp = settings.FTP
+
     hr_zones = None
-    max_hr = settings.DEFAULT_MAX_HR
-    rest_hr = settings.DEFAULT_REST_HR
+    strava_max_hr = None
+    strava_ftp = None
 
     try:
+        # Fetch from Strava to get custom zones and profile data
         zones_data = await client.get_athlete_zones()
-        # zones_data has "heart_rate" key with "zones" list and
-        # optionally "custom_zones" boolean
         if "heart_rate" in zones_data:
             hr_data = zones_data["heart_rate"]
             hr_zones = hr_data.get("zones")
             if hr_zones:
-                # Infer max HR from the last zone's max value
                 last_zone = hr_zones[-1]
                 if last_zone.get("max", 0) > 0:
-                    max_hr = last_zone["max"]
+                    strava_max_hr = last_zone["max"]
                 elif len(hr_zones) >= 2:
-                    # Sometimes the last zone has max=-1, use the previous zone
-                    max_hr = hr_zones[-2].get("max", max_hr)
-                logger.info(
-                    "Fetched HR zones from Strava: %d zones, max_hr=%d",
-                    len(hr_zones),
-                    max_hr,
-                )
-        
-        # Also fetch FTP if available
-        ftp = 200
+                    strava_max_hr = hr_zones[-2].get("max")
+
         try:
             athlete_data = await client.get_athlete()
-            ftp = athlete_data.get("ftp") or 200
-            logger.info("Fetched athlete FTP from Strava: %d", ftp)
+            strava_ftp = athlete_data.get("ftp")
         except Exception:
             pass
-            
+
     except Exception as e:
-        logger.warning("Could not fetch HR zones/FTP from Strava: %s. Using defaults.", e)
-        ftp = 200
+        logger.warning("Could not fetch athlete data from Strava: %s", e)
+
+    # Resolution logic: Env > Strava > Fallback
+    is_hr_overridden = False
+
+    if max_hr is not None:
+        logger.info("Using MAX_HR from environment: %d", max_hr)
+        is_hr_overridden = True
+    else:
+        max_hr = strava_max_hr or settings.FALLBACK_MAX_HR
+        logger.info("Using MAX_HR: %d (%s)", max_hr, "Strava" if strava_max_hr else "Fallback")
+
+    if rest_hr is not None:
+        logger.info("Using REST_HR from environment: %d", rest_hr)
+        is_hr_overridden = True
+    else:
+        rest_hr = settings.FALLBACK_REST_HR
+        logger.info("Using REST_HR: %d (Fallback)", rest_hr)
+
+    if ftp is not None:
+        logger.info("Using FTP from environment: %d", ftp)
+    else:
+        ftp = strava_ftp or settings.FALLBACK_FTP
+        logger.info("Using FTP: %d (%s)", ftp, "Strava" if strava_ftp else "Fallback")
+
+    # Zone Consistency: If HR is overridden, ignore Strava custom zones to force recalculation
+    if is_hr_overridden and hr_zones is not None:
+        logger.info("HR overridden in environment; ignoring Strava custom zones for consistency.")
+        hr_zones = None
 
     # Upsert athlete settings
     stmt = pg_insert(AthleteSettings).values(

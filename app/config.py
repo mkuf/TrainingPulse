@@ -16,9 +16,23 @@ class Settings:
 
     APP_BASE_URL: str = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 
-    # Default heart rate values (used if Strava zones are unavailable)
-    DEFAULT_MAX_HR: int = int(os.environ.get("DEFAULT_MAX_HR", "190"))
-    DEFAULT_REST_HR: int = int(os.environ.get("DEFAULT_REST_HR", "60"))
+    # Heart rate and power settings
+    # These will overwrite Strava values if set in the environment.
+    # We use None as default to detect if they were NOT set in the environment.
+    MAX_HR: int | None = (
+        int(os.environ["MAX_HR"]) if "MAX_HR" in os.environ else
+        int(os.environ["DEFAULT_MAX_HR"]) if "DEFAULT_MAX_HR" in os.environ else None
+    )
+    REST_HR: int | None = (
+        int(os.environ["REST_HR"]) if "REST_HR" in os.environ else
+        int(os.environ["DEFAULT_REST_HR"]) if "DEFAULT_REST_HR" in os.environ else None
+    )
+    FTP: int | None = int(os.environ["FTP"]) if "FTP" in os.environ else None
+
+    # Fallbacks if everything else fails (Strava API unavailable and not set in env)
+    FALLBACK_MAX_HR: int = 190
+    FALLBACK_REST_HR: int = 60
+    FALLBACK_FTP: int = 200
 
     # How often to poll Strava for new activities (minutes)
     SYNC_INTERVAL_MINUTES: int = int(os.environ.get("SYNC_INTERVAL_MINUTES", "15"))

@@ -26,6 +26,9 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
       DEFAULT_MAX_HR: ${DEFAULT_MAX_HR:-190}
       DEFAULT_REST_HR: ${DEFAULT_REST_HR:-60}
+      MAX_HR: ${MAX_HR}
+      REST_HR: ${REST_HR}
+      FTP: ${FTP}
       SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
     depends_on:
       db:
