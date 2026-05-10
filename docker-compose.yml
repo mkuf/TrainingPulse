@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-strava}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-strava_fitness}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-strava} -d ${POSTGRES_DB:-strava_fitness}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: ./app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-strava}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-strava_fitness}
+      STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID}
+      STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
+      DEFAULT_MAX_HR: ${DEFAULT_MAX_HR:-190}
+      DEFAULT_REST_HR: ${DEFAULT_REST_HR:-60}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

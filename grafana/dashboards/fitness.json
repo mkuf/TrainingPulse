@@ -1,0 +1,519 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "enable": true,
+        "iconColor": "#FC4C02",
+        "name": "Activities",
+        "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date",
+        "target": {
+          "refId": "Anno"
+        }
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Current Status",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#73BF69" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#F2495C", "value": null },
+              { "color": "#F2495C", "value": -25 },
+              { "color": "#FF9830", "value": -10 },
+              { "color": "#FADE2A", "value": 0 },
+              { "color": "#73BF69", "value": 5 },
+              { "color": "#56A64B", "value": 15 }
+            ]
+          },
+          "mappings": [],
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "title": "Fitness (CTL)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT date AS time, ctl AS \"Fitness\" FROM daily_metrics WHERE $__timeFilter(date) ORDER BY date",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#F2495C" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#73BF69", "value": null },
+              { "color": "#FADE2A", "value": 30 },
+              { "color": "#FF9830", "value": 60 },
+              { "color": "#F2495C", "value": 80 }
+            ]
+          },
+          "mappings": [],
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
+      "id": 2,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "title": "Fatigue (ATL)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT date AS time, atl AS \"Fatigue\" FROM daily_metrics WHERE $__timeFilter(date) ORDER BY date",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#F2495C", "value": null },
+              { "color": "#F2495C", "value": -25 },
+              { "color": "#FF9830", "value": -10 },
+              { "color": "#FADE2A", "value": 0 },
+              { "color": "#73BF69", "value": 5 },
+              { "color": "#56A64B", "value": 15 }
+            ]
+          },
+          "mappings": [
+            { "type": "range", "options": { "from": -100, "to": -25, "result": { "text": "Overreaching", "index": 0 } } },
+            { "type": "range", "options": { "from": -25, "to": -10, "result": { "text": "Training Hard", "index": 1 } } },
+            { "type": "range", "options": { "from": -10, "to": 5, "result": { "text": "Neutral", "index": 2 } } },
+            { "type": "range", "options": { "from": 5, "to": 15, "result": { "text": "Rested", "index": 3 } } },
+            { "type": "range", "options": { "from": 15, "to": 100, "result": { "text": "Race Ready", "index": 4 } } }
+          ],
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+      "id": 3,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["lastNotNull"],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "title": "Form (TSB)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT date AS time, tsb AS \"Form\" FROM daily_metrics WHERE $__timeFilter(date) ORDER BY date",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "id": 101,
+      "title": "Performance Management Chart",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Fitness (CTL)" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#73BF69" } },
+              { "id": "custom.lineWidth", "value": 3 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Fatigue (ATL)" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#F2495C" } },
+              { "id": "custom.lineWidth", "value": 2 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Form (TSB)" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#5794F2" } },
+              { "id": "custom.fillOpacity", "value": 15 },
+              { "id": "custom.lineWidth", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "id": 4,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min", "max"] }
+      },
+      "title": "Fitness & Freshness",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  date AS time,\n  ctl AS \"Fitness (CTL)\",\n  atl AS \"Fatigue (ATL)\",\n  tsb AS \"Form (TSB)\"\nFROM daily_metrics\nWHERE $__timeFilter(date)\nORDER BY date",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "id": 102,
+      "title": "Training Load",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "stacking": { "mode": "normal" }
+          },
+          "color": { "mode": "palette-classic" },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
+      "id": 5,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "title": "Weekly Training Load by Sport",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  date_trunc('week', start_date)::date AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1, 2\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 60,
+            "lineWidth": 1
+          },
+          "color": { "mode": "fixed", "fixedColor": "#FC4C02" },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
+      "id": 6,
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "hidden" }
+      },
+      "title": "Daily Training Load (TRIMP)",
+      "type": "barchart",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  date AS time,\n  daily_trimp AS \"TRIMP\"\nFROM daily_metrics\nWHERE $__timeFilter(date)\n  AND daily_trimp > 0\nORDER BY date",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "id": 103,
+      "title": "Activity Details",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "filterable": true }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "TRIMP" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "transparent", "value": null },
+                    { "color": "#FADE2A33", "value": 50 },
+                    { "color": "#FF983033", "value": 100 },
+                    { "color": "#F2495C33", "value": 200 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Duration" },
+            "properties": [{ "id": "unit", "value": "s" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Distance" },
+            "properties": [{ "id": "unit", "value": "lengthm" }, { "id": "decimals", "value": 0 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+      "id": 7,
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Date" }]
+      },
+      "title": "Recent Activities",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  suffer_score AS \"Strava RE\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 46 },
+      "id": 8,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["sum"],
+          "fields": ""
+        },
+        "pieType": "donut",
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] }
+      },
+      "title": "TRIMP by Sport Type",
+      "type": "piechart",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 46 },
+      "id": 9,
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["sum"],
+          "fields": ""
+        },
+        "pieType": "donut",
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] }
+      },
+      "title": "Activity Count by Sport Type",
+      "type": "piechart",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  sport_type AS metric,\n  COUNT(*) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["strava", "fitness", "training"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "name": "DS_POSTGRESQL",
+        "label": "PostgreSQL",
+        "query": "grafana-postgresql-datasource",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6M",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5m", "15m", "30m", "1h"],
+    "time_options": ["7d", "30d", "90d", "6M", "1y", "2y"]
+  },
+  "timezone": "browser",
+  "title": "Strava Fitness & Freshness",
+  "uid": "strava-fitness",
+  "version": 1
+}
