@@ -54,7 +54,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 1 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
       "id": 1,
       "options": {
         "reduceOptions": {
@@ -106,7 +106,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
       "id": 2,
       "options": {
         "reduceOptions": {
@@ -166,7 +166,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 1 },
       "id": 3,
       "options": {
         "reduceOptions": {
@@ -191,6 +191,46 @@
           },
           "rawSql": "SELECT date AS time, tsb AS \"Form\" FROM daily_metrics WHERE $__timeFilter(date) ORDER BY date",
           "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#FADE2A" },
+          "unit": "watt",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Estimated FTP" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8EE5E5" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 1 },
+      "id": 11,
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "title": "Athlete FTP",
+      "description": "Left: Current FTP from Strava settings. Right: Estimated FTP based on 95% of your best 20-minute power.",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT ftp AS \"Current FTP\", estimated_ftp AS \"Estimated FTP\" FROM athlete_settings LIMIT 1",
+          "format": "table",
           "refId": "A"
         }
       ]

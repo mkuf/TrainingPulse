@@ -11,6 +11,7 @@ from config import settings
 from metrics import (
     calculate_trimp_from_streams,
     calculate_power_zones,
+    calculate_best_interval,
     estimate_trimp_without_hr,
     get_hr_zone_boundaries,
     get_power_zone_boundaries,
@@ -129,6 +130,8 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
                 "average_heartrate": a.get("average_heartrate"),
                 "max_heartrate": a.get("max_heartrate"),
                 "has_heartrate": a.get("has_heartrate", False),
+                "average_watts": a.get("average_watts"),
+                "max_watts": a.get("max_watts"),
                 "suffer_score": a.get("suffer_score"),
             }
         )
@@ -142,6 +145,8 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
             "average_heartrate": stmt.excluded.average_heartrate,
             "max_heartrate": stmt.excluded.max_heartrate,
             "has_heartrate": stmt.excluded.has_heartrate,
+            "average_watts": stmt.excluded.average_watts,
+            "max_watts": stmt.excluded.max_watts,
             "suffer_score": stmt.excluded.suffer_score,
         },
     )
@@ -219,10 +224,13 @@ async def _process_activity_streams(
                 activity.sport_type, activity.moving_time
             )
 
+        best_20min = None
         if time_stream and power_stream and len(time_stream) == len(power_stream):
             power_zones = calculate_power_zones(
                 time_stream, power_stream, power_zone_boundaries
             )
+            # Calculate best 20 minute power
+            best_20min = calculate_best_interval(power_stream, 1200)
         else:
             power_zones = None
 
@@ -233,6 +241,7 @@ async def _process_activity_streams(
                 trimp=trimp,
                 hr_zone_seconds=hr_zones,
                 power_zone_seconds=power_zones,
+                best_20min_power=best_20min,
                 synced_streams=True,
             )
         )
@@ -305,6 +314,9 @@ async def run_sync(session: AsyncSession):
 
         # Process any activities that don't have streams yet
         await _process_pending_streams(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
+
+        # Recalculate estimated FTP
+        await _recalculate_estimated_ftp(session, token.athlete_id)
 
         # Recalculate daily metrics
         sync_state.phase = "calculating"
@@ -459,3 +471,28 @@ async def _process_pending_streams(
             raise
 
     logger.info("All pending streams processed")
+
+
+async def _recalculate_estimated_ftp(session: AsyncSession, athlete_id: int):
+    """Estimate FTP based on 95% of the best 20-minute power across all activities."""
+    result = await session.execute(
+        select(func.max(Activity.best_20min_power)).where(
+            Activity.athlete_id == athlete_id
+        )
+    )
+    best_20min = result.scalar_one_or_none()
+
+    if best_20min:
+        estimated_ftp = int(best_20min * 0.95)
+        logger.info(
+            "Recalculated estimated FTP: %d W (based on best 20min power of %.1f W)",
+            estimated_ftp,
+            best_20min,
+        )
+
+        await session.execute(
+            update(AthleteSettings)
+            .where(AthleteSettings.athlete_id == athlete_id)
+            .values(estimated_ftp=estimated_ftp)
+        )
+        await session.commit()

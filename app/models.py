@@ -47,6 +47,7 @@ class AthleteSettings(Base):
     rest_hr: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     hr_zones: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ftp: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
+    estimated_ftp: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -70,10 +71,13 @@ class Activity(Base):
     average_heartrate: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_heartrate: Mapped[float | None] = mapped_column(Float, nullable=True)
     has_heartrate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
     suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     trimp: Mapped[float | None] = mapped_column(Float, nullable=True)
     hr_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     power_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    best_20min_power: Mapped[float | None] = mapped_column(Float, nullable=True)
     synced_streams: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )

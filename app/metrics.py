@@ -127,6 +127,22 @@ def get_power_zone_boundaries(ftp: int) -> list[tuple[float, float]]:
     ]
 
 
+def calculate_best_interval(power_stream: list[int], window_seconds: int) -> float | None:
+    """Find the highest average power for a given duration (seconds)."""
+    if not power_stream or len(power_stream) < window_seconds:
+        return None
+
+    current_sum = sum(power_stream[:window_seconds])
+    max_sum = current_sum
+
+    for i in range(len(power_stream) - window_seconds):
+        current_sum = current_sum - power_stream[i] + power_stream[i + window_seconds]
+        if current_sum > max_sum:
+            max_sum = current_sum
+
+    return max_sum / window_seconds
+
+
 def calculate_power_zones(
     time_data: list[int],
     power_data: list[int],
@@ -150,7 +166,7 @@ def calculate_power_zones(
             if power < high:
                 zone = z_idx + 1
                 break
-        
+
         zone_seconds[f"zone_{zone}"] += dt
 
     return zone_seconds
