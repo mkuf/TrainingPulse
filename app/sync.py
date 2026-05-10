@@ -155,6 +155,7 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
                 "has_heartrate": a.get("has_heartrate", False),
                 "average_watts": a.get("average_watts"),
                 "max_watts": a.get("max_watts"),
+                "average_speed": a.get("average_speed"),
                 "suffer_score": a.get("suffer_score"),
             }
         )
@@ -171,6 +172,7 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
             "has_heartrate": stmt.excluded.has_heartrate,
             "average_watts": stmt.excluded.average_watts,
             "max_watts": stmt.excluded.max_watts,
+            "average_speed": stmt.excluded.average_speed,
             "suffer_score": stmt.excluded.suffer_score,
         },
     )

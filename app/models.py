@@ -74,6 +74,7 @@ class Activity(Base):
     has_heartrate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    average_speed: Mapped[float | None] = mapped_column(Float, nullable=True)
     suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     trimp: Mapped[float | None] = mapped_column(Float, nullable=True)
     hr_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

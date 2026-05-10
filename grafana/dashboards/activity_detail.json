@@ -23,7 +23,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 9 },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
       "id": 15,
       "options": {
         "content": "${description_var}",
@@ -122,13 +122,47 @@
       },
       "fieldConfig": {
         "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#B7DBAB" },
+          "unit": "velocitykmh",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 8,
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "title": "Avg Speed",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT average_speed * 3.6 AS \"Avg Speed\" FROM activities WHERE id = ${activity_id} AND average_speed IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
           "color": { "mode": "fixed", "fixedColor": "#F2495C" },
           "unit": "none",
           "decimals": 0
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 5 },
       "id": 3,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -162,7 +196,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 5 },
       "id": 4,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -196,7 +230,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 5 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 5 },
       "id": 5,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -230,7 +264,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 5 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
       "id": 6,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -264,7 +298,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 5 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
       "id": 7,
       "options": {
         "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
@@ -287,7 +321,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
       "id": 101,
       "title": "Route Map",
       "type": "row"
@@ -301,7 +335,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 16, "w": 24, "x": 0, "y": 10 },
+      "gridPos": { "h": 16, "w": 24, "x": 0, "y": 14 },
       "id": 10,
       "options": {
         "view": {
