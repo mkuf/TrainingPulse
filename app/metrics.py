@@ -127,6 +127,25 @@ def get_power_zone_boundaries(ftp: int) -> list[tuple[float, float]]:
     ]
 
 
+# Standard durations for the power curve (in seconds)
+POWER_CURVE_DURATIONS = [
+    1,
+    2,
+    5,
+    10,
+    15,
+    30,
+    60,  # 1m
+    120,  # 2m
+    300,  # 5m
+    600,  # 10m
+    1200,  # 20m
+    1800,  # 30m
+    3600,  # 1h
+    7200,  # 2h
+]
+
+
 def calculate_best_interval(power_stream: list[int], window_seconds: int) -> float | None:
     """Find the highest average power for a given duration (seconds)."""
     if not power_stream or len(power_stream) < window_seconds:
@@ -170,6 +189,16 @@ def calculate_power_zones(
         zone_seconds[f"zone_{zone}"] += dt
 
     return zone_seconds
+
+
+def calculate_power_curve(power_stream: list[int]) -> dict[str, float]:
+    """Calculate best average power for standard durations."""
+    curve = {}
+    for duration in POWER_CURVE_DURATIONS:
+        best = calculate_best_interval(power_stream, duration)
+        if best is not None:
+            curve[str(duration)] = round(best, 1)
+    return curve
 
 
 def estimate_trimp_without_hr(sport_type: str, moving_time_seconds: int) -> float:

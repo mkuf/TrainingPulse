@@ -12,6 +12,7 @@ from metrics import (
     calculate_trimp_from_streams,
     calculate_power_zones,
     calculate_best_interval,
+    calculate_power_curve,
     estimate_trimp_without_hr,
     get_hr_zone_boundaries,
     get_power_zone_boundaries,
@@ -248,12 +249,14 @@ async def _process_activity_streams(
             )
 
         best_20min = None
+        power_curve = None
         if time_stream and power_stream and len(time_stream) == len(power_stream):
             power_zones = calculate_power_zones(
                 time_stream, power_stream, power_zone_boundaries
             )
-            # Calculate best 20 minute power
+            # Calculate best 20 minute power and full power curve
             best_20min = calculate_best_interval(power_stream, 1200)
+            power_curve = calculate_power_curve(power_stream)
         else:
             power_zones = None
 
@@ -265,6 +268,7 @@ async def _process_activity_streams(
                 hr_zone_seconds=hr_zones,
                 power_zone_seconds=power_zones,
                 best_20min_power=best_20min,
+                power_curve=power_curve,
                 synced_streams=True,
             )
         )
@@ -340,6 +344,9 @@ async def run_sync(session: AsyncSession):
 
         # Recalculate estimated FTP
         await _recalculate_estimated_ftp(session, token.athlete_id)
+
+        # Backfill power curves for activities that have streams but no curve
+        await _backfill_power_curves(session, athlete_id)
 
         # Recalculate daily metrics
         sync_state.phase = "calculating"
@@ -519,3 +526,36 @@ async def _recalculate_estimated_ftp(session: AsyncSession, athlete_id: int):
             .values(estimated_ftp=estimated_ftp)
         )
         await session.commit()
+
+
+async def _backfill_power_curves(session: AsyncSession, athlete_id: int):
+    """Calculate power curves for activities that have streams but are missing the curve data."""
+    # Find activities that have watts stream in ActivityStream but power_curve is null in Activity
+    result = await session.execute(
+        select(Activity, ActivityStream.data)
+        .join(ActivityStream, Activity.id == ActivityStream.activity_id)
+        .where(
+            Activity.athlete_id == athlete_id,
+            Activity.power_curve == None,  # noqa: E711
+        )
+    )
+    to_process = result.all()
+
+    if not to_process:
+        return
+
+    logger.info("Backfilling power curves for %d activities...", len(to_process))
+
+    for activity, stream_data in to_process:
+        power_stream = stream_data.get("watts")
+        if power_stream:
+            curve = calculate_power_curve(power_stream)
+            if curve:
+                await session.execute(
+                    update(Activity)
+                    .where(Activity.id == activity.id)
+                    .values(power_curve=curve)
+                )
+
+    await session.commit()
+    logger.info("Power curve backfill complete")

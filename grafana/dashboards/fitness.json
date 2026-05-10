@@ -394,6 +394,65 @@
     {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "id": 105,
+      "title": "Power Analysis",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#FC4C02" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 3,
+            "pointSize": 5,
+            "showPoints": "always"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max_watts" },
+            "properties": [
+              { "id": "unit", "value": "watt" },
+              { "id": "displayName", "value": "Peak Power" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "duration_sec" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              { "id": "displayName", "value": "Duration" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+      "id": 12,
+      "options": {
+        "xField": "duration_sec",
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "title": "Power Duration Curve (All-Time)",
+      "description": "Peak power sustained across different time intervals. X-axis shows duration intervals.",
+      "type": "trend",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "rawSql": "SELECT\n  duration::int as duration_sec,\n  MAX(power::float) as max_watts\nFROM activities,\nLATERAL jsonb_each_text(power_curve) AS pc(duration, power)\nWHERE power_curve IS NOT NULL\nGROUP BY duration_sec\nORDER BY duration_sec",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
       "id": 103,
       "title": "Activity Details",
       "type": "row"
@@ -403,7 +462,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 47 },
       "id": 7,
       "options": {
         "showHeader": true,
@@ -491,7 +550,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 46 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
       "id": 8,
       "options": {
         "reduceOptions": {
@@ -531,7 +590,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 46 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 57 },
       "id": 9,
       "options": {
         "reduceOptions": {
@@ -559,13 +618,13 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 65 },
       "id": 104,
       "title": "Reference Guide",
       "type": "row"
     },
     {
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 55 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 66 },
       "id": 10,
       "options": {
         "content": "### 🏃 Fitness (CTL) - Long Term (42 days)\n*   **0-40:** Low / Beginner\n*   **40-70:** Intermediate / Regular\n*   **70-110:** Advanced / High Volume\n*   **110+:** Elite / Professional\n*   **Ramp Rate:** Aim for +3 to +6 points per week. >10 is the \"Danger Zone\".\n\n### ⚖️ Form (TSB) - Freshness (CTL - ATL)\n*   **+5 to +25:** **Fresh (Peak Zone)** - Ideal for racing/hard efforts.\n*   **-10 to +5:** **Neutral** - Maintenance/Transition.\n*   **-10 to -30:** **Productive Overload** - Optimal training zone.\n*   **Below -30:** **Danger Zone** - High risk of injury/burnout.\n\n### 🔋 Fatigue (ATL) - Short Term (7 days)\nRepresents your current tiredness. Should be higher than CTL during build phases and lower during recovery/tapering.",

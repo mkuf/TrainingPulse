@@ -79,6 +79,7 @@ class Activity(Base):
     hr_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     power_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     best_20min_power: Mapped[float | None] = mapped_column(Float, nullable=True)
+    power_curve: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     synced_streams: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
