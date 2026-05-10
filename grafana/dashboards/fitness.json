@@ -69,6 +69,7 @@
         "justifyMode": "auto"
       },
       "title": "Fitness (CTL)",
+      "description": "Chronic Training Load (42-day avg). Represents long-term fitness.\n- 0-40: Low\n- 40-70: Intermediate\n- 70-110: Advanced\n- 110+: Elite",
       "type": "stat",
       "targets": [
         {
@@ -120,6 +121,7 @@
         "justifyMode": "auto"
       },
       "title": "Fatigue (ATL)",
+      "description": "Acute Training Load (7-day avg). Represents short-term fatigue.\nShould be higher than CTL during build blocks and lower during recovery.",
       "type": "stat",
       "targets": [
         {
@@ -179,6 +181,7 @@
         "justifyMode": "auto"
       },
       "title": "Form (TSB)",
+      "description": "Training Stress Balance (CTL - ATL). Represents freshness.\n- +5 to +25: Fresh (Peak)\n- -10 to +5: Neutral\n- -30 to -10: Productive Overload\n- Below -30: Danger Zone",
       "type": "stat",
       "targets": [
         {
@@ -314,8 +317,13 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "fillOpacity": 60,
-            "lineWidth": 1
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": false,
+            "barAlignment": 0
           },
           "color": { "mode": "fixed", "fixedColor": "#FC4C02" },
           "unit": "none",
@@ -326,18 +334,18 @@
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
       "id": 6,
       "options": {
-        "tooltip": { "mode": "single" },
-        "legend": { "displayMode": "hidden" }
+        "tooltip": { "mode": "single", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] }
       },
       "title": "Daily Training Load (TRIMP)",
-      "type": "barchart",
+      "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  date AS time,\n  daily_trimp AS \"TRIMP\"\nFROM daily_metrics\nWHERE $__timeFilter(date)\n  AND daily_trimp > 0\nORDER BY date",
+          "rawSql": "SELECT\n  date AS time,\n  daily_trimp AS \"TRIMP\"\nFROM daily_metrics\nWHERE $__timeFilter(date)\nORDER BY date",
           "format": "time_series",
           "refId": "A"
         }
@@ -447,7 +455,7 @@
       "id": 8,
       "options": {
         "reduceOptions": {
-          "values": false,
+          "values": true,
           "calcs": ["sum"],
           "fields": ""
         },
@@ -487,7 +495,7 @@
       "id": 9,
       "options": {
         "reduceOptions": {
-          "values": false,
+          "values": true,
           "calcs": ["sum"],
           "fields": ""
         },
@@ -508,6 +516,23 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 },
+      "id": 104,
+      "title": "Reference Guide",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 55 },
+      "id": 10,
+      "options": {
+        "content": "### 🏃 Fitness (CTL) - Long Term (42 days)\n*   **0-40:** Low / Beginner\n*   **40-70:** Intermediate / Regular\n*   **70-110:** Advanced / High Volume\n*   **110+:** Elite / Professional\n*   **Ramp Rate:** Aim for +3 to +6 points per week. >10 is the \"Danger Zone\".\n\n### ⚖️ Form (TSB) - Freshness (CTL - ATL)\n*   **+5 to +25:** **Fresh (Peak Zone)** - Ideal for racing/hard efforts.\n*   **-10 to +5:** **Neutral** - Maintenance/Transition.\n*   **-10 to -30:** **Productive Overload** - Optimal training zone.\n*   **Below -30:** **Danger Zone** - High risk of injury/burnout.\n\n### 🔋 Fatigue (ATL) - Short Term (7 days)\nRepresents your current tiredness. Should be higher than CTL during build phases and lower during recovery/tapering.",
+        "mode": "markdown"
+      },
+      "title": "Training Load Reference Values",
+      "type": "text"
     }
   ],
   "schemaVersion": 39,
