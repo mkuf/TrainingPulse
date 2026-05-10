@@ -162,7 +162,9 @@ class StravaClient:
         return await self._request("GET", "/athlete/activities", params=params)
 
     async def get_activity_streams(
-        self, activity_id: int, keys: str = "time,heartrate"
+        self,
+        activity_id: int,
+        keys: str = "time,latlng,distance,altitude,heartrate,cadence,watts,velocity_smooth,grade_smooth",
     ) -> dict:
         """Get stream data for an activity."""
         params = {"keys": keys, "key_by_type": "true"}

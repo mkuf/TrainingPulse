@@ -80,6 +80,38 @@ class Activity(Base):
     )
 
 
+class ActivityStream(Base):
+    """Raw telemetry streams for an activity (GPS, HR, power, etc.).
+
+    The 'data' column stores a JSONB object keyed by stream type, e.g.:
+    {
+        "time": [0, 1, 2, ...],
+        "latlng": [[lat, lng], ...],
+        "heartrate": [120, 121, ...],
+        "altitude": [100.0, 100.5, ...],
+        "velocity_smooth": [3.2, 3.3, ...],
+        "watts": [200, 210, ...],
+        "cadence": [80, 82, ...],
+        "distance": [0, 3.5, 7.1, ...],
+        "grade_smooth": [0.0, 1.2, ...]
+    }
+    """
+
+    __tablename__ = "activity_streams"
+
+    activity_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=False
+    )
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    stream_types: Mapped[str] = mapped_column(
+        String(500), nullable=False, default=""
+    )
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class DailyMetrics(Base):
     """Daily aggregated training metrics (CTL, ATL, TSB)."""
 

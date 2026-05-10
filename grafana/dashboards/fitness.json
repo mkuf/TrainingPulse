@@ -355,11 +355,51 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+      "id": 7,
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Date" }]
+      },
+      "title": "Recent Activities",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  id AS \"ID\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  suffer_score AS \"Strava RE\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "custom": { "filterable": true }
         },
         "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "ID" },
+            "properties": [
+              { "id": "custom.hidden", "value": true }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Activity" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View Activity Detail",
+                    "url": "/d/strava-activity-detail?var-activity_id=${__data.fields.ID}",
+                    "targetBlank": false
+                  }
+                ]
+              }
+            ]
+          },
           {
             "matcher": { "id": "byName", "options": "TRIMP" },
             "properties": [
@@ -387,26 +427,7 @@
             "properties": [{ "id": "unit", "value": "lengthm" }, { "id": "decimals", "value": 0 }]
           }
         ]
-      },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
-      "id": 7,
-      "options": {
-        "showHeader": true,
-        "sortBy": [{ "desc": true, "displayName": "Date" }]
-      },
-      "title": "Recent Activities",
-      "type": "table",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_POSTGRESQL}"
-          },
-          "rawSql": "SELECT\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  suffer_score AS \"Strava RE\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
-          "format": "table",
-          "refId": "A"
-        }
-      ]
+      }
     },
     {
       "datasource": {

@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from config import settings
 from database import async_session, engine
-from models import Activity, Base, DailyMetrics, StravaToken
+from models import Activity, ActivityStream, Base, DailyMetrics, StravaToken
 from sync import run_sync, sync_state
 
 logging.basicConfig(

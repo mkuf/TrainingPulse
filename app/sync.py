@@ -14,7 +14,7 @@ from metrics import (
     get_hr_zone_boundaries,
     recalculate_daily_metrics,
 )
-from models import Activity, AthleteSettings, StravaToken
+from models import Activity, ActivityStream, AthleteSettings, StravaToken
 from strava_client import RateLimitExceeded, StravaClient
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ async def _process_activity_streams(
     activity: Activity,
     zone_boundaries: list[tuple[float, float]],
 ):
-    """Fetch HR stream data for an activity and calculate TRIMP."""
+    """Fetch all stream data for an activity, store it, and calculate TRIMP."""
     if not activity.has_heartrate:
         # Estimate TRIMP from duration and sport type
         trimp = estimate_trimp_without_hr(activity.sport_type, activity.moving_time)
@@ -156,6 +156,35 @@ async def _process_activity_streams(
     try:
         streams = await client.get_activity_streams(activity.id)
 
+        # Store all raw stream data for later visualization
+        if streams:
+            stream_data = {}
+            stream_types = []
+            sample_count = 0
+            for key, value in streams.items():
+                if isinstance(value, dict) and "data" in value:
+                    stream_data[key] = value["data"]
+                    stream_types.append(key)
+                    sample_count = max(sample_count, len(value["data"]))
+
+            if stream_data:
+                stream_stmt = pg_insert(ActivityStream).values(
+                    activity_id=activity.id,
+                    data=stream_data,
+                    stream_types=",".join(stream_types),
+                    sample_count=sample_count,
+                )
+                stream_stmt = stream_stmt.on_conflict_do_update(
+                    index_elements=["activity_id"],
+                    set_={
+                        "data": stream_stmt.excluded.data,
+                        "stream_types": stream_stmt.excluded.stream_types,
+                        "sample_count": stream_stmt.excluded.sample_count,
+                    },
+                )
+                await session.execute(stream_stmt)
+
+        # Calculate TRIMP from HR stream
         time_stream = streams.get("time", {}).get("data", [])
         hr_stream = streams.get("heartrate", {}).get("data", [])
 
