@@ -250,15 +250,19 @@ async def _process_activity_streams(
 
         best_20min = None
         power_curve = None
-        if time_stream and power_stream and len(time_stream) == len(power_stream):
-            power_zones = calculate_power_zones(
-                time_stream, power_stream, power_zone_boundaries
-            )
-            # Calculate best 20 minute power and full power curve
+        power_zones = None
+
+        if power_stream:
+            # Calculate best 20 minute power and full power curve (independent of time stream)
             best_20min = calculate_best_interval(power_stream, 1200)
             power_curve = calculate_power_curve(power_stream)
-        else:
-            power_zones = None
+
+            if time_stream:
+                min_len = min(len(time_stream), len(power_stream))
+                if min_len > 0:
+                    power_zones = calculate_power_zones(
+                        time_stream[:min_len], power_stream[:min_len], power_zone_boundaries
+                    )
 
         await session.execute(
             update(Activity)

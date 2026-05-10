@@ -444,7 +444,7 @@
       "targets": [
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-          "rawSql": "SELECT\n  duration::int as duration_sec,\n  MAX(power::float) as max_watts\nFROM activities,\nLATERAL jsonb_each_text(power_curve) AS pc(duration, power)\nWHERE power_curve IS NOT NULL\nGROUP BY duration_sec\nORDER BY duration_sec",
+          "rawSql": "WITH curve AS (\n  SELECT\n    duration::int as duration_sec,\n    MAX(power::float) as max_watts\n  FROM activities,\n  LATERAL jsonb_each_text(power_curve) AS pc(duration, power)\n  WHERE power_curve IS NOT NULL AND jsonb_typeof(power_curve) = 'object'\n  GROUP BY duration_sec\n)\nSELECT duration_sec, max_watts FROM curve\nUNION ALL\nSELECT 1 as duration_sec, 0::float as max_watts WHERE NOT EXISTS (SELECT 1 FROM curve)\nORDER BY duration_sec",
           "format": "table",
           "refId": "A"
         }
