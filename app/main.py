@@ -15,6 +15,7 @@ import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -68,6 +69,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Strava Fitness Tracker", lifespan=lifespan)
+
+# Mount static files for assets and favicon
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ── OAuth endpoints ─────────────────────────────────────────────────
@@ -301,7 +305,10 @@ async def home():
         _page(
             "Strava Fitness Tracker",
             f"""
-            <h2>🚴 Strava Fitness Tracker</h2>
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
+                <img src="/static/assets/favicon.png" width="48" height="48" alt="Logo" style="border-radius: 8px;">
+                <h2 style="margin: 0;">Strava Fitness Tracker</h2>
+            </div>
             {sync_info}
             {metrics_info}
             {grafana_info}
@@ -352,6 +359,7 @@ def _page(title: str, body: str) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/static/assets/favicon.png">
     <title>{title} — Strava Fitness Tracker</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
