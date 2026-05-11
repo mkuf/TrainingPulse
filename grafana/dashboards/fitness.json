@@ -319,15 +319,40 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
+            "drawStyle": "bars",
             "fillOpacity": 80,
             "lineWidth": 0,
-            "stacking": { "mode": "normal" }
+            "stacking": { "mode": "normal", "group": "A" }
           },
           "color": { "mode": "palette-classic" },
           "unit": "none",
           "decimals": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Floor" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.stacking", "value": { "mode": "none", "group": "A" } },
+              { "id": "custom.lineWidth", "value": 1 },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e90" } },
+              { "id": "custom.hideFrom", "value": { "legend": false, "tooltip": false, "viz": false } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Ceiling" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.stacking", "value": { "mode": "none", "group": "A" } },
+              { "id": "custom.lineWidth", "value": 1 },
+              { "id": "custom.fillOpacity", "value": 15 },
+              { "id": "custom.fillBelowTo", "value": "Floor" },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e90" } },
+              { "id": "custom.hideFrom", "value": { "legend": false, "tooltip": false, "viz": false } }
+            ]
+          }
+        ]
       },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
       "id": 5,
@@ -336,7 +361,7 @@
         "legend": { "displayMode": "list", "placement": "bottom" }
       },
       "title": "Weekly Training Load by Sport",
-      "type": "barchart",
+      "type": "timeseries",
       "targets": [
         {
           "datasource": {
@@ -346,6 +371,15 @@
           "rawSql": "SELECT\n  date_trunc('week', start_date)::date AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1, 2\nORDER BY 1",
           "format": "time_series",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH weekly_load AS (\n  SELECT\n    date_trunc('week', start_date)::date AS time,\n    SUM(COALESCE(trimp, 0)) AS total_load\n  FROM activities\n  GROUP BY 1\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
+          "format": "time_series",
+          "refId": "B"
         }
       ]
     },
