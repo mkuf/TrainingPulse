@@ -377,7 +377,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "WITH weekly_load AS (\n  SELECT\n    date_trunc('week', start_date)::date AS time,\n    SUM(COALESCE(trimp, 0)) AS total_load\n  FROM activities\n  GROUP BY 1\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
+          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', current_date) AS max_date\n  FROM activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
           "format": "time_series",
           "refId": "B"
         }
