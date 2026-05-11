@@ -337,7 +337,7 @@
               { "id": "custom.lineWidth", "value": 1 },
               { "id": "custom.fillOpacity", "value": 0 },
               { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e90" } },
-              { "id": "custom.hideFrom", "value": { "legend": false, "tooltip": false, "viz": false } }
+              { "id": "custom.hideFrom", "value": { "legend": true, "tooltip": true, "viz": false } }
             ]
           },
           {
@@ -346,32 +346,24 @@
               { "id": "custom.drawStyle", "value": "line" },
               { "id": "custom.stacking", "value": { "mode": "none", "group": "A" } },
               { "id": "custom.lineWidth", "value": 1 },
-              { "id": "custom.fillOpacity", "value": 15 },
+              { "id": "custom.fillOpacity", "value": 22 },
               { "id": "custom.fillBelowTo", "value": "Floor" },
               { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e90" } },
-              { "id": "custom.hideFrom", "value": { "legend": false, "tooltip": false, "viz": false } }
+              { "id": "custom.hideFrom", "value": { "legend": true, "tooltip": true, "viz": false } }
             ]
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 19 },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 19 },
       "id": 5,
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom" }
       },
       "title": "Weekly Training Load by Sport",
+      "description": "Stacked weekly TRIMP by sport. The grey band is a **training load corridor**: floor = 80% and ceiling = 125% of the rolling average of your **previous four** complete weeks’ total weekly TRIMP (current week excluded), so it reflects recent load without double-counting the week you are viewing.",
       "type": "timeseries",
       "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_POSTGRESQL}"
-          },
-          "rawSql": "SELECT\n  date_trunc('week', start_date)::date AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1, 2\nORDER BY 1",
-          "format": "time_series",
-          "refId": "A"
-        },
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
@@ -380,6 +372,93 @@
           "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', current_date) AS max_date\n  FROM activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
           "format": "time_series",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  date_trunc('week', start_date)::date AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1, 2\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#B4B4B6" },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Floor" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e90" } },
+              { "id": "displayName", "value": "Floor (80%)" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Ceiling" },
+            "properties": [
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#B4B4B6" } },
+              { "id": "displayName", "value": "Ceiling (125%)" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Week total" },
+            "properties": [{ "id": "displayName", "value": "This week (TRIMP)" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Week total color" },
+            "properties": [
+              { "id": "custom.hideFrom", "value": { "legend": true, "tooltip": true, "viz": true } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "id": 13,
+      "options": {
+        "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" },
+        "orientation": "vertical",
+        "textMode": "value_and_name",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "title": "This week vs corridor",
+      "description": "Numbers for the **calendar week containing today** (ISO week, Monday start). **Floor** and **Ceiling** use the same rule as the chart: 80% and 125% of the average total weekly TRIMP from the **four complete weeks before** this week. **This week** is your summed TRIMP so far in the current week. Its tile color is **grey** under the floor, **green** between floor and ceiling (inclusive), and **orange** above the ceiling (when the corridor is defined).",
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": {
+            "configRefId": "A",
+            "applyTo": { "id": "byName", "options": "Week total" },
+            "mappings": [
+              {
+                "fieldName": "Week total color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        }
+      ],
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', CURRENT_DATE) AS max_date\n  FROM activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n),\ncorridor AS (\n  SELECT\n    time,\n    total_load,\n    AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS prior_four_avg\n  FROM weekly_load\n)\nSELECT\n  ROUND((prior_four_avg * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((prior_four_avg * 1.25)::numeric, 0) AS \"Ceiling\",\n  ROUND(total_load::numeric, 0) AS \"Week total\",\n  CASE\n    WHEN prior_four_avg IS NULL THEN '#B4B4B6'\n    WHEN total_load < prior_four_avg * 0.8 THEN '#8e8e90'\n    WHEN total_load <= prior_four_avg * 1.25 THEN '#56A64B'\n    ELSE '#FF9830'\n  END AS \"Week total color\"\nFROM corridor\nWHERE time = date_trunc('week', CURRENT_DATE)::date",
+          "format": "table",
+          "refId": "A"
         }
       ]
     },
