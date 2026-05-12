@@ -163,8 +163,8 @@
       "gridPos": {
         "h": 3,
         "w": 6,
-        "x": 6,
-        "y": 1
+        "x": 0,
+        "y": 4
       }
     },
     {
@@ -228,10 +228,10 @@
         }
       ],
       "gridPos": {
-        "h": 6,
+        "h": 3,
         "w": 6,
-        "x": 12,
-        "y": 1
+        "x": 0,
+        "y": 7
       }
     },
     {
@@ -258,344 +258,9 @@
       "targets": [],
       "gridPos": {
         "h": 9,
-        "w": 6,
-        "x": 18,
+        "w": 18,
+        "x": 6,
         "y": 1
-      }
-    },
-    {
-      "id": 3,
-      "title": "Avg Heart Rate",
-      "type": "stat",
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#F2495C",
-            "mode": "fixed"
-          },
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": ""
-          },
-          "rawSql": "SELECT ROUND(average_heartrate::numeric, 0) AS \"Avg HR\" FROM activities WHERE id = ${activity_id}",
-          "format": "table",
-          "refId": null
-        }
-      ],
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 0,
-        "y": 4
-      }
-    },
-    {
-      "id": 8,
-      "title": "Avg Speed",
-      "type": "stat",
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#B7DBAB",
-            "mode": "fixed"
-          },
-          "decimals": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "velocitykmh"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": ""
-          },
-          "rawSql": "SELECT average_speed * 3.6 AS \"Avg Speed\" FROM activities WHERE id = ${activity_id} AND average_speed IS NOT NULL",
-          "format": "table",
-          "refId": null
-        }
-      ],
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 6,
-        "y": 4
-      }
-    },
-    {
-      "id": 6,
-      "title": "Max Power",
-      "type": "stat",
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#FF9830",
-            "mode": "fixed"
-          },
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "watt"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": ""
-          },
-          "rawSql": "SELECT max_watts AS \"Max Power\" FROM activities WHERE id = ${activity_id} AND max_watts IS NOT NULL",
-          "format": "table",
-          "refId": null
-        }
-      ],
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 0,
-        "y": 7
-      }
-    },
-    {
-      "id": 7,
-      "title": "Best 20min Power",
-      "type": "stat",
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#8EE5E5",
-            "mode": "fixed"
-          },
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "watt"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": ""
-          },
-          "rawSql": "SELECT ROUND(best_20min_power::numeric, 0) AS \"Best 20min\" FROM activities WHERE id = ${activity_id} AND best_20min_power IS NOT NULL",
-          "format": "table",
-          "refId": null
-        }
-      ],
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 6,
-        "y": 7
-      }
-    },
-    {
-      "id": 5,
-      "title": "Avg Power",
-      "type": "stat",
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": ""
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#FADE2A",
-            "mode": "fixed"
-          },
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "watt"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": ""
-          },
-          "rawSql": "SELECT ROUND(average_watts::numeric, 0) AS \"Avg Power\" FROM activities WHERE id = ${activity_id} AND average_watts IS NOT NULL",
-          "format": "table",
-          "refId": null
-        }
-      ],
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 12,
-        "y": 7
       }
     },
     {
@@ -714,12 +379,66 @@
       }
     },
     {
+      "id": 22,
+      "title": "Elevation",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "custom": {
+            "fillOpacity": 30,
+            "gradientMode": "scheme",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "decimals": 0,
+          "unit": "lengthm"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
+          "format": "time_series",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      }
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 35
       },
       "id": 103,
       "title": "Performance Data",
@@ -792,10 +511,144 @@
         }
       ],
       "gridPos": {
-        "h": 8,
-        "w": 24,
+        "h": 9,
+        "w": 18,
         "x": 0,
-        "y": 28
+        "y": 36
+      }
+    },
+    {
+      "id": 3,
+      "title": "Avg Heart Rate",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#F2495C",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT ROUND(average_heartrate::numeric, 0) AS \"Avg HR\" FROM activities WHERE id = ${activity_id}",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 36
+      }
+    },
+    {
+      "id": 50,
+      "title": "Max Heart Rate",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#F2495C",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT ROUND(max_heartrate::numeric, 0) AS \"Max HR\" FROM activities WHERE id = ${activity_id} AND max_heartrate IS NOT NULL",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 41
       }
     },
     {
@@ -857,16 +710,16 @@
         }
       ],
       "gridPos": {
-        "h": 8,
-        "w": 24,
+        "h": 9,
+        "w": 18,
         "x": 0,
-        "y": 36
+        "y": 45
       }
     },
     {
-      "id": 22,
-      "title": "Elevation",
-      "type": "timeseries",
+      "id": 8,
+      "title": "Avg Speed",
+      "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": ""
@@ -874,30 +727,43 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "continuous-GrYlRd"
+            "fixedColor": "#B7DBAB",
+            "mode": "fixed"
           },
-          "custom": {
-            "fillOpacity": 30,
-            "gradientMode": "scheme",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "showPoints": "never",
-            "spanNulls": true
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           },
-          "decimals": 0,
-          "unit": "lengthm"
+          "unit": "velocitykmh"
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "none"
-        }
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "targets": [
         {
@@ -905,16 +771,83 @@
             "type": "grafana-postgresql-datasource",
             "uid": ""
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
-          "format": "time_series",
+          "rawSql": "SELECT average_speed * 3.6 AS \"Avg Speed\" FROM activities WHERE id = ${activity_id} AND average_speed IS NOT NULL",
+          "format": "table",
           "refId": null
         }
       ],
       "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 44
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 45
+      }
+    },
+    {
+      "id": 51,
+      "title": "Max Speed",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#5794F2",
+            "mode": "fixed"
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "velocitykmh"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT MAX(v.val::numeric) * 3.6 AS \"Max Speed\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'velocity_smooth') AS v(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'velocity_smooth'",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 50
       }
     },
     {
@@ -964,10 +897,211 @@
         }
       ],
       "gridPos": {
-        "h": 8,
-        "w": 24,
+        "h": 9,
+        "w": 18,
         "x": 0,
-        "y": 52
+        "y": 54
+      }
+    },
+    {
+      "id": 6,
+      "title": "Max Power",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#FF9830",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT max_watts AS \"Max Power\" FROM activities WHERE id = ${activity_id} AND max_watts IS NOT NULL",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 54
+      }
+    },
+    {
+      "id": 5,
+      "title": "Avg Power",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#FADE2A",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT ROUND(average_watts::numeric, 0) AS \"Avg Power\" FROM activities WHERE id = ${activity_id} AND average_watts IS NOT NULL",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 57
+      }
+    },
+    {
+      "id": 7,
+      "title": "Best 20min Power",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#8EE5E5",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT ROUND(best_20min_power::numeric, 0) AS \"Best 20min\" FROM activities WHERE id = ${activity_id} AND best_20min_power IS NOT NULL",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 60
       }
     },
     {
@@ -1017,10 +1151,144 @@
         }
       ],
       "gridPos": {
-        "h": 8,
-        "w": 24,
+        "h": 9,
+        "w": 18,
         "x": 0,
-        "y": 60
+        "y": 63
+      }
+    },
+    {
+      "id": 52,
+      "title": "Avg Cadence",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#73BF69",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT ROUND(AVG(c.val::numeric), 0) AS \"Avg Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'cadence' AND c.val::numeric > 0",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 63
+      }
+    },
+    {
+      "id": 53,
+      "title": "Max Cadence",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": ""
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#96D98D",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": ""
+          },
+          "rawSql": "SELECT MAX(c.val::int) AS \"Max Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'cadence'",
+          "format": "table",
+          "refId": null
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 68
       }
     },
     {
@@ -1070,10 +1338,10 @@
         }
       ],
       "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 72
       }
     },
     {
@@ -1082,7 +1350,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 76
+        "y": 81
       },
       "id": 104,
       "title": "HR Zone Breakdown",
@@ -1218,7 +1486,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 77
+        "y": 82
       }
     },
     {
@@ -1347,7 +1615,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 77
+        "y": 82
       }
     },
     {
@@ -1356,7 +1624,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 85
+        "y": 90
       },
       "id": 105,
       "title": "Power Zone Breakdown",
@@ -1522,7 +1790,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 86
+        "y": 91
       }
     },
     {
@@ -1681,7 +1949,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 86
+        "y": 91
       }
     }
   ],
