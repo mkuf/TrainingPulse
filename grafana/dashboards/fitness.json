@@ -575,7 +575,125 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 47 },
+      "description": "One bar per calendar day with at least one activity in the selected time range. Empty gaps are days without a logged activity. Uses the same dates as your Strava sync (`activities.start_date`).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#FC4C02" },
+          "custom": {
+            "fillOpacity": 85,
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineWidth": 0
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "#FC4C02", "value": 0 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 18, "x": 0, "y": 47 },
+      "id": 106,
+      "options": {
+        "colWidth": 0.92,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.92,
+        "showValue": "never"
+      },
+      "title": "Activity days",
+      "type": "status-history",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "format": "table",
+          "rawSql": "SELECT\n  date_trunc('day', start_date) AS time,\n  1 AS \"Activity\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Consecutive calendar weeks (Monday start, same as **This week vs corridor**) with at least one logged activity. Counting starts from the **last week that contains any activity** when **this week is still empty** — so you see how long your run was without forcing **0** before you train. **Orange**: current week already has an activity (live streak). **Grey**: current week has no activity yet (same number = run ending at your last active week; logging this week turns orange).",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 47 },
+      "id": 107,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "/^Weekly streak$/",
+          "values": true
+        },
+        "textMode": "value_and_name"
+      },
+      "title": "Weekly activity streak",
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": {
+            "configRefId": "A",
+            "applyTo": { "id": "byName", "options": "Weekly streak" },
+            "mappings": [
+              {
+                "fieldName": "Streak color",
+                "handlerKey": "color"
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Streak color": true
+            },
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "format": "table",
+          "rawSql": "WITH cw AS (\n  SELECT date_trunc('week', CURRENT_DATE)::date AS ws\n),\nflags AS (\n  SELECT\n    cw.ws,\n    EXISTS (\n      SELECT 1 FROM activities a\n      WHERE date_trunc('week', a.start_date)::date = cw.ws\n    ) AS has_current\n  FROM cw cw\n),\nanchor AS (\n  SELECT\n    CASE WHEN has_current THEN ws ELSE ws - 7 END AS anchor_week,\n    has_current\n  FROM flags\n)\nSELECT\n  CASE\n    WHEN NOT EXISTS (\n      SELECT 1 FROM activities a, anchor an\n      WHERE date_trunc('week', a.start_date)::date = an.anchor_week\n    ) THEN 0\n    ELSE COALESCE(\n      (\n        SELECT MIN(n)\n        FROM generate_series(0, 500) AS n\n        CROSS JOIN anchor an\n        WHERE NOT EXISTS (\n          SELECT 1 FROM activities a\n          WHERE date_trunc('week', a.start_date)::date = an.anchor_week - (n::integer * 7)\n        )\n      ),\n      500\n    )\n  END AS \"Weekly streak\",\n  CASE WHEN (SELECT has_current FROM anchor) THEN '#FC4C02' ELSE '#B4B4B6' END AS \"Streak color\"",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 54 },
       "id": 7,
       "options": {
         "showHeader": true,
@@ -663,7 +781,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 64 },
       "id": 8,
       "options": {
         "reduceOptions": {
@@ -703,7 +821,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 57 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 64 },
       "id": 9,
       "options": {
         "reduceOptions": {
@@ -731,13 +849,13 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 65 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 72 },
       "id": 104,
       "title": "Reference Guide",
       "type": "row"
     },
     {
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 66 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 73 },
       "id": 10,
       "options": {
         "content": "### 🏃 Fitness (CTL) - Long Term (42 days)\n*   **0-40:** Low / Beginner\n*   **40-70:** Intermediate / Regular\n*   **70-110:** Advanced / High Volume\n*   **110+:** Elite / Professional\n*   **Ramp Rate:** Aim for +3 to +6 points per week. >10 is the \"Danger Zone\".\n\n### ⚖️ Form (TSB) - Freshness (CTL - ATL)\n*   **+5 to +25:** **Fresh (Peak Zone)** - Ideal for racing/hard efforts.\n*   **-10 to +5:** **Neutral** - Maintenance/Transition.\n*   **-10 to -30:** **Productive Overload** - Optimal training zone.\n*   **Below -30:** **Danger Zone** - High risk of injury/burnout.\n\n### 🔋 Fatigue (ATL) - Short Term (7 days)\nRepresents your current tiredness. Should be higher than CTL during build phases and lower during recovery/tapering.",
