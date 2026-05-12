@@ -32,6 +32,7 @@ class StravaClient:
         self._rate_limit_limit_15min = 100
         self._rate_limit_usage_daily = 0
         self._rate_limit_limit_daily = 1000
+        self._gear_cache: dict[str, str | None] = {}
 
     async def close(self):
         await self._http.aclose()
@@ -160,6 +161,33 @@ class StravaClient:
         if after is not None:
             params["after"] = after
         return await self._request("GET", "/athlete/activities", params=params)
+
+    async def get_gear_display_name(self, gear_id: str) -> str | None:
+        """Resolve bike/shoe label from GET /gear/{id}; cached per client lifetime."""
+        gid = (gear_id or "").strip()
+        if not gid or gid.lower() == "none":
+            return None
+        if gid in self._gear_cache:
+            return self._gear_cache[gid]
+        try:
+            data = await self._request("GET", f"/gear/{gid}")
+        except RateLimitExceeded:
+            raise
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                self._gear_cache[gid] = None
+                return None
+            raise
+        except Exception as e:
+            logger.warning("Failed to fetch gear %s: %s", gid, e)
+            self._gear_cache[gid] = None
+            return None
+        if not isinstance(data, dict):
+            self._gear_cache[gid] = None
+            return None
+        label = (data.get("nickname") or data.get("name") or "").strip() or None
+        self._gear_cache[gid] = label
+        return label
 
     async def get_activity_streams(
         self,

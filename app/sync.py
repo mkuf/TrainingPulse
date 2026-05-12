@@ -135,13 +135,48 @@ async def fetch_and_store_athlete_settings(
     return result.scalar_one()
 
 
-async def _store_activities(session: AsyncSession, activities: list[dict]) -> int:
+def _normal_gear_id(raw: object) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.lower() == "none":
+        return None
+    return s
+
+
+async def _store_activities(
+    session: AsyncSession, activities: list[dict], client: StravaClient
+) -> int:
     """Store a batch of activities in the database (upsert). Returns count stored."""
     if not activities:
         return 0
 
     values = []
     for a in activities:
+        gear = a.get("gear")
+        gear_name_from_payload: str | None = None
+        if isinstance(gear, dict):
+            gear_name_from_payload = (
+                (gear.get("nickname") or gear.get("name") or "").strip() or None
+            )
+        gid = _normal_gear_id(a.get("gear_id"))
+        if not gid and isinstance(gear, dict):
+            gid = _normal_gear_id(gear.get("id"))
+
+        resolved_gear_name = gear_name_from_payload
+        if not resolved_gear_name and gid:
+            resolved_gear_name = await client.get_gear_display_name(gid)
+
+        wavg = a.get("weighted_average_watts")
+        if wavg is not None:
+            wavg = float(wavg)
+
+        dev = a.get("device_name")
+        if isinstance(dev, str):
+            dev = dev[:255] if len(dev) > 255 else dev
+        else:
+            dev = None
+
         values.append(
             {
                 "id": a["id"],
@@ -165,6 +200,10 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
                 "calories": a.get("calories"),
                 "kilojoules": a.get("kilojoules"),
                 "device_watts": bool(a.get("device_watts", False)),
+                "device_name": dev,
+                "gear_id": gid,
+                "gear_name": resolved_gear_name,
+                "weighted_average_watts": wavg,
                 "suffer_score": a.get("suffer_score"),
             }
         )
@@ -186,6 +225,10 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
             "calories": stmt.excluded.calories,
             "kilojoules": stmt.excluded.kilojoules,
             "device_watts": stmt.excluded.device_watts,
+            "device_name": stmt.excluded.device_name,
+            "gear_id": stmt.excluded.gear_id,
+            "gear_name": stmt.excluded.gear_name,
+            "weighted_average_watts": stmt.excluded.weighted_average_watts,
             "suffer_score": stmt.excluded.suffer_score,
         },
     )
@@ -410,7 +453,7 @@ async def _backfill(
         if not activities:
             break
 
-        stored = await _store_activities(session, activities)
+        stored = await _store_activities(session, activities, client)
         total_stored += stored
         sync_state.total_activities = total_stored
         sync_state.synced_activities = total_stored
@@ -464,7 +507,7 @@ async def _incremental_sync(
         if not activities:
             break
 
-        stored = await _store_activities(session, activities)
+        stored = await _store_activities(session, activities, client)
         total_new += stored
 
         if len(activities) < 200:
