@@ -1,0 +1,306 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Fitness and freshness",
+      "type": "link",
+      "url": "/d/strava-fitness"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Monthly totals",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Aggregates use the dashboard time range. Month boundaries follow PostgreSQL `date_trunc` in the database session timezone.",
+      "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Month" }] },
+      "title": "By calendar month",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS \"Month\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "id": 3,
+      "title": "Yearly totals",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "id": 4,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Year" }] },
+      "title": "By calendar year",
+      "type": "table",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS \"Year\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
+      "id": 5,
+      "title": "Compare to previous periods",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Rolling 28 days ending now vs the 28 days immediately before.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#73BF69", "mode": "fixed" },
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 21 },
+      "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "TRIMP last 28 days",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= NOW() - INTERVAL '28 days' AND start_date < NOW()",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "The 28-day window before the current last-28-days window.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#B4B4B6", "mode": "fixed" },
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 21 },
+      "id": 7,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "TRIMP prior 28 days",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= NOW() - INTERVAL '56 days' AND start_date < NOW() - INTERVAL '28 days'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#FC4C02", "mode": "fixed" },
+          "decimals": 1,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 21 },
+      "id": 8,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "Distance last 28 days (km)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"km\" FROM activities WHERE start_date >= NOW() - INTERVAL '28 days' AND start_date < NOW()",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Calendar month to date vs the same calendar month one year ago (full month total).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#5794F2", "mode": "fixed" },
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 26 },
+      "id": 9,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "TRIMP this calendar month (MTD)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW()) AND start_date < NOW()",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#8e8e90", "mode": "fixed" },
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 26 },
+      "id": 10,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "TRIMP same month last year (full month)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '1 year') AND start_date < date_trunc('month', NOW() - INTERVAL '1 year') + INTERVAL '1 month'",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#FF9830", "mode": "fixed" },
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 31 },
+      "id": 11,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "TRIMP previous calendar month",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '1 month') AND start_date < date_trunc('month', NOW())",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#FADE2A", "mode": "fixed" },
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 31 },
+      "id": 12,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "title": "TRIMP month before that",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "table",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '2 month') AND start_date < date_trunc('month', NOW() - INTERVAL '1 month')",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["strava", "account"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "PostgreSQL",
+        "name": "DS_POSTGRESQL",
+        "query": "grafana-postgresql-datasource",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-2y", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Strava Account overview",
+  "uid": "strava-account",
+  "version": 1
+}

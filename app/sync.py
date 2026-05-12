@@ -41,6 +41,11 @@ class SyncState:
 sync_state = SyncState()
 
 
+def _activity_needs_streams(activity: Activity) -> bool:
+    """Fetch streams when we have HR data or a power meter (for charts / power curve)."""
+    return bool(activity.has_heartrate or activity.device_watts)
+
+
 async def fetch_and_store_athlete_settings(
     client: StravaClient, session: AsyncSession, athlete_id: int
 ) -> AthleteSettings:
@@ -156,6 +161,10 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
                 "average_watts": a.get("average_watts"),
                 "max_watts": a.get("max_watts"),
                 "average_speed": a.get("average_speed"),
+                "total_elevation_gain": a.get("total_elevation_gain"),
+                "calories": a.get("calories"),
+                "kilojoules": a.get("kilojoules"),
+                "device_watts": bool(a.get("device_watts", False)),
                 "suffer_score": a.get("suffer_score"),
             }
         )
@@ -173,6 +182,10 @@ async def _store_activities(session: AsyncSession, activities: list[dict]) -> in
             "average_watts": stmt.excluded.average_watts,
             "max_watts": stmt.excluded.max_watts,
             "average_speed": stmt.excluded.average_speed,
+            "total_elevation_gain": stmt.excluded.total_elevation_gain,
+            "calories": stmt.excluded.calories,
+            "kilojoules": stmt.excluded.kilojoules,
+            "device_watts": stmt.excluded.device_watts,
             "suffer_score": stmt.excluded.suffer_score,
         },
     )
@@ -188,9 +201,8 @@ async def _process_activity_streams(
     hr_zone_boundaries: list[tuple[float, float]],
     power_zone_boundaries: list[tuple[float, float]],
 ):
-    """Fetch all stream data for an activity, store it, and calculate TRIMP/Zones."""
-    if not activity.has_heartrate:
-        # Estimate TRIMP from duration and sport type
+    """Fetch stream data when HR or power meter is present; TRIMP from HR or estimated."""
+    if not _activity_needs_streams(activity):
         trimp = estimate_trimp_without_hr(activity.sport_type, activity.moving_time)
         await session.execute(
             update(Activity)
@@ -202,6 +214,8 @@ async def _process_activity_streams(
 
     try:
         streams = await client.get_activity_streams(activity.id)
+        if not isinstance(streams, dict):
+            streams = {}
 
         # Store all raw stream data for later visualization
         if streams:
@@ -231,21 +245,21 @@ async def _process_activity_streams(
                 )
                 await session.execute(stream_stmt)
 
-        # Calculate TRIMP from HR stream
         time_stream = streams.get("time", {}).get("data", [])
         hr_stream = streams.get("heartrate", {}).get("data", [])
         power_stream = streams.get("watts", {}).get("data", [])
 
         trimp = activity.trimp
         hr_zones = activity.hr_zone_seconds
-        power_zones = activity.power_zone_seconds
 
-        if time_stream and hr_stream and len(time_stream) == len(hr_stream):
+        if activity.has_heartrate and time_stream and hr_stream and len(
+            time_stream
+        ) == len(hr_stream):
             trimp, hr_zones = calculate_trimp_from_streams(
                 time_stream, hr_stream, hr_zone_boundaries
             )
-        elif not trimp:
-            # Fall back to estimation if TRIMP not yet set
+        else:
+            hr_zones = None
             trimp = estimate_trimp_without_hr(
                 activity.sport_type, activity.moving_time
             )
@@ -255,7 +269,6 @@ async def _process_activity_streams(
         power_zones = None
 
         if power_stream:
-            # Calculate best 20 minute power and full power curve (independent of time stream)
             best_20min = calculate_best_interval(power_stream, 1200)
             power_curve = calculate_power_curve(power_stream)
 
@@ -263,7 +276,9 @@ async def _process_activity_streams(
                 min_len = min(len(time_stream), len(power_stream))
                 if min_len > 0:
                     power_zones = calculate_power_zones(
-                        time_stream[:min_len], power_stream[:min_len], power_zone_boundaries
+                        time_stream[:min_len],
+                        power_stream[:min_len],
+                        power_zone_boundaries,
                     )
 
         await session.execute(
@@ -287,7 +302,6 @@ async def _process_activity_streams(
         logger.warning(
             "Failed to fetch streams for activity %d: %s", activity.id, e
         )
-        # Fall back to estimation
         trimp = estimate_trimp_without_hr(activity.sport_type, activity.moving_time)
         await session.execute(
             update(Activity)
@@ -487,7 +501,7 @@ async def _process_pending_streams(
     sync_state.total_activities = len(pending)
     sync_state.streams_fetched = 0
 
-    logger.info("Processing HR streams for %d activities...", len(pending))
+    logger.info("Processing streams for %d activities...", len(pending))
 
     for i, activity in enumerate(pending):
         try:

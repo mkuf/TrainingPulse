@@ -83,7 +83,7 @@ Add a **PostgreSQL** data source in Grafana:
 | Password | *(your POSTGRES_PASSWORD from .env)* |
 | TLS/SSL | Disable |
 
-Then import `grafana/dashboards/fitness.json`.
+Then import the dashboards from `grafana/dashboards/` (at minimum `fitness.json`; also `activity_detail.json` and `account_overview.json` for drill-down and rollups).
 
 ## Architecture
 
@@ -105,6 +105,7 @@ Strava API → [strava-fitness app] → PostgreSQL → Grafana
 | `GET /auth/strava` | Start Strava OAuth flow |
 | `GET /sync/status` | JSON sync status (for monitoring) |
 | `POST /sync/trigger` | Manually trigger a sync |
+| `POST /sync/full` | Full historical resync (re-list all activities from Strava, reprocess streams) |
 
 ## Environment Variables
 
@@ -122,6 +123,7 @@ Strava API → [strava-fitness app] → PostgreSQL → Grafana
 | `SYNC_INTERVAL_MINUTES` | `15` | Polling interval |
 
 ### Overriding Metrics
+
 By default, the app fetches your **Max HR** and **FTP** from your Strava profile. However, if you want to manually set these (e.g., if Strava's auto-detected Max HR is incorrect), you can set `MAX_HR`, `REST_HR`, or `FTP` in your `.env` file.
 
 **Note:** If you override `MAX_HR` or `REST_HR`, the app will ignore any custom heart rate zones from Strava and calculate consistent percentage-based zones instead.

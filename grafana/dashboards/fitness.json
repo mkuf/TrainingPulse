@@ -20,7 +20,20 @@
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "Account overview",
+      "tooltip": "Monthly, yearly, and period comparisons",
+      "type": "link",
+      "url": "/d/strava-account"
+    }
+  ],
   "panels": [
     {
       "collapsed": false,
@@ -707,7 +720,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  id AS \"ID\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  suffer_score AS \"Strava RE\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  id AS \"ID\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  suffer_score AS \"Strava RE\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }
