@@ -42,7 +42,7 @@ sync_state = SyncState()
 
 
 def _activity_needs_streams(activity: Activity) -> bool:
-    """Fetch streams when we have HR data or a power meter (for charts / power curve)."""
+    """True when we derive TRIMP/HR zones and power metrics from stream data (HR or power meter)."""
     return bool(activity.has_heartrate or activity.device_watts)
 
 
@@ -244,49 +244,58 @@ async def _process_activity_streams(
     hr_zone_boundaries: list[tuple[float, float]],
     power_zone_boundaries: list[tuple[float, float]],
 ):
-    """Fetch stream data when HR or power meter is present; TRIMP from HR or estimated."""
-    if not _activity_needs_streams(activity):
-        trimp = estimate_trimp_without_hr(activity.sport_type, activity.moving_time)
-        await session.execute(
-            update(Activity)
-            .where(Activity.id == activity.id)
-            .values(trimp=trimp, synced_streams=True)
-        )
-        await session.commit()
-        return
+    """Fetch Strava streams for every pending activity; persist raw data for maps; derive HR/power metrics only when applicable."""
+    needs_hr_power = _activity_needs_streams(activity)
 
     try:
         streams = await client.get_activity_streams(activity.id)
         if not isinstance(streams, dict):
             streams = {}
 
-        # Store all raw stream data for later visualization
-        if streams:
-            stream_data = {}
-            stream_types = []
-            sample_count = 0
-            for key, value in streams.items():
-                if isinstance(value, dict) and "data" in value:
-                    stream_data[key] = value["data"]
-                    stream_types.append(key)
-                    sample_count = max(sample_count, len(value["data"]))
+        stream_data: dict = {}
+        stream_types: list[str] = []
+        sample_count = 0
+        for key, value in streams.items():
+            if isinstance(value, dict) and "data" in value:
+                stream_data[key] = value["data"]
+                stream_types.append(key)
+                sample_count = max(sample_count, len(value["data"]))
 
-            if stream_data:
-                stream_stmt = pg_insert(ActivityStream).values(
-                    activity_id=activity.id,
-                    data=stream_data,
-                    stream_types=",".join(stream_types),
-                    sample_count=sample_count,
+        if stream_data:
+            stream_stmt = pg_insert(ActivityStream).values(
+                activity_id=activity.id,
+                data=stream_data,
+                stream_types=",".join(stream_types),
+                sample_count=sample_count,
+            )
+            stream_stmt = stream_stmt.on_conflict_do_update(
+                index_elements=["activity_id"],
+                set_={
+                    "data": stream_stmt.excluded.data,
+                    "stream_types": stream_stmt.excluded.stream_types,
+                    "sample_count": stream_stmt.excluded.sample_count,
+                },
+            )
+            await session.execute(stream_stmt)
+
+        if not needs_hr_power:
+            trimp = estimate_trimp_without_hr(
+                activity.sport_type, activity.moving_time
+            )
+            await session.execute(
+                update(Activity)
+                .where(Activity.id == activity.id)
+                .values(
+                    trimp=trimp,
+                    hr_zone_seconds=None,
+                    power_zone_seconds=None,
+                    best_20min_power=None,
+                    power_curve=None,
+                    synced_streams=True,
                 )
-                stream_stmt = stream_stmt.on_conflict_do_update(
-                    index_elements=["activity_id"],
-                    set_={
-                        "data": stream_stmt.excluded.data,
-                        "stream_types": stream_stmt.excluded.stream_types,
-                        "sample_count": stream_stmt.excluded.sample_count,
-                    },
-                )
-                await session.execute(stream_stmt)
+            )
+            await session.commit()
+            return
 
         time_stream = streams.get("time", {}).get("data", [])
         hr_stream = streams.get("heartrate", {}).get("data", [])
@@ -525,7 +534,7 @@ async def _process_pending_streams(
     hr_zone_boundaries: list[tuple[float, float]],
     power_zone_boundaries: list[tuple[float, float]],
 ):
-    """Process HR streams for activities that haven't been processed yet."""
+    """Fetch and store Strava streams for activities not yet marked synced."""
     sync_state.phase = "backfilling"
 
     result = await session.execute(

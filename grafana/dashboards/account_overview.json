@@ -280,6 +280,130 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "id": 13,
+      "title": "Activity locations",
+      "type": "row"
+    },
+    {
+      "id": 14,
+      "title": "GPS heatmap (stream data)",
+      "description": "Density of GPS points from stored Strava streams in the selected time range. A hidden marker layer (query B) supplies the map extent—Grafana’s heatmap layer does not participate in “fit to data”. Points are clipped by lat/lng percentiles to drop rare outliers. Strava may omit streams for some activities. After sync, activities without HR/power still fetch streams when available so routes can appear here.",
+      "type": "geomap",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "basemap": {
+          "name": "Basemap",
+          "type": "default",
+          "config": {}
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": false,
+          "showScale": true,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Bounds (fit)",
+            "filterData": { "id": "byRefId", "options": "B" },
+            "tooltip": false,
+            "config": {
+              "showLegend": false,
+              "style": {
+                "color": { "fixed": "transparent" },
+                "opacity": 0.01,
+                "size": { "fixed": 4, "min": 2, "max": 15 },
+                "symbol": {
+                  "mode": "fixed",
+                  "fixed": "img/icons/marker/circle.svg"
+                },
+                "symbolAlign": {
+                  "horizontal": "center",
+                  "vertical": "center"
+                }
+              }
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "lat",
+              "longitude": "lng"
+            }
+          },
+          {
+            "type": "heatmap",
+            "name": "GPS density",
+            "filterData": { "id": "byRefId", "options": "A" },
+            "config": {
+              "weight": { "fixed": 0.55, "min": 0, "max": 1 },
+              "blur": 6,
+              "radius": 4
+            },
+            "location": {
+              "mode": "coords",
+              "latitude": "lat",
+              "longitude": "lng"
+            }
+          }
+        ],
+        "tooltip": { "mode": "details" },
+        "view": {
+          "allLayers": false,
+          "layer": "Bounds (fit)",
+          "dashboardVariable": false,
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "noRepeat": false,
+          "zoom": 15,
+          "padding": 12
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "format": "table",
+          "refId": "A",
+          "rawSql": "WITH raw AS (\n  SELECT\n    (t.point->>0)::double precision AS lat,\n    (t.point->>1)::double precision AS lng\n  FROM activity_streams s\n  INNER JOIN activities a ON a.id = s.activity_id\n  CROSS JOIN LATERAL jsonb_array_elements(s.data->'latlng') WITH ORDINALITY AS t(point, idx)\n  WHERE $__timeFilter(a.start_date)\n    AND s.data ? 'latlng'\n    AND t.idx % 20 = 1\n),\nb AS (\n  SELECT\n    percentile_cont(0.02) WITHIN GROUP (ORDER BY lat) AS lat_min,\n    percentile_cont(0.98) WITHIN GROUP (ORDER BY lat) AS lat_max,\n    percentile_cont(0.02) WITHIN GROUP (ORDER BY lng) AS lng_min,\n    percentile_cont(0.98) WITHIN GROUP (ORDER BY lng) AS lng_max\n  FROM raw\n)\nSELECT r.lat, r.lng\nFROM raw r\nCROSS JOIN b\nWHERE r.lat BETWEEN b.lat_min AND b.lat_max\n  AND r.lng BETWEEN b.lng_min AND b.lng_max\nLIMIT 50000"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "format": "table",
+          "refId": "B",
+          "rawSql": "WITH raw AS (\n  SELECT\n    (t.point->>0)::double precision AS lat,\n    (t.point->>1)::double precision AS lng\n  FROM activity_streams s\n  INNER JOIN activities a ON a.id = s.activity_id\n  CROSS JOIN LATERAL jsonb_array_elements(s.data->'latlng') WITH ORDINALITY AS t(point, idx)\n  WHERE $__timeFilter(a.start_date)\n    AND s.data ? 'latlng'\n    AND t.idx % 20 = 1\n),\nb AS (\n  SELECT\n    percentile_cont(0.02) WITHIN GROUP (ORDER BY lat) AS lat_min,\n    percentile_cont(0.98) WITHIN GROUP (ORDER BY lat) AS lat_max,\n    percentile_cont(0.02) WITHIN GROUP (ORDER BY lng) AS lng_min,\n    percentile_cont(0.98) WITHIN GROUP (ORDER BY lng) AS lng_max\n  FROM raw\n)\nSELECT lat, lng FROM (\n  SELECT lat_min AS lat, lng_min AS lng FROM b\n  UNION ALL SELECT lat_min AS lat, lng_max AS lng FROM b\n  UNION ALL SELECT lat_max AS lat, lng_min AS lng FROM b\n  UNION ALL SELECT lat_max AS lat, lng_max AS lng FROM b\n) corners"
+        }
+      ],
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 37 }
     }
   ],
   "schemaVersion": 39,
