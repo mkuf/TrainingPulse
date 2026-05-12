@@ -58,7 +58,7 @@
             "fixedColor": "#FC4C02",
             "mode": "fixed"
           },
-          "decimals": 0,
+          "decimals": 2,
           "thresholds": {
             "mode": "absolute",
             "steps": [
