@@ -47,11 +47,17 @@ class SyncState:
         # Stream fetch progress (from GET /activities/{id}/streams)
         self.streams_fetched: int = 0
         self.streams_pending: int = 0
-        # Strava rate-limit usage snapshot (updated after each API call)
+        # Strava publishes two budgets per response: overall (read + write)
+        # and read-only. Reads are what we actually do, so the read budget is
+        # what triggers 429s. We track both.
         self.rate_limit_15min_usage: int = 0
-        self.rate_limit_15min_limit: int = 100
+        self.rate_limit_15min_limit: int = 200
         self.rate_limit_daily_usage: int = 0
-        self.rate_limit_daily_limit: int = 1000
+        self.rate_limit_daily_limit: int = 2000
+        self.read_rate_limit_15min_usage: int = 0
+        self.read_rate_limit_15min_limit: int = 100
+        self.read_rate_limit_daily_usage: int = 0
+        self.read_rate_limit_daily_limit: int = 1000
         # Wall-clock time of the most recent rate-limit snapshot. None until the
         # first Strava API call of the process lifetime.
         self.rate_limit_last_checked_at: datetime | None = None
@@ -70,12 +76,17 @@ def _snapshot_rate_limits(client: StravaClient) -> None:
     """Copy the client's last-seen rate-limit counters into sync_state.
 
     Also stamps ``rate_limit_last_checked_at`` so the UI can show how stale
-    the displayed numbers are.
+    the displayed numbers are. We track both the overall budget (read + write
+    combined, ``X-RateLimit-*``) and the read budget (``X-ReadRateLimit-*``).
     """
     sync_state.rate_limit_15min_usage = client._rate_limit_usage_15min
     sync_state.rate_limit_15min_limit = client._rate_limit_limit_15min
     sync_state.rate_limit_daily_usage = client._rate_limit_usage_daily
     sync_state.rate_limit_daily_limit = client._rate_limit_limit_daily
+    sync_state.read_rate_limit_15min_usage = client._read_rate_limit_usage_15min
+    sync_state.read_rate_limit_15min_limit = client._read_rate_limit_limit_15min
+    sync_state.read_rate_limit_daily_usage = client._read_rate_limit_usage_daily
+    sync_state.read_rate_limit_daily_limit = client._read_rate_limit_limit_daily
     sync_state.rate_limit_last_checked_at = datetime.now(timezone.utc)
 
 

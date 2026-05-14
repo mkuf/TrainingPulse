@@ -310,14 +310,22 @@ async def home():
                 </td>
             </tr>
             <tr>
-                <td>Rate limit (15-min)</td>
+                <td>Reads (15-min)</td>
                 <td>
-                    <span id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</span>
+                    <span id="sync-rl-read-15min">{sync_state.read_rate_limit_15min_usage}/{sync_state.read_rate_limit_15min_limit}</span>
                     <span class="rl-meta" id="sync-rl-resets"></span>
                 </td>
             </tr>
             <tr>
-                <td>Rate limit (daily)</td>
+                <td>Reads (daily)</td>
+                <td id="sync-rl-read-daily">{sync_state.read_rate_limit_daily_usage}/{sync_state.read_rate_limit_daily_limit}</td>
+            </tr>
+            <tr>
+                <td>Overall (15-min)</td>
+                <td id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</td>
+            </tr>
+            <tr>
+                <td>Overall (daily)</td>
                 <td id="sync-rl-daily">{sync_state.rate_limit_daily_usage}/{sync_state.rate_limit_daily_limit}</td>
             </tr>
             <tr>
@@ -389,6 +397,14 @@ async def home():
                 setProgress("sync-list-text", "sync-list-bar", s.list.synced, s.list.total);
                 setProgress("sync-details-text", "sync-details-bar", s.details.fetched, s.details.total);
                 setProgress("sync-streams-text", "sync-streams-bar", s.streams.fetched, s.streams.total);
+                const rlR15 = document.getElementById("sync-rl-read-15min");
+                if (rlR15 && s.rate_limit.read_fifteen_min) {{
+                    rlR15.textContent = s.rate_limit.read_fifteen_min.used + "/" + s.rate_limit.read_fifteen_min.limit;
+                }}
+                const rlRD = document.getElementById("sync-rl-read-daily");
+                if (rlRD && s.rate_limit.read_daily) {{
+                    rlRD.textContent = s.rate_limit.read_daily.used + "/" + s.rate_limit.read_daily.limit;
+                }}
                 const rl15 = document.getElementById("sync-rl-15min");
                 if (rl15) rl15.textContent = s.rate_limit.fifteen_min.used + "/" + s.rate_limit.fifteen_min.limit;
                 const rlD = document.getElementById("sync-rl-daily");
@@ -550,6 +566,14 @@ async def _build_status_payload() -> dict:
             "daily": {
                 "used": sync_state.rate_limit_daily_usage,
                 "limit": sync_state.rate_limit_daily_limit,
+            },
+            "read_fifteen_min": {
+                "used": sync_state.read_rate_limit_15min_usage,
+                "limit": sync_state.read_rate_limit_15min_limit,
+            },
+            "read_daily": {
+                "used": sync_state.read_rate_limit_daily_usage,
+                "limit": sync_state.read_rate_limit_daily_limit,
             },
             "last_checked_at": rl_last.isoformat() if rl_last else None,
             "fifteen_min_resets_in_seconds": _seconds_until_next_quarter_hour(),

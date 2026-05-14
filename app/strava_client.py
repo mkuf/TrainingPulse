@@ -28,10 +28,20 @@ class StravaClient:
     def __init__(self, session: AsyncSession):
         self.session = session
         self._http = httpx.AsyncClient(timeout=30.0)
+        # Strava publishes TWO rate-limit budgets per response:
+        #   X-RateLimit-*: overall (read + write combined). Default 200/2000.
+        #   X-ReadRateLimit-*: reads only. Default 100/1000.
+        # Almost everything we do is a read, so the read budget is what
+        # actually triggers 429s. We track both and gate on whichever is
+        # closer to its limit. Defaults match Strava's current "default" tier.
         self._rate_limit_usage_15min = 0
-        self._rate_limit_limit_15min = 100
+        self._rate_limit_limit_15min = 200
         self._rate_limit_usage_daily = 0
-        self._rate_limit_limit_daily = 1000
+        self._rate_limit_limit_daily = 2000
+        self._read_rate_limit_usage_15min = 0
+        self._read_rate_limit_limit_15min = 100
+        self._read_rate_limit_usage_daily = 0
+        self._read_rate_limit_limit_daily = 1000
         self._gear_cache: dict[str, str | None] = {}
         # Serializes the rate-limit check so concurrent workers don't all read
         # "remaining=4" simultaneously and overshoot the 15-min window.
@@ -85,32 +95,56 @@ class StravaClient:
 
     # ── Rate limiting ───────────────────────────────────────────────
 
-    def _update_rate_limits(self, response: httpx.Response):
-        """Parse Strava rate limit headers and update internal state."""
-        usage = response.headers.get("X-RateLimit-Usage", "")
-        limit = response.headers.get("X-RateLimit-Limit", "")
+    @staticmethod
+    def _parse_pair(header_value: str) -> tuple[int, int] | None:
+        """Parse a "short,daily" comma-separated header into a tuple of ints."""
+        if not header_value:
+            return None
+        try:
+            short_str, daily_str = header_value.split(",", 1)
+            return int(short_str.strip()), int(daily_str.strip())
+        except (ValueError, IndexError):
+            return None
 
-        if usage and limit:
-            try:
-                usage_parts = usage.split(",")
-                limit_parts = limit.split(",")
-                self._rate_limit_usage_15min = int(usage_parts[0].strip())
-                self._rate_limit_usage_daily = int(usage_parts[1].strip())
-                self._rate_limit_limit_15min = int(limit_parts[0].strip())
-                self._rate_limit_limit_daily = int(limit_parts[1].strip())
-            except (ValueError, IndexError):
-                pass
+    def _update_rate_limits(self, response: httpx.Response):
+        """Parse Strava rate limit headers and update internal state.
+
+        Strava sends both an overall budget (``X-RateLimit-*``) and a
+        read-specific budget (``X-ReadRateLimit-*``). We update whichever
+        ones are present; missing headers leave the previous value intact.
+        """
+        overall_usage = self._parse_pair(response.headers.get("X-RateLimit-Usage", ""))
+        overall_limit = self._parse_pair(response.headers.get("X-RateLimit-Limit", ""))
+        if overall_usage is not None:
+            self._rate_limit_usage_15min, self._rate_limit_usage_daily = overall_usage
+        if overall_limit is not None:
+            self._rate_limit_limit_15min, self._rate_limit_limit_daily = overall_limit
+
+        read_usage = self._parse_pair(response.headers.get("X-ReadRateLimit-Usage", ""))
+        read_limit = self._parse_pair(response.headers.get("X-ReadRateLimit-Limit", ""))
+        if read_usage is not None:
+            self._read_rate_limit_usage_15min, self._read_rate_limit_usage_daily = read_usage
+        if read_limit is not None:
+            self._read_rate_limit_limit_15min, self._read_rate_limit_limit_daily = read_limit
 
     @property
     def rate_limit_remaining_15min(self) -> int:
-        return self._rate_limit_limit_15min - self._rate_limit_usage_15min
+        """Smaller of overall- and read-budget remaining for the 15-min window."""
+        return min(
+            self._rate_limit_limit_15min - self._rate_limit_usage_15min,
+            self._read_rate_limit_limit_15min - self._read_rate_limit_usage_15min,
+        )
 
     @property
     def rate_limit_remaining_daily(self) -> int:
-        return self._rate_limit_limit_daily - self._rate_limit_usage_daily
+        """Smaller of overall- and read-budget remaining for the daily window."""
+        return min(
+            self._rate_limit_limit_daily - self._rate_limit_usage_daily,
+            self._read_rate_limit_limit_daily - self._read_rate_limit_usage_daily,
+        )
 
     async def _wait_for_rate_limit(self):
-        """If we're close to the rate limit, sleep until the window resets."""
+        """If we're close to either rate limit, sleep until the window resets."""
         async with self._rate_limit_lock:
             if self.rate_limit_remaining_15min <= 5:
                 # 15-minute windows reset at :00, :15, :30, :45
@@ -119,20 +153,28 @@ class StravaClient:
                 seconds_until_reset = (15 - current_minute) * 60 - (now % 60)
                 wait_time = max(seconds_until_reset + 5, 10)  # 5s buffer
                 logger.warning(
-                    "Approaching 15-min rate limit (%d/%d used). Sleeping %.0fs...",
+                    "Approaching 15-min rate limit "
+                    "(overall %d/%d, reads %d/%d). Sleeping %.0fs...",
                     self._rate_limit_usage_15min,
                     self._rate_limit_limit_15min,
+                    self._read_rate_limit_usage_15min,
+                    self._read_rate_limit_limit_15min,
                     wait_time,
                 )
                 await asyncio.sleep(wait_time)
-                # Reset counter after sleep
+                # Reset both counters after sleep; Strava's response will
+                # rewrite them on the next call.
                 self._rate_limit_usage_15min = 0
+                self._read_rate_limit_usage_15min = 0
 
             if self.rate_limit_remaining_daily <= 20:
                 logger.error(
-                    "Approaching daily rate limit (%d/%d used). Pausing sync.",
+                    "Approaching daily rate limit "
+                    "(overall %d/%d, reads %d/%d). Pausing sync.",
                     self._rate_limit_usage_daily,
                     self._rate_limit_limit_daily,
+                    self._read_rate_limit_usage_daily,
+                    self._read_rate_limit_limit_daily,
                 )
                 raise RateLimitExceeded(reset_after=3600)
 
