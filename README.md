@@ -8,8 +8,8 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 
 ## What It Does
 
-- **Syncs all activities** from your Strava account (full historical backfill + ongoing polling)
-- **Metadata & Notes**: Syncs activity names, descriptions, and sport types for rich filtering.
+- **Syncs all activities** from your Strava account (full historical backfill + ongoing polling). Backfill first walks **`GET /athlete/activities`** page by page (up to 200 per page) and upserts every activity **without** blocking pagination on detail calls. A separate pass then calls **`GET /activities/{id}`** for each row until **calories**, **ride notes** (`description`), **kilojoules**, and other summary fields are merged (see `strava_detail_synced` in the database). Detail work is **budgeted per sync** and **sleeps on HTTP 429** so listing can finish for hundreds of activities even when Strava’s read quota is tight (~100 reads / 15 minutes by default); remaining detail merges continue on the next scheduled sync.
+- **Metadata & notes**: Activity descriptions and calories are taken from the **detailed** activity API (the list endpoint often omits them).
 - **Calculates Relative Effort (TRIMP)** from heart rate stream data.
 - **Power Analysis**: Tracks Power (Watts) and calculates **Best 20-minute Power** and **Estimated FTP**.
 - **Full Telemetry**: Persists raw streams for Heart Rate, Power, Cadence, Temperature, and Grade.
@@ -84,6 +84,18 @@ Add a **PostgreSQL** data source in Grafana:
 | TLS/SSL | Disable |
 
 Then import the dashboards from `grafana/dashboards/` (at minimum `fitness.json`; also `activity_detail.json` and `account_overview.json` for drill-down and rollups).
+
+## Database upgrades (manual)
+
+The app uses `create_all` on startup for **new** databases only. If you already have a PostgreSQL volume from an older version, apply DDL yourself when models change.
+
+**`activities.strava_detail_synced`** (tracks whether `GET /activities/{id}` has been merged for that row; used to resume detail work across syncs):
+
+```sql
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS strava_detail_synced BOOLEAN NOT NULL DEFAULT false;
+```
+
+After adding the column, the next sync will queue detail merges for all rows (in batches). A full resync also clears this flag so details are re-fetched.
 
 ## Architecture
 

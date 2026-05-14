@@ -355,7 +355,8 @@
     },
     {
       "id": 201,
-      "title": "Work (kJ)",
+      "title": "Work (kcal, kJ)",
+      "description": "Strava **calories** (kcal) and **kilojoules** (kJ) from the detailed activity API after sync. Parentheses: rounded kJ.",
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -390,14 +391,17 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
+          "fields": "/.*/",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "targets": [
         {
@@ -405,7 +409,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(COALESCE(kilojoules, 0)::numeric, 0) AS \"kJ\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT CASE\n  WHEN calories IS NULL AND kilojoules IS NULL THEN '— (—)'\n  ELSE concat(\n    CASE WHEN calories IS NULL THEN '—' ELSE ROUND(calories::numeric, 0)::text END,\n    ' (',\n    CASE WHEN kilojoules IS NULL THEN '—' ELSE ROUND(kilojoules::numeric, 0)::text END,\n    ')'\n  )\nEND AS \"Work\"\nFROM activities WHERE id = ${activity_id}",
           "format": "table",
           "refId": "A"
         }

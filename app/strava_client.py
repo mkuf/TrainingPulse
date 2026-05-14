@@ -162,6 +162,18 @@ class StravaClient:
             params["after"] = after
         return await self._request("GET", "/athlete/activities", params=params)
 
+    async def get_activity(
+        self, activity_id: int, *, include_all_efforts: bool = False
+    ) -> dict:
+        """Get a single activity (detailed representation)."""
+        if include_all_efforts:
+            return await self._request(
+                "GET",
+                f"/activities/{activity_id}",
+                params={"include_all_efforts": "true"},
+            )
+        return await self._request("GET", f"/activities/{activity_id}")
+
     async def get_gear_display_name(self, gear_id: str) -> str | None:
         """Resolve bike/shoe label from GET /gear/{id}; cached per client lifetime."""
         gid = (gear_id or "").strip()

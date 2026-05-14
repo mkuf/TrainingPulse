@@ -1,8 +1,10 @@
 """Activity sync engine — handles backfilling and incremental sync from Strava."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,13 +25,18 @@ from strava_client import RateLimitExceeded, StravaClient
 
 logger = logging.getLogger(__name__)
 
+# Max successful GET /activities/{id} merges per sync run (remaining queue resumes on later runs).
+DETAIL_MERGE_FETCH_BUDGET = 250
+# Max sleeps after HTTP 429 before giving up on detail merge this run (streams may still run).
+DETAIL_MERGE_MAX_RATE_LIMIT_SLEEPS = 40
+
 
 class SyncState:
     """Tracks the current state of the sync process."""
 
     def __init__(self):
         self.is_running: bool = False
-        self.phase: str = "idle"  # idle, backfilling, incremental, calculating
+        self.phase: str = "idle"  # idle, backfilling, detailing, incremental, calculating
         self.total_activities: int = 0
         self.synced_activities: int = 0
         self.streams_fetched: int = 0
@@ -144,69 +151,118 @@ def _normal_gear_id(raw: object) -> str | None:
     return s
 
 
-async def _store_activities(
+async def _activity_row_from_strava(
+    a: dict, client: StravaClient, *, resolve_gear: bool = True
+) -> dict:
+    """Map a Strava activity JSON object (summary or detailed) to Activity row fields."""
+    gear = a.get("gear")
+    gear_name_from_payload: str | None = None
+    if isinstance(gear, dict):
+        gear_name_from_payload = (
+            (gear.get("nickname") or gear.get("name") or "").strip() or None
+        )
+    gid = _normal_gear_id(a.get("gear_id"))
+    if not gid and isinstance(gear, dict):
+        gid = _normal_gear_id(gear.get("id"))
+
+    resolved_gear_name = gear_name_from_payload
+    if resolve_gear and not resolved_gear_name and gid:
+        resolved_gear_name = await client.get_gear_display_name(gid)
+
+    wavg = a.get("weighted_average_watts")
+    if wavg is not None:
+        wavg = float(wavg)
+
+    dev = a.get("device_name")
+    if isinstance(dev, str):
+        dev = dev[:255] if len(dev) > 255 else dev
+    else:
+        dev = None
+
+    athlete = a.get("athlete")
+    if isinstance(athlete, dict):
+        athlete_id = athlete["id"]
+    else:
+        athlete_id = int(athlete)
+
+    return {
+        "id": a["id"],
+        "athlete_id": athlete_id,
+        "name": a.get("name", ""),
+        "description": a.get("description"),
+        "sport_type": a.get("sport_type", a.get("type", "")),
+        "start_date": datetime.fromisoformat(a["start_date"].replace("Z", "+00:00")),
+        "elapsed_time": a.get("elapsed_time", 0),
+        "moving_time": a.get("moving_time", 0),
+        "distance": a.get("distance", 0.0),
+        "average_heartrate": a.get("average_heartrate"),
+        "max_heartrate": a.get("max_heartrate"),
+        "has_heartrate": a.get("has_heartrate", False),
+        "average_watts": a.get("average_watts"),
+        "max_watts": a.get("max_watts"),
+        "average_speed": a.get("average_speed"),
+        "total_elevation_gain": a.get("total_elevation_gain"),
+        "kilojoules": a.get("kilojoules"),
+        "calories": a.get("calories"),
+        "device_watts": bool(a.get("device_watts", False)),
+        "device_name": dev,
+        "gear_id": gid,
+        "gear_name": resolved_gear_name,
+        "weighted_average_watts": wavg,
+        "suffer_score": a.get("suffer_score"),
+    }
+
+
+async def _apply_one_strava_detail(
+    session: AsyncSession, client: StravaClient, activity_id: int
+) -> bool:
+    """GET /activities/{id} and merge fields; set strava_detail_synced when done.
+
+    Returns True if the row was updated (including 404 tombstone). False on
+    transient errors so the caller can move on and retry on a later sync.
+    """
+    try:
+        detail = await client.get_activity(activity_id)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning("GET /activities/%s returned 404", activity_id)
+            await session.execute(
+                update(Activity)
+                .where(Activity.id == activity_id)
+                .values(strava_detail_synced=True)
+            )
+            await session.commit()
+            return True
+        raise
+    except RateLimitExceeded:
+        raise
+    except Exception as e:
+        logger.warning("GET /activities/%s failed: %s", activity_id, e)
+        return False
+
+    if not isinstance(detail, dict):
+        return False
+
+    row = await _activity_row_from_strava(detail, client)
+    row_id = row.pop("id")
+    row["strava_detail_synced"] = True
+    await session.execute(update(Activity).where(Activity.id == row_id).values(**row))
+    await session.commit()
+    return True
+
+
+async def _upsert_activities_from_list(
     session: AsyncSession, activities: list[dict], client: StravaClient
 ) -> int:
-    """Store a batch of activities in the database (upsert). Returns count stored."""
+    """Upsert activities from GET /athlete/activities payloads only (no per-activity detail calls)."""
     if not activities:
         return 0
 
     values = []
     for a in activities:
-        gear = a.get("gear")
-        gear_name_from_payload: str | None = None
-        if isinstance(gear, dict):
-            gear_name_from_payload = (
-                (gear.get("nickname") or gear.get("name") or "").strip() or None
-            )
-        gid = _normal_gear_id(a.get("gear_id"))
-        if not gid and isinstance(gear, dict):
-            gid = _normal_gear_id(gear.get("id"))
-
-        resolved_gear_name = gear_name_from_payload
-        if not resolved_gear_name and gid:
-            resolved_gear_name = await client.get_gear_display_name(gid)
-
-        wavg = a.get("weighted_average_watts")
-        if wavg is not None:
-            wavg = float(wavg)
-
-        dev = a.get("device_name")
-        if isinstance(dev, str):
-            dev = dev[:255] if len(dev) > 255 else dev
-        else:
-            dev = None
-
-        values.append(
-            {
-                "id": a["id"],
-                "athlete_id": a["athlete"]["id"],
-                "name": a.get("name", ""),
-                "description": a.get("description"),
-                "sport_type": a.get("sport_type", a.get("type", "")),
-                "start_date": datetime.fromisoformat(
-                    a["start_date"].replace("Z", "+00:00")
-                ),
-                "elapsed_time": a.get("elapsed_time", 0),
-                "moving_time": a.get("moving_time", 0),
-                "distance": a.get("distance", 0.0),
-                "average_heartrate": a.get("average_heartrate"),
-                "max_heartrate": a.get("max_heartrate"),
-                "has_heartrate": a.get("has_heartrate", False),
-                "average_watts": a.get("average_watts"),
-                "max_watts": a.get("max_watts"),
-                "average_speed": a.get("average_speed"),
-                "total_elevation_gain": a.get("total_elevation_gain"),
-                "calories": a.get("calories"),
-                "kilojoules": a.get("kilojoules"),
-                "device_watts": bool(a.get("device_watts", False)),
-                "device_name": dev,
-                "gear_id": gid,
-                "gear_name": resolved_gear_name,
-                "weighted_average_watts": wavg,
-                "suffer_score": a.get("suffer_score"),
-            }
-        )
+        row = await _activity_row_from_strava(a, client, resolve_gear=False)
+        row["strava_detail_synced"] = False
+        values.append(row)
 
     stmt = pg_insert(Activity).values(values)
     stmt = stmt.on_conflict_do_update(
@@ -215,6 +271,10 @@ async def _store_activities(
             "name": stmt.excluded.name,
             "description": stmt.excluded.description,
             "sport_type": stmt.excluded.sport_type,
+            "start_date": stmt.excluded.start_date,
+            "elapsed_time": stmt.excluded.elapsed_time,
+            "moving_time": stmt.excluded.moving_time,
+            "distance": stmt.excluded.distance,
             "average_heartrate": stmt.excluded.average_heartrate,
             "max_heartrate": stmt.excluded.max_heartrate,
             "has_heartrate": stmt.excluded.has_heartrate,
@@ -222,8 +282,8 @@ async def _store_activities(
             "max_watts": stmt.excluded.max_watts,
             "average_speed": stmt.excluded.average_speed,
             "total_elevation_gain": stmt.excluded.total_elevation_gain,
-            "calories": stmt.excluded.calories,
             "kilojoules": stmt.excluded.kilojoules,
+            "calories": stmt.excluded.calories,
             "device_watts": stmt.excluded.device_watts,
             "device_name": stmt.excluded.device_name,
             "gear_id": stmt.excluded.gear_id,
@@ -235,6 +295,104 @@ async def _store_activities(
     await session.execute(stmt)
     await session.commit()
     return len(values)
+
+
+async def _drain_strava_detail_queue(
+    session: AsyncSession, client: StravaClient, athlete_id: int
+) -> None:
+    """Merge GET /activities/{id} for rows with strava_detail_synced=False until budget or rate limits."""
+    sync_state.phase = "detailing"
+
+    pending_result = await session.execute(
+        select(func.count(Activity.id)).where(
+            Activity.athlete_id == athlete_id,
+            Activity.strava_detail_synced == False,  # noqa: E712
+        )
+    )
+    pending_initial = pending_result.scalar_one()
+    if pending_initial == 0:
+        return
+
+    logger.info(
+        "Merging Strava activity details (%d pending, budget %d per run)...",
+        pending_initial,
+        DETAIL_MERGE_FETCH_BUDGET,
+    )
+
+    successes = 0
+    rate_limit_sleeps = 0
+    no_progress_batches = 0
+
+    while successes < DETAIL_MERGE_FETCH_BUDGET:
+        result = await session.execute(
+            select(Activity.id)
+            .where(
+                Activity.athlete_id == athlete_id,
+                Activity.strava_detail_synced == False,  # noqa: E712
+            )
+            .order_by(Activity.start_date.desc())
+            .limit(100)
+        )
+        ids = [row[0] for row in result.all()]
+        if not ids:
+            break
+
+        batch_merged = 0
+        for aid in ids:
+            if successes >= DETAIL_MERGE_FETCH_BUDGET:
+                break
+
+            while True:
+                try:
+                    merged = await _apply_one_strava_detail(session, client, aid)
+                    if merged:
+                        successes += 1
+                        batch_merged += 1
+                    break
+                except RateLimitExceeded as e:
+                    rate_limit_sleeps += 1
+                    if rate_limit_sleeps > DETAIL_MERGE_MAX_RATE_LIMIT_SLEEPS:
+                        sync_state.last_error = (
+                            "Strava rate limit while merging activity details; "
+                            "will resume on the next sync."
+                        )
+                        logger.warning(
+                            "Detail merge stopped after %d rate-limit waits",
+                            rate_limit_sleeps,
+                        )
+                        return
+                    wait_s = min(float(e.reset_after), 900.0) + 5.0
+                    logger.warning(
+                        "Rate limit during detail merge; sleeping %.0fs then retrying "
+                        "activity %s",
+                        wait_s,
+                        aid,
+                    )
+                    await asyncio.sleep(wait_s)
+
+        if batch_merged == 0:
+            no_progress_batches += 1
+            if no_progress_batches >= 2:
+                logger.warning(
+                    "Detail merge: no successful merges in consecutive batches; "
+                    "will retry on the next sync"
+                )
+                break
+        else:
+            no_progress_batches = 0
+
+    remaining = await session.execute(
+        select(func.count(Activity.id)).where(
+            Activity.athlete_id == athlete_id,
+            Activity.strava_detail_synced == False,  # noqa: E712
+        )
+    )
+    n_left = remaining.scalar_one()
+    if n_left > 0:
+        logger.info(
+            "%d activities still queued for Strava detail merge; next sync continues",
+            n_left,
+        )
 
 
 async def _process_activity_streams(
@@ -409,12 +567,13 @@ async def run_sync(session: AsyncSession, force_resync: bool = False):
         existing_count = count_result.scalar_one()
 
         if existing_count == 0 or force_resync:
-            # Full backfill
+            # Full backfill (list pages only; detail merge runs after)
             await _backfill(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
         else:
-            # Incremental sync
+            # Incremental sync (list pages only)
             await _incremental_sync(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
 
+        await _drain_strava_detail_queue(session, client, athlete_id)
         # Process any activities that don't have streams yet
         await _process_pending_streams(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
 
@@ -462,7 +621,7 @@ async def _backfill(
         if not activities:
             break
 
-        stored = await _store_activities(session, activities, client)
+        stored = await _upsert_activities_from_list(session, activities, client)
         total_stored += stored
         sync_state.total_activities = total_stored
         sync_state.synced_activities = total_stored
@@ -516,7 +675,7 @@ async def _incremental_sync(
         if not activities:
             break
 
-        stored = await _store_activities(session, activities, client)
+        stored = await _upsert_activities_from_list(session, activities, client)
         total_new += stored
 
         if len(activities) < 200:
@@ -644,6 +803,7 @@ async def force_full_resync(session: AsyncSession, athlete_id: int):
         .where(Activity.athlete_id == athlete_id)
         .values(
             synced_streams=False,
+            strava_detail_synced=False,
             trimp=None,
             hr_zone_seconds=None,
             power_zone_seconds=None,

@@ -42,7 +42,7 @@ async def trigger_sync_task(force_resync: bool = False):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: create tables, start scheduler."""
-    # Create all tables
+    # Create all tables (schema migrations / DDL are applied manually outside the app)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified")

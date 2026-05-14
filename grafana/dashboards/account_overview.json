@@ -27,7 +27,7 @@
     },
     {
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-      "description": "Aggregates use the dashboard time range. Month boundaries follow PostgreSQL `date_trunc` in the database session timezone.",
+      "description": "Aggregates use the dashboard time range. Month boundaries follow PostgreSQL `date_trunc` in the database session timezone. **Calories (kcal)** sums `activities.calories` (from Strava detailed activity when synced); activities without that field contribute 0 to the period total.",
       "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
       "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
       "id": 2,
@@ -38,7 +38,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS \"Month\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS \"Month\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\",\n  ROUND(SUM(COALESCE(calories, 0))::numeric, 0) AS \"Calories (kcal)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
           "refId": "A"
         }
       ]
@@ -52,6 +52,7 @@
     },
     {
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Sums `activities.calories` per calendar year (Strava kcal when present on the row).",
       "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
       "id": 4,
@@ -62,7 +63,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS \"Year\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS \"Year\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\",\n  ROUND(SUM(COALESCE(calories, 0))::numeric, 0) AS \"Calories (kcal)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
           "refId": "A"
         }
       ]

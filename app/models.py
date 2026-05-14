@@ -76,14 +76,17 @@ class Activity(Base):
     max_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
     average_speed: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_elevation_gain: Mapped[float | None] = mapped_column(Float, nullable=True)
-    calories: Mapped[float | None] = mapped_column(Float, nullable=True)
     kilojoules: Mapped[float | None] = mapped_column(Float, nullable=True)
+    calories: Mapped[float | None] = mapped_column(Float, nullable=True)
     device_watts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     device_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     gear_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gear_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     weighted_average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
     suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    strava_detail_synced: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     trimp: Mapped[float | None] = mapped_column(Float, nullable=True)
     hr_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     power_zone_seconds: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
