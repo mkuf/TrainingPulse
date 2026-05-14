@@ -381,19 +381,25 @@ async def _drain_strava_detail_queue(
     """
     sync_state.phase = "detailing"
 
-    pending_result = await session.execute(
-        select(func.count(Activity.id)).where(
-            Activity.athlete_id == athlete_id,
-            Activity.strava_detail_synced == False,  # noqa: E712
+    counts_row = (
+        await session.execute(
+            select(
+                func.count(Activity.id),
+                func.count(Activity.id).filter(
+                    Activity.strava_detail_synced == False  # noqa: E712
+                ),
+            ).where(Activity.athlete_id == athlete_id)
         )
-    )
-    pending_initial = pending_result.scalar_one()
-    if pending_initial == 0:
-        sync_state.details_pending = 0
-        return
+    ).one()
+    total_activities, pending_initial = counts_row
 
-    sync_state.details_fetched = 0
+    # Cumulative counters: "fetched" is everything already merged across all
+    # previous sync runs, "pending" is what's left to do this run.
+    sync_state.details_fetched = max(0, total_activities - pending_initial)
     sync_state.details_pending = pending_initial
+
+    if pending_initial == 0:
+        return
 
     concurrency = settings.SYNC_DETAIL_CONCURRENCY
     logger.info(
@@ -456,14 +462,19 @@ async def _drain_strava_detail_queue(
         else:
             no_progress_batches = 0
 
-    remaining = await session.execute(
-        select(func.count(Activity.id)).where(
-            Activity.athlete_id == athlete_id,
-            Activity.strava_detail_synced == False,  # noqa: E712
+    final_counts = (
+        await session.execute(
+            select(
+                func.count(Activity.id),
+                func.count(Activity.id).filter(
+                    Activity.strava_detail_synced == False  # noqa: E712
+                ),
+            ).where(Activity.athlete_id == athlete_id)
         )
-    )
-    n_left = remaining.scalar_one()
+    ).one()
+    total_final, n_left = final_counts
     sync_state.details_pending = n_left
+    sync_state.details_fetched = max(0, total_final - n_left)
     if n_left > 0:
         logger.info(
             "%d activities still queued for Strava detail merge; next sync continues",
@@ -607,12 +618,12 @@ async def run_sync(session: AsyncSession, force_resync: bool = False):
 
     sync_state.is_running = True
     sync_state.last_error = None
+    # Note: details_* and streams_* counters are intentionally NOT reset here.
+    # They represent cumulative progress against the activity library, so each
+    # phase initializes them from current DB state (done = total - pending).
+    # Resetting them would make the UI flash 0/N on every "Sync Now" click.
     sync_state.synced_activities = 0
     sync_state.total_activities = 0
-    sync_state.details_fetched = 0
-    sync_state.details_pending = 0
-    sync_state.streams_fetched = 0
-    sync_state.streams_pending = 0
 
     client = StravaClient(session)
 
@@ -796,13 +807,22 @@ async def _process_pending_streams(
     )
     pending_ids = [row[0] for row in result.all()]
 
+    total_activities = (
+        await session.execute(
+            select(func.count(Activity.id)).where(Activity.athlete_id == athlete_id)
+        )
+    ).scalar_one()
+
+    # Cumulative counters across all syncs: keep "fetched" pinned to the number
+    # of activities whose streams are already on disk so the UI doesn't snap
+    # back to 0 every time we click "Sync Now".
+    sync_state.streams_pending = len(pending_ids)
+    sync_state.streams_fetched = max(0, total_activities - len(pending_ids))
+
     if not pending_ids:
-        sync_state.streams_pending = 0
         return
 
     total = len(pending_ids)
-    sync_state.streams_fetched = 0
-    sync_state.streams_pending = total
 
     concurrency = settings.SYNC_STREAMS_CONCURRENCY
     logger.info(

@@ -178,6 +178,36 @@ async def auth_callback(code: str | None = None, error: str | None = None):
 # ── Status / Home page ──────────────────────────────────────────────
 
 
+async def _progress_counts(session, athlete_id: int) -> dict:
+    """One-shot DB query that returns cumulative sync progress for an athlete.
+
+    Returns ``{total, details_done, details_pending, streams_done, streams_pending}``.
+    Authoritative for the UI: ``sync_state`` in-memory counters are only used
+    for ticking phase/rate-limit info.
+    """
+    row = (
+        await session.execute(
+            select(
+                func.count(Activity.id),
+                func.count(Activity.id).filter(
+                    Activity.strava_detail_synced == False  # noqa: E712
+                ),
+                func.count(Activity.id).filter(
+                    Activity.synced_streams == False  # noqa: E712
+                ),
+            ).where(Activity.athlete_id == athlete_id)
+        )
+    ).one()
+    total, details_pending, streams_pending = row
+    return {
+        "total": total,
+        "details_done": max(0, total - details_pending),
+        "details_pending": details_pending,
+        "streams_done": max(0, total - streams_pending),
+        "streams_pending": streams_pending,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home():
     """Status page showing sync state and current metrics."""
@@ -203,21 +233,9 @@ async def home():
                 )
             )
 
-        # Get activity stats
-        count_result = await session.execute(
-            select(func.count(Activity.id)).where(
-                Activity.athlete_id == token.athlete_id
-            )
-        )
-        activity_count = count_result.scalar_one()
-
-        processed_result = await session.execute(
-            select(func.count(Activity.id)).where(
-                Activity.athlete_id == token.athlete_id,
-                Activity.synced_streams == True,  # noqa: E712
-            )
-        )
-        processed_count = processed_result.scalar_one()
+        counts = await _progress_counts(session, token.athlete_id)
+        activity_count = counts["total"]
+        processed_count = counts["streams_done"]
 
         # Get latest daily metrics
         latest_result = await session.execute(
@@ -229,13 +247,14 @@ async def home():
         latest_metrics = latest_result.scalar_one_or_none()
 
     # Initial values for the progress rows; the JS poller refreshes these every
-    # few seconds while a sync is running.
+    # few seconds. We render cumulative values from the DB so the bars don't
+    # snap back to 0 between sync runs.
+    list_synced_initial = activity_count
     list_total_initial = max(sync_state.total_activities, activity_count)
-    details_total_initial = sync_state.details_fetched + sync_state.details_pending
-    streams_total_initial = max(
-        sync_state.streams_fetched + sync_state.streams_pending,
-        activity_count,
-    )
+    details_done_initial = counts["details_done"]
+    details_total_initial = counts["total"]
+    streams_done_initial = counts["streams_done"]
+    streams_total_initial = counts["total"]
     last_sync_initial = (
         sync_state.last_sync.strftime("%Y-%m-%d %H:%M UTC")
         if sync_state.last_sync
@@ -259,22 +278,22 @@ async def home():
             <tr>
                 <td>List backfill</td>
                 <td>
-                    <span id="sync-list-text">{sync_state.synced_activities}/{list_total_initial}</span>
-                    <progress id="sync-list-bar" value="{sync_state.synced_activities}" max="{max(list_total_initial, 1)}"></progress>
+                    <span id="sync-list-text">{list_synced_initial}/{list_total_initial}</span>
+                    <progress id="sync-list-bar" value="{list_synced_initial}" max="{max(list_total_initial, 1)}"></progress>
                 </td>
             </tr>
             <tr>
                 <td>Activity details</td>
                 <td>
-                    <span id="sync-details-text">{sync_state.details_fetched}/{details_total_initial}</span>
-                    <progress id="sync-details-bar" value="{sync_state.details_fetched}" max="{max(details_total_initial, 1)}"></progress>
+                    <span id="sync-details-text">{details_done_initial}/{details_total_initial}</span>
+                    <progress id="sync-details-bar" value="{details_done_initial}" max="{max(details_total_initial, 1)}"></progress>
                 </td>
             </tr>
             <tr>
                 <td>Streams processed</td>
                 <td>
-                    <span id="sync-streams-text">{processed_count}/{streams_total_initial}</span>
-                    <progress id="sync-streams-bar" value="{processed_count}" max="{max(streams_total_initial, 1)}"></progress>
+                    <span id="sync-streams-text">{streams_done_initial}/{streams_total_initial}</span>
+                    <progress id="sync-streams-bar" value="{streams_done_initial}" max="{max(streams_total_initial, 1)}"></progress>
                 </td>
             </tr>
             <tr>
@@ -426,25 +445,46 @@ async def home():
 
 @app.get("/sync/status")
 async def sync_status():
-    """JSON endpoint for sync status (consumed by the home-page poller)."""
-    details_total = sync_state.details_fetched + sync_state.details_pending
-    streams_total = sync_state.streams_fetched + sync_state.streams_pending
+    """JSON endpoint for sync status (consumed by the home-page poller).
+
+    Progress counts come from the DB so they reflect cumulative state across
+    sync runs (e.g. clicking "Sync Now" doesn't reset the bars to 0). Phase,
+    running flag, rate-limit usage, and last error come from ``sync_state``.
+    """
+    async with async_session() as session:
+        token = (await session.execute(select(StravaToken).limit(1))).scalar_one_or_none()
+        if token is None:
+            counts = {
+                "total": 0,
+                "details_done": 0,
+                "details_pending": 0,
+                "streams_done": 0,
+                "streams_pending": 0,
+            }
+        else:
+            counts = await _progress_counts(session, token.athlete_id)
+
+    # List backfill: cumulative "synced" is the DB count; "total" is the DB
+    # count except during an active backfill where the in-memory total may be
+    # transiently larger as pages are fetched.
+    list_total = max(counts["total"], sync_state.total_activities)
+
     return {
         "is_running": sync_state.is_running,
         "phase": sync_state.phase,
         "list": {
-            "synced": sync_state.synced_activities,
-            "total": sync_state.total_activities,
+            "synced": counts["total"],
+            "total": list_total,
         },
         "details": {
-            "fetched": sync_state.details_fetched,
-            "pending": sync_state.details_pending,
-            "total": details_total,
+            "fetched": counts["details_done"],
+            "pending": counts["details_pending"],
+            "total": counts["total"],
         },
         "streams": {
-            "fetched": sync_state.streams_fetched,
-            "pending": sync_state.streams_pending,
-            "total": streams_total,
+            "fetched": counts["streams_done"],
+            "pending": counts["streams_pending"],
+            "total": counts["total"],
         },
         "rate_limit": {
             "fifteen_min": {
