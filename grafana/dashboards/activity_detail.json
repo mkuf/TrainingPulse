@@ -9,11 +9,11 @@
   "links": [
     {
       "asDropdown": false,
-      "icon": "external link",
+      "icon": "dashboard",
       "includeVars": false,
       "keepTime": false,
       "tags": [],
-      "targetBlank": true,
+      "targetBlank": false,
       "title": "\u2190 Back to Fitness & Freshness",
       "tooltip": "",
       "type": "link",
