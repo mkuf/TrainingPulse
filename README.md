@@ -109,6 +109,17 @@ Strava API → [strava-fitness app] → PostgreSQL → Grafana
 - Background scheduler polls Strava every 15 minutes
 - Token auto-refresh ensures continuous operation
 
+### Strava endpoints and the fields they provide
+
+A single activity is assembled from three separate Strava endpoints. The list endpoint is cheap (one call per 200 activities), but `description`, `calories`, `device_name`, and full `gear` info are only available on the per-activity detail endpoint — and streams are a third, separate per-activity call. That's why a full backfill costs roughly `2N + N/200` requests against Strava's 100 / 15-min and 1000 / day limits.
+
+```mermaid
+flowchart LR
+    A["GET /athlete/activities (list)"] -->|"SummaryActivity: suffer_score, kilojoules, watts, HR"| DB[(activities)]
+    B["GET /activities/{id} (detail)"] -->|"DetailedActivity adds: description, calories, device_name, gear"| DB
+    C["GET /activities/{id}/streams"] -->|"time, hr, watts, latlng, ..."| DB
+```
+
 ## API Endpoints
 
 | Endpoint | Description |
