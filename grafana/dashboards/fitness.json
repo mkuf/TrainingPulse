@@ -6,7 +6,7 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_POSTGRESQL}"
         },
-        "enable": true,
+        "enable": false,
         "iconColor": "#FC4C02",
         "name": "Activities",
         "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date",
@@ -412,14 +412,14 @@
           {
             "matcher": { "id": "byName", "options": "Floor" },
             "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e90" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } },
               { "id": "displayName", "value": "Floor (80%)" }
             ]
           },
           {
             "matcher": { "id": "byName", "options": "Ceiling" },
             "properties": [
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#B4B4B6" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } },
               { "id": "displayName", "value": "Ceiling (125%)" }
             ]
           },
@@ -446,7 +446,7 @@
         "justifyMode": "center"
       },
       "title": "This week vs corridor",
-      "description": "Numbers for the **calendar week containing today** (ISO week, Monday start). **Floor** and **Ceiling** use the same rule as the chart: 80% and 125% of the average total weekly TRIMP from the **four complete weeks before** this week. **This week** is your summed TRIMP so far in the current week. Its tile color is **grey** under the floor, **green** between floor and ceiling (inclusive), and **orange** above the ceiling (when the corridor is defined).",
+      "description": "Numbers for the **calendar week containing today** (ISO week, Monday start). **Floor** and **Ceiling** use the same rule as the chart: 80% and 125% of the average total weekly TRIMP from the **four complete weeks before** this week. **This week** is your summed TRIMP so far in the current week. **Floor** / **Ceiling** tiles use **blue** / **purple** backgrounds. **This week** tile color is **grey** under the floor, **green** between floor and ceiling (inclusive), and **orange** above the ceiling (when the corridor is defined).",
       "transformations": [
         {
           "id": "configFromData",
@@ -894,7 +894,7 @@
     ]
   },
   "time": {
-    "from": "now-6M",
+    "from": "now-90d",
     "to": "now"
   },
   "timepicker": {
