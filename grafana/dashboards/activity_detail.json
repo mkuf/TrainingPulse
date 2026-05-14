@@ -29,6 +29,18 @@
       "title": "Account overview",
       "type": "link",
       "url": "/d/strava-account"
+    },
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": true,
+      "title": "View on Strava",
+      "tooltip": "Open this activity on strava.com",
+      "type": "link",
+      "url": "https://www.strava.com/activities/${activity_id}"
     }
   ],
   "panels": [
