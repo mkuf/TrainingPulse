@@ -52,6 +52,9 @@ class SyncState:
         self.rate_limit_15min_limit: int = 100
         self.rate_limit_daily_usage: int = 0
         self.rate_limit_daily_limit: int = 1000
+        # Wall-clock time of the most recent rate-limit snapshot. None until the
+        # first Strava API call of the process lifetime.
+        self.rate_limit_last_checked_at: datetime | None = None
         self.last_error: str | None = None
         self.last_sync: datetime | None = None
 
@@ -64,11 +67,16 @@ T = TypeVar("T")
 
 
 def _snapshot_rate_limits(client: StravaClient) -> None:
-    """Copy the client's last-seen rate-limit counters into sync_state."""
+    """Copy the client's last-seen rate-limit counters into sync_state.
+
+    Also stamps ``rate_limit_last_checked_at`` so the UI can show how stale
+    the displayed numbers are.
+    """
     sync_state.rate_limit_15min_usage = client._rate_limit_usage_15min
     sync_state.rate_limit_15min_limit = client._rate_limit_limit_15min
     sync_state.rate_limit_daily_usage = client._rate_limit_usage_daily
     sync_state.rate_limit_daily_limit = client._rate_limit_limit_daily
+    sync_state.rate_limit_last_checked_at = datetime.now(timezone.utc)
 
 
 async def _run_with_concurrency(

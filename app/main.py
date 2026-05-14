@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -22,7 +22,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from config import settings
 from database import async_session, engine
 from models import Activity, ActivityStream, Base, DailyMetrics, StravaToken
-from sync import run_sync, sync_state
+from strava_client import StravaClient
+from sync import _snapshot_rate_limits, run_sync, sync_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -178,6 +179,18 @@ async def auth_callback(code: str | None = None, error: str | None = None):
 # ── Status / Home page ──────────────────────────────────────────────
 
 
+def _seconds_until_next_quarter_hour() -> int:
+    """Seconds until the next :00 / :15 / :30 / :45 UTC mark.
+
+    Strava resets the 15-min read budget on these boundaries. Pure wall-clock
+    math; does not hit the API.
+    """
+    now = datetime.now(timezone.utc)
+    minutes_into_window = now.minute % 15
+    seconds_into_window = minutes_into_window * 60 + now.second
+    return max(0, 15 * 60 - seconds_into_window)
+
+
 async def _progress_counts(session, athlete_id: int) -> dict:
     """One-shot DB query that returns cumulative sync progress for an athlete.
 
@@ -298,11 +311,21 @@ async def home():
             </tr>
             <tr>
                 <td>Rate limit (15-min)</td>
-                <td id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</td>
+                <td>
+                    <span id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</span>
+                    <span class="rl-meta" id="sync-rl-resets"></span>
+                </td>
             </tr>
             <tr>
                 <td>Rate limit (daily)</td>
                 <td id="sync-rl-daily">{sync_state.rate_limit_daily_usage}/{sync_state.rate_limit_daily_limit}</td>
+            </tr>
+            <tr>
+                <td>Last checked</td>
+                <td>
+                    <span id="sync-rl-checked">Never</span>
+                    <button type="button" id="sync-rl-refresh" class="btn btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
+                </td>
             </tr>
             {error_row_initial}
         </table>
@@ -334,6 +357,24 @@ async def home():
             return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate())
                 + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " UTC";
         }}
+        function fmtAgo(iso) {{
+            if (!iso) return "Never";
+            const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+            if (secs < 10) return "just now";
+            if (secs < 60) return secs + "s ago";
+            const mins = Math.floor(secs / 60);
+            if (mins < 60) return mins + " min ago";
+            const hours = Math.floor(mins / 60);
+            if (hours < 24) return hours + "h " + (mins % 60) + "m ago";
+            return Math.floor(hours / 24) + "d ago";
+        }}
+        function fmtResetsIn(secs) {{
+            if (secs == null) return "";
+            const s = Math.max(0, Math.floor(secs));
+            const m = Math.floor(s / 60);
+            const r = s % 60;
+            return "resets in " + m + "m " + (r < 10 ? "0" : "") + r + "s";
+        }}
         async function tick() {{
             try {{
                 const res = await fetch("/sync/status", {{ cache: "no-store" }});
@@ -352,6 +393,12 @@ async def home():
                 if (rl15) rl15.textContent = s.rate_limit.fifteen_min.used + "/" + s.rate_limit.fifteen_min.limit;
                 const rlD = document.getElementById("sync-rl-daily");
                 if (rlD) rlD.textContent = s.rate_limit.daily.used + "/" + s.rate_limit.daily.limit;
+                const rlResets = document.getElementById("sync-rl-resets");
+                if (rlResets) rlResets.textContent = fmtResetsIn(s.rate_limit.fifteen_min_resets_in_seconds);
+                const rlChecked = document.getElementById("sync-rl-checked");
+                if (rlChecked) rlChecked.textContent = fmtAgo(s.rate_limit.last_checked_at);
+                const rlBtn = document.getElementById("sync-rl-refresh");
+                if (rlBtn) rlBtn.disabled = !!s.is_running;
                 const errRow = document.getElementById("sync-error-row");
                 const errCell = document.getElementById("sync-error");
                 if (errRow && errCell) {{
@@ -370,6 +417,20 @@ async def home():
                 }}
                 window.__wasRunning = s.is_running;
             }} catch (e) {{ /* swallow */ }}
+        }}
+        const rlBtn = document.getElementById("sync-rl-refresh");
+        if (rlBtn) {{
+            rlBtn.addEventListener("click", async function() {{
+                if (rlBtn.disabled) return;
+                rlBtn.disabled = true;
+                const prev = rlBtn.textContent;
+                rlBtn.textContent = "Refreshing...";
+                try {{
+                    await fetch("/sync/refresh-rate-limit", {{ method: "POST", cache: "no-store" }});
+                }} catch (e) {{ /* swallow */ }}
+                rlBtn.textContent = prev;
+                await tick();
+            }});
         }}
         tick();
         setInterval(tick, POLL_MS);
@@ -443,14 +504,8 @@ async def home():
     )
 
 
-@app.get("/sync/status")
-async def sync_status():
-    """JSON endpoint for sync status (consumed by the home-page poller).
-
-    Progress counts come from the DB so they reflect cumulative state across
-    sync runs (e.g. clicking "Sync Now" doesn't reset the bars to 0). Phase,
-    running flag, rate-limit usage, and last error come from ``sync_state``.
-    """
+async def _build_status_payload() -> dict:
+    """Compose the JSON used by both ``/sync/status`` and the refresh endpoint."""
     async with async_session() as session:
         token = (await session.execute(select(StravaToken).limit(1))).scalar_one_or_none()
         if token is None:
@@ -469,6 +524,7 @@ async def sync_status():
     # transiently larger as pages are fetched.
     list_total = max(counts["total"], sync_state.total_activities)
 
+    rl_last = sync_state.rate_limit_last_checked_at
     return {
         "is_running": sync_state.is_running,
         "phase": sync_state.phase,
@@ -495,10 +551,54 @@ async def sync_status():
                 "used": sync_state.rate_limit_daily_usage,
                 "limit": sync_state.rate_limit_daily_limit,
             },
+            "last_checked_at": rl_last.isoformat() if rl_last else None,
+            "fifteen_min_resets_in_seconds": _seconds_until_next_quarter_hour(),
         },
         "last_error": sync_state.last_error,
         "last_sync": sync_state.last_sync.isoformat() if sync_state.last_sync else None,
     }
+
+
+@app.get("/sync/status")
+async def sync_status():
+    """JSON endpoint for sync status (consumed by the home-page poller).
+
+    Progress counts come from the DB so they reflect cumulative state across
+    sync runs (e.g. clicking "Sync Now" doesn't reset the bars to 0). Phase,
+    running flag, rate-limit usage, and last error come from ``sync_state``.
+    """
+    return await _build_status_payload()
+
+
+@app.post("/sync/refresh-rate-limit")
+async def refresh_rate_limit():
+    """Make exactly one lightweight Strava call to refresh rate-limit headers.
+
+    Costs 1 read against the user's quota. Returns 409 if a sync is already
+    in progress (since that sync is updating the numbers anyway).
+    """
+    if sync_state.is_running:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "A sync is already running; rate limits will update from that."},
+        )
+    async with async_session() as session:
+        token = (await session.execute(select(StravaToken).limit(1))).scalar_one_or_none()
+        if token is None:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Not authenticated. Connect with Strava first."},
+            )
+        client = StravaClient(session)
+        try:
+            await client.get_athlete()
+            _snapshot_rate_limits(client)
+        except Exception as e:
+            logger.warning("Rate-limit refresh failed: %s", e)
+            return JSONResponse(status_code=502, content={"error": str(e)})
+        finally:
+            await client.close()
+    return await _build_status_payload()
 
 
 @app.post("/sync/trigger")
@@ -582,6 +682,18 @@ def _page(title: str, body: str) -> str:
         .btn-warning {{ background: #ff9800; color: #000; }}
         .btn-warning:hover {{ background: #f57c00; }}
         .btn[disabled] {{ opacity: 0.5; cursor: not-allowed; }}
+        .btn-sm {{
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            margin-top: 0;
+            margin-left: 0.5rem;
+            font-weight: 500;
+        }}
+        .rl-meta {{
+            color: #888;
+            font-size: 0.85rem;
+            margin-left: 0.5rem;
+        }}
         .sync-actions {{ margin-top: 1.5rem; display: flex; gap: 0.5rem; }}
         .error {{ color: #ef5350; }}
         .metrics-grid {{
