@@ -1,8 +1,9 @@
 apiVersion: 1
 
 datasources:
-  - name: PostgreSQL
-    type: postgres
+  - name: strava-pg
+    uid: strava-pg
+    type: grafana-postgresql-datasource
     access: proxy
     url: db:5432
     user: $POSTGRES_USER

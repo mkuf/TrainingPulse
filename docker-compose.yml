@@ -51,7 +51,8 @@ services:
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards/json
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
