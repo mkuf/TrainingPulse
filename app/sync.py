@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from typing import Awaitable, Callable, Iterable, TypeVar
 
 import httpx
 from sqlalchemy import func, select, update
@@ -10,6 +11,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
+from database import async_session
 from metrics import (
     calculate_trimp_from_streams,
     calculate_power_zones,
@@ -25,27 +27,94 @@ from strava_client import RateLimitExceeded, StravaClient
 
 logger = logging.getLogger(__name__)
 
-# Max successful GET /activities/{id} merges per sync run (remaining queue resumes on later runs).
-DETAIL_MERGE_FETCH_BUDGET = 250
-# Max sleeps after HTTP 429 before giving up on detail merge this run (streams may still run).
-DETAIL_MERGE_MAX_RATE_LIMIT_SLEEPS = 40
-
 
 class SyncState:
-    """Tracks the current state of the sync process."""
+    """Tracks the current state of the sync process.
+
+    All counters are in-memory only; they reset on process restart but reflect
+    DB truth on the next sync run.
+    """
 
     def __init__(self):
         self.is_running: bool = False
-        self.phase: str = "idle"  # idle, backfilling, detailing, incremental, calculating
+        self.phase: str = "idle"  # idle, backfilling, detailing, streaming, incremental, calculating
+        # List backfill progress (from GET /athlete/activities)
         self.total_activities: int = 0
         self.synced_activities: int = 0
+        # Detail merge progress (from GET /activities/{id})
+        self.details_fetched: int = 0
+        self.details_pending: int = 0
+        # Stream fetch progress (from GET /activities/{id}/streams)
         self.streams_fetched: int = 0
+        self.streams_pending: int = 0
+        # Strava rate-limit usage snapshot (updated after each API call)
+        self.rate_limit_15min_usage: int = 0
+        self.rate_limit_15min_limit: int = 100
+        self.rate_limit_daily_usage: int = 0
+        self.rate_limit_daily_limit: int = 1000
         self.last_error: str | None = None
         self.last_sync: datetime | None = None
 
 
 # Global sync state (shared across the app)
 sync_state = SyncState()
+
+
+T = TypeVar("T")
+
+
+def _snapshot_rate_limits(client: StravaClient) -> None:
+    """Copy the client's last-seen rate-limit counters into sync_state."""
+    sync_state.rate_limit_15min_usage = client._rate_limit_usage_15min
+    sync_state.rate_limit_15min_limit = client._rate_limit_limit_15min
+    sync_state.rate_limit_daily_usage = client._rate_limit_usage_daily
+    sync_state.rate_limit_daily_limit = client._rate_limit_limit_daily
+
+
+async def _run_with_concurrency(
+    items: Iterable[T],
+    worker: Callable[[T], Awaitable[None]],
+    concurrency: int,
+) -> bool:
+    """Run ``worker(item)`` over ``items`` with at most ``concurrency`` in flight.
+
+    Returns ``True`` if all workers completed, ``False`` if any task hit
+    ``RateLimitExceeded`` (in which case the remaining work is cancelled and
+    the caller should stop this phase; the next scheduled sync resumes it).
+    """
+    items = list(items)
+    if not items:
+        return True
+
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    rate_limited = asyncio.Event()
+
+    async def _runner(item: T) -> None:
+        if rate_limited.is_set():
+            return
+        async with semaphore:
+            if rate_limited.is_set():
+                return
+            try:
+                await worker(item)
+            except RateLimitExceeded:
+                rate_limited.set()
+                raise
+
+    tasks = [asyncio.create_task(_runner(item)) for item in items]
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+    for r in results:
+        if isinstance(r, RateLimitExceeded):
+            return False
+        if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
+            raise r
+    return not rate_limited.is_set()
 
 
 def _activity_needs_streams(activity: Activity) -> bool:
@@ -232,14 +301,17 @@ async def _apply_one_strava_detail(
                 .values(strava_detail_synced=True)
             )
             await session.commit()
+            _snapshot_rate_limits(client)
             return True
         raise
     except RateLimitExceeded:
+        _snapshot_rate_limits(client)
         raise
     except Exception as e:
         logger.warning("GET /activities/%s failed: %s", activity_id, e)
         return False
 
+    _snapshot_rate_limits(client)
     if not isinstance(detail, dict):
         return False
 
@@ -300,7 +372,13 @@ async def _upsert_activities_from_list(
 async def _drain_strava_detail_queue(
     session: AsyncSession, client: StravaClient, athlete_id: int
 ) -> None:
-    """Merge GET /activities/{id} for rows with strava_detail_synced=False until budget or rate limits."""
+    """Merge GET /activities/{id} for rows with strava_detail_synced=False.
+
+    Runs with bounded concurrency (``settings.SYNC_DETAIL_CONCURRENCY``). The
+    run stops when the queue is empty, when the Strava rate limit is hit, or
+    when two consecutive batches make no progress. Remaining work resumes on
+    the next scheduled sync.
+    """
     sync_state.phase = "detailing"
 
     pending_result = await session.execute(
@@ -311,19 +389,23 @@ async def _drain_strava_detail_queue(
     )
     pending_initial = pending_result.scalar_one()
     if pending_initial == 0:
+        sync_state.details_pending = 0
         return
 
+    sync_state.details_fetched = 0
+    sync_state.details_pending = pending_initial
+
+    concurrency = settings.SYNC_DETAIL_CONCURRENCY
     logger.info(
-        "Merging Strava activity details (%d pending, budget %d per run)...",
+        "Merging Strava activity details (%d pending, concurrency %d)...",
         pending_initial,
-        DETAIL_MERGE_FETCH_BUDGET,
+        concurrency,
     )
 
-    successes = 0
-    rate_limit_sleeps = 0
+    counter_lock = asyncio.Lock()
     no_progress_batches = 0
 
-    while successes < DETAIL_MERGE_FETCH_BUDGET:
+    while True:
         result = await session.execute(
             select(Activity.id)
             .where(
@@ -331,44 +413,37 @@ async def _drain_strava_detail_queue(
                 Activity.strava_detail_synced == False,  # noqa: E712
             )
             .order_by(Activity.start_date.desc())
-            .limit(100)
+            .limit(max(100, concurrency * 20))
         )
         ids = [row[0] for row in result.all()]
         if not ids:
             break
 
         batch_merged = 0
-        for aid in ids:
-            if successes >= DETAIL_MERGE_FETCH_BUDGET:
-                break
 
-            while True:
-                try:
-                    merged = await _apply_one_strava_detail(session, client, aid)
-                    if merged:
-                        successes += 1
-                        batch_merged += 1
-                    break
-                except RateLimitExceeded as e:
-                    rate_limit_sleeps += 1
-                    if rate_limit_sleeps > DETAIL_MERGE_MAX_RATE_LIMIT_SLEEPS:
-                        sync_state.last_error = (
-                            "Strava rate limit while merging activity details; "
-                            "will resume on the next sync."
-                        )
-                        logger.warning(
-                            "Detail merge stopped after %d rate-limit waits",
-                            rate_limit_sleeps,
-                        )
-                        return
-                    wait_s = min(float(e.reset_after), 900.0) + 5.0
-                    logger.warning(
-                        "Rate limit during detail merge; sleeping %.0fs then retrying "
-                        "activity %s",
-                        wait_s,
-                        aid,
-                    )
-                    await asyncio.sleep(wait_s)
+        async def _worker(activity_id: int) -> None:
+            nonlocal batch_merged
+            # Each worker uses its own session; the parent ``session`` is only
+            # read above for queue selection and below for final counts.
+            async with async_session() as worker_session:
+                merged = await _apply_one_strava_detail(
+                    worker_session, client, activity_id
+                )
+            if merged:
+                async with counter_lock:
+                    batch_merged += 1
+                    sync_state.details_fetched += 1
+                    if sync_state.details_pending > 0:
+                        sync_state.details_pending -= 1
+
+        completed = await _run_with_concurrency(ids, _worker, concurrency)
+        if not completed:
+            sync_state.last_error = (
+                "Strava rate limit while merging activity details; "
+                "will resume on the next sync."
+            )
+            logger.warning("Detail merge paused by rate limit; resuming on next sync")
+            break
 
         if batch_merged == 0:
             no_progress_batches += 1
@@ -388,6 +463,7 @@ async def _drain_strava_detail_queue(
         )
     )
     n_left = remaining.scalar_one()
+    sync_state.details_pending = n_left
     if n_left > 0:
         logger.info(
             "%d activities still queued for Strava detail merge; next sync continues",
@@ -407,6 +483,7 @@ async def _process_activity_streams(
 
     try:
         streams = await client.get_activity_streams(activity.id)
+        _snapshot_rate_limits(client)
         if not isinstance(streams, dict):
             streams = {}
 
@@ -507,6 +584,7 @@ async def _process_activity_streams(
         await session.commit()
 
     except RateLimitExceeded:
+        _snapshot_rate_limits(client)
         raise
     except Exception as e:
         logger.warning(
@@ -529,6 +607,12 @@ async def run_sync(session: AsyncSession, force_resync: bool = False):
 
     sync_state.is_running = True
     sync_state.last_error = None
+    sync_state.synced_activities = 0
+    sync_state.total_activities = 0
+    sync_state.details_fetched = 0
+    sync_state.details_pending = 0
+    sync_state.streams_fetched = 0
+    sync_state.streams_pending = 0
 
     client = StravaClient(session)
 
@@ -618,6 +702,7 @@ async def _backfill(
 
     while True:
         activities = await client.get_activities(page=page, per_page=200)
+        _snapshot_rate_limits(client)
         if not activities:
             break
 
@@ -672,6 +757,7 @@ async def _incremental_sync(
         activities = await client.get_activities(
             page=page, per_page=200, after=after
         )
+        _snapshot_rate_limits(client)
         if not activities:
             break
 
@@ -693,47 +779,68 @@ async def _process_pending_streams(
     hr_zone_boundaries: list[tuple[float, float]],
     power_zone_boundaries: list[tuple[float, float]],
 ):
-    """Fetch and store Strava streams for activities not yet marked synced."""
-    sync_state.phase = "backfilling"
+    """Fetch and store Strava streams for activities not yet marked synced.
+
+    Runs with bounded concurrency (``settings.SYNC_STREAMS_CONCURRENCY``).
+    Stops on rate-limit; remaining work resumes on the next scheduled sync.
+    """
+    sync_state.phase = "streaming"
 
     result = await session.execute(
-        select(Activity)
+        select(Activity.id)
         .where(
             Activity.athlete_id == athlete_id,
             Activity.synced_streams == False,  # noqa: E712
         )
         .order_by(Activity.start_date)
     )
-    pending = result.scalars().all()
+    pending_ids = [row[0] for row in result.all()]
 
-    if not pending:
+    if not pending_ids:
+        sync_state.streams_pending = 0
         return
 
-    sync_state.total_activities = len(pending)
+    total = len(pending_ids)
     sync_state.streams_fetched = 0
+    sync_state.streams_pending = total
 
-    logger.info("Processing streams for %d activities...", len(pending))
+    concurrency = settings.SYNC_STREAMS_CONCURRENCY
+    logger.info(
+        "Processing streams for %d activities (concurrency %d)...",
+        total,
+        concurrency,
+    )
 
-    for i, activity in enumerate(pending):
-        try:
+    counter_lock = asyncio.Lock()
+    done_count = 0
+    log_every = max(50, concurrency * 10)
+
+    async def _worker(activity_id: int) -> None:
+        nonlocal done_count
+        async with async_session() as worker_session:
+            row = await worker_session.get(Activity, activity_id)
+            if row is None:
+                return
             await _process_activity_streams(
-                client, session, activity, hr_zone_boundaries, power_zone_boundaries
+                client, worker_session, row, hr_zone_boundaries, power_zone_boundaries
             )
-            sync_state.streams_fetched = i + 1
+        async with counter_lock:
+            sync_state.streams_fetched += 1
+            if sync_state.streams_pending > 0:
+                sync_state.streams_pending -= 1
+            done_count += 1
+            n = done_count
+        if n % log_every == 0:
+            logger.info("Processed streams: %d/%d", n, total)
 
-            if (i + 1) % 50 == 0:
-                logger.info(
-                    "Processed streams: %d/%d", i + 1, len(pending)
-                )
-
-        except RateLimitExceeded:
-            logger.warning(
-                "Rate limit hit during stream processing at %d/%d. "
-                "Will resume on next sync.",
-                i + 1,
-                len(pending),
-            )
-            raise
+    completed = await _run_with_concurrency(pending_ids, _worker, concurrency)
+    if not completed:
+        logger.warning(
+            "Rate limit hit during stream processing at %d/%d. Will resume on next sync.",
+            sync_state.streams_fetched,
+            total,
+        )
+        raise RateLimitExceeded(reset_after=900)
 
     logger.info("All pending streams processed")
 

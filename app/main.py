@@ -228,17 +228,64 @@ async def home():
         )
         latest_metrics = latest_result.scalar_one_or_none()
 
-    # Build status HTML
+    # Initial values for the progress rows; the JS poller refreshes these every
+    # few seconds while a sync is running.
+    list_total_initial = max(sync_state.total_activities, activity_count)
+    details_total_initial = sync_state.details_fetched + sync_state.details_pending
+    streams_total_initial = max(
+        sync_state.streams_fetched + sync_state.streams_pending,
+        activity_count,
+    )
+    last_sync_initial = (
+        sync_state.last_sync.strftime("%Y-%m-%d %H:%M UTC")
+        if sync_state.last_sync
+        else "Never"
+    )
+    running_label_initial = "🟢 Yes" if sync_state.is_running else "⚪ No"
+    error_row_initial = (
+        f"<tr id='sync-error-row'><td>Error</td><td class='error' id='sync-error'>{sync_state.last_error}</td></tr>"
+        if sync_state.last_error
+        else "<tr id='sync-error-row' style='display:none;'><td>Error</td><td class='error' id='sync-error'></td></tr>"
+    )
+
     sync_info = f"""
     <div class="card">
         <h3>🔄 Sync Status</h3>
         <table>
-            <tr><td>Phase</td><td><strong>{sync_state.phase}</strong></td></tr>
-            <tr><td>Running</td><td>{"🟢 Yes" if sync_state.is_running else "⚪ No"}</td></tr>
-            <tr><td>Last sync</td><td>{sync_state.last_sync.strftime('%Y-%m-%d %H:%M UTC') if sync_state.last_sync else 'Never'}</td></tr>
-            <tr><td>Activities in DB</td><td>{activity_count}</td></tr>
-            <tr><td>Streams processed</td><td>{processed_count}/{activity_count}</td></tr>
-            {"<tr><td>Error</td><td class='error'>" + sync_state.last_error + "</td></tr>" if sync_state.last_error else ""}
+            <tr><td>Phase</td><td><strong id="sync-phase">{sync_state.phase}</strong></td></tr>
+            <tr><td>Running</td><td id="sync-running">{running_label_initial}</td></tr>
+            <tr><td>Last sync</td><td id="sync-last">{last_sync_initial}</td></tr>
+            <tr><td>Activities in DB</td><td id="sync-db-count">{activity_count}</td></tr>
+            <tr>
+                <td>List backfill</td>
+                <td>
+                    <span id="sync-list-text">{sync_state.synced_activities}/{list_total_initial}</span>
+                    <progress id="sync-list-bar" value="{sync_state.synced_activities}" max="{max(list_total_initial, 1)}"></progress>
+                </td>
+            </tr>
+            <tr>
+                <td>Activity details</td>
+                <td>
+                    <span id="sync-details-text">{sync_state.details_fetched}/{details_total_initial}</span>
+                    <progress id="sync-details-bar" value="{sync_state.details_fetched}" max="{max(details_total_initial, 1)}"></progress>
+                </td>
+            </tr>
+            <tr>
+                <td>Streams processed</td>
+                <td>
+                    <span id="sync-streams-text">{processed_count}/{streams_total_initial}</span>
+                    <progress id="sync-streams-bar" value="{processed_count}" max="{max(streams_total_initial, 1)}"></progress>
+                </td>
+            </tr>
+            <tr>
+                <td>Rate limit (15-min)</td>
+                <td id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</td>
+            </tr>
+            <tr>
+                <td>Rate limit (daily)</td>
+                <td id="sync-rl-daily">{sync_state.rate_limit_daily_usage}/{sync_state.rate_limit_daily_limit}</td>
+            </tr>
+            {error_row_initial}
         </table>
         <div class="sync-actions">
             <form action="/sync/trigger" method="post" style="display:inline;">
@@ -249,6 +296,66 @@ async def home():
             </form>
         </div>
     </div>
+    <script>
+    (function() {{
+        const POLL_MS = 3000;
+        function setProgress(textId, barId, fetched, total) {{
+            const text = document.getElementById(textId);
+            const bar = document.getElementById(barId);
+            if (text) text.textContent = fetched + "/" + total;
+            if (bar) {{
+                bar.max = Math.max(total, 1);
+                bar.value = fetched;
+            }}
+        }}
+        function fmtLast(iso) {{
+            if (!iso) return "Never";
+            const d = new Date(iso);
+            const pad = n => String(n).padStart(2, "0");
+            return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate())
+                + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + " UTC";
+        }}
+        async function tick() {{
+            try {{
+                const res = await fetch("/sync/status", {{ cache: "no-store" }});
+                if (!res.ok) return;
+                const s = await res.json();
+                const phaseEl = document.getElementById("sync-phase");
+                if (phaseEl) phaseEl.textContent = s.phase;
+                const runEl = document.getElementById("sync-running");
+                if (runEl) runEl.textContent = s.is_running ? "🟢 Yes" : "⚪ No";
+                const lastEl = document.getElementById("sync-last");
+                if (lastEl) lastEl.textContent = fmtLast(s.last_sync);
+                setProgress("sync-list-text", "sync-list-bar", s.list.synced, s.list.total);
+                setProgress("sync-details-text", "sync-details-bar", s.details.fetched, s.details.total);
+                setProgress("sync-streams-text", "sync-streams-bar", s.streams.fetched, s.streams.total);
+                const rl15 = document.getElementById("sync-rl-15min");
+                if (rl15) rl15.textContent = s.rate_limit.fifteen_min.used + "/" + s.rate_limit.fifteen_min.limit;
+                const rlD = document.getElementById("sync-rl-daily");
+                if (rlD) rlD.textContent = s.rate_limit.daily.used + "/" + s.rate_limit.daily.limit;
+                const errRow = document.getElementById("sync-error-row");
+                const errCell = document.getElementById("sync-error");
+                if (errRow && errCell) {{
+                    if (s.last_error) {{
+                        errCell.textContent = s.last_error;
+                        errRow.style.display = "";
+                    }} else {{
+                        errCell.textContent = "";
+                        errRow.style.display = "none";
+                    }}
+                }}
+                // Reload once after a sync finishes so the metrics card refreshes too.
+                if (window.__wasRunning && !s.is_running) {{
+                    window.location.reload();
+                    return;
+                }}
+                window.__wasRunning = s.is_running;
+            }} catch (e) {{ /* swallow */ }}
+        }}
+        tick();
+        setInterval(tick, POLL_MS);
+    }})();
+    </script>
     """
 
     metrics_info = ""
@@ -319,13 +426,36 @@ async def home():
 
 @app.get("/sync/status")
 async def sync_status():
-    """JSON endpoint for sync status (useful for monitoring)."""
+    """JSON endpoint for sync status (consumed by the home-page poller)."""
+    details_total = sync_state.details_fetched + sync_state.details_pending
+    streams_total = sync_state.streams_fetched + sync_state.streams_pending
     return {
         "is_running": sync_state.is_running,
         "phase": sync_state.phase,
-        "total_activities": sync_state.total_activities,
-        "synced_activities": sync_state.synced_activities,
-        "streams_fetched": sync_state.streams_fetched,
+        "list": {
+            "synced": sync_state.synced_activities,
+            "total": sync_state.total_activities,
+        },
+        "details": {
+            "fetched": sync_state.details_fetched,
+            "pending": sync_state.details_pending,
+            "total": details_total,
+        },
+        "streams": {
+            "fetched": sync_state.streams_fetched,
+            "pending": sync_state.streams_pending,
+            "total": streams_total,
+        },
+        "rate_limit": {
+            "fifteen_min": {
+                "used": sync_state.rate_limit_15min_usage,
+                "limit": sync_state.rate_limit_15min_limit,
+            },
+            "daily": {
+                "used": sync_state.rate_limit_daily_usage,
+                "limit": sync_state.rate_limit_daily_limit,
+            },
+        },
         "last_error": sync_state.last_error,
         "last_sync": sync_state.last_sync.isoformat() if sync_state.last_sync else None,
     }
@@ -444,6 +574,31 @@ def _page(title: str, body: str) -> str:
             margin-top: 0.5rem;
         }}
         a {{ color: #fc4c02; }}
+        progress {{
+            display: block;
+            width: 100%;
+            height: 8px;
+            margin-top: 0.25rem;
+            border: none;
+            background: #2a2a2a;
+            border-radius: 4px;
+            overflow: hidden;
+            -webkit-appearance: none;
+            appearance: none;
+        }}
+        progress::-webkit-progress-bar {{
+            background: #2a2a2a;
+            border-radius: 4px;
+        }}
+        progress::-webkit-progress-value {{
+            background: #fc4c02;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }}
+        progress::-moz-progress-bar {{
+            background: #fc4c02;
+            border-radius: 4px;
+        }}
     </style>
 </head>
 <body>

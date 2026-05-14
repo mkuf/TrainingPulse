@@ -8,7 +8,7 @@ A self-hosted Docker stack that syncs your Strava activities, calculates trainin
 
 ## What It Does
 
-- **Syncs all activities** from your Strava account (full historical backfill + ongoing polling). Backfill first walks **`GET /athlete/activities`** page by page (up to 200 per page) and upserts every activity **without** blocking pagination on detail calls. A separate pass then calls **`GET /activities/{id}`** for each row until **calories**, **ride notes** (`description`), **kilojoules**, and other summary fields are merged (see `strava_detail_synced` in the database). Detail work is **budgeted per sync** and **sleeps on HTTP 429** so listing can finish for hundreds of activities even when Strava’s read quota is tight (~100 reads / 15 minutes by default); remaining detail merges continue on the next scheduled sync.
+- **Syncs all activities** from your Strava account (full historical backfill + ongoing polling). Backfill first walks **`GET /athlete/activities`** page by page (up to 200 per page) and upserts every activity **without** blocking pagination on detail calls. A separate pass then calls **`GET /activities/{id}`** for each row until **calories**, **ride notes** (`description`), **kilojoules**, and other summary fields are merged (see `strava_detail_synced` in the database). Detail and stream fetches run with **bounded concurrency** (default 5) and **sleep on HTTP 429** so they use Strava's read quota efficiently (~100 reads / 15 minutes by default); whatever doesn't fit in the current rate-limit window continues automatically on the next scheduled sync.
 - **Metadata & notes**: Activity descriptions and calories are taken from the **detailed** activity API (the list endpoint often omits them).
 - **Calculates Relative Effort (TRIMP)** from heart rate stream data.
 - **Power Analysis**: Tracks Power (Watts) and calculates **Best 20-minute Power** and **Estimated FTP**.
@@ -144,6 +144,8 @@ flowchart LR
 | `REST_HR` | *(Strava)* | **Override** for Resting HR. |
 | `FTP` | *(Strava)* | **Override** for FTP. |
 | `SYNC_INTERVAL_MINUTES` | `15` | Polling interval |
+| `SYNC_DETAIL_CONCURRENCY` | `5` | Parallel `GET /activities/{id}` requests during detail merge. Strava's 15-min quota is the real ceiling; higher values just keep workers fed. Set to `1` to restore fully sequential behavior. |
+| `SYNC_STREAMS_CONCURRENCY` | `5` | Parallel `GET /activities/{id}/streams` requests during stream processing. Same caveats as above. |
 
 ### Overriding Metrics
 

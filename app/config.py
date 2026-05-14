@@ -37,6 +37,16 @@ class Settings:
     # How often to poll Strava for new activities (minutes)
     SYNC_INTERVAL_MINUTES: int = int(os.environ.get("SYNC_INTERVAL_MINUTES", "15"))
 
+    # Concurrency for per-activity API calls during sync. Strava's 15-min quota
+    # is the real ceiling; small values (3-8) just keep workers fed without
+    # bursting too hard. Setting either to 1 restores fully sequential behavior.
+    SYNC_DETAIL_CONCURRENCY: int = max(
+        1, int(os.environ.get("SYNC_DETAIL_CONCURRENCY", "5"))
+    )
+    SYNC_STREAMS_CONCURRENCY: int = max(
+        1, int(os.environ.get("SYNC_STREAMS_CONCURRENCY", "5"))
+    )
+
     # Strava OAuth URLs
     STRAVA_AUTH_URL: str = "https://www.strava.com/oauth/authorize"
     STRAVA_TOKEN_URL: str = "https://www.strava.com/oauth/token"

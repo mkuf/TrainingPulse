@@ -33,6 +33,11 @@ class StravaClient:
         self._rate_limit_usage_daily = 0
         self._rate_limit_limit_daily = 1000
         self._gear_cache: dict[str, str | None] = {}
+        # Serializes the rate-limit check so concurrent workers don't all read
+        # "remaining=4" simultaneously and overshoot the 15-min window.
+        self._rate_limit_lock = asyncio.Lock()
+        # Serializes token refresh so concurrent callers don't double-refresh.
+        self._token_lock = asyncio.Lock()
 
     async def close(self):
         await self._http.aclose()
@@ -45,33 +50,38 @@ class StravaClient:
         return result.scalar_one_or_none()
 
     async def _ensure_valid_token(self) -> str:
-        """Return a valid access token, refreshing if needed."""
-        token = await self._get_token()
-        if token is None:
-            raise ValueError("No Strava token found. Please authorize the app first.")
+        """Return a valid access token, refreshing if needed.
 
-        # Refresh if token expires in less than 5 minutes
-        if token.expires_at < time.time() + 300:
-            logger.info("Access token expired or expiring soon, refreshing...")
-            response = await self._http.post(
-                settings.STRAVA_TOKEN_URL,
-                data={
-                    "client_id": settings.STRAVA_CLIENT_ID,
-                    "client_secret": settings.STRAVA_CLIENT_SECRET,
-                    "grant_type": "refresh_token",
-                    "refresh_token": token.refresh_token,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        Serialized via ``_token_lock`` so concurrent workers don't all read the
+        shared DB session in parallel and don't double-refresh near expiry.
+        """
+        async with self._token_lock:
+            token = await self._get_token()
+            if token is None:
+                raise ValueError("No Strava token found. Please authorize the app first.")
 
-            token.access_token = data["access_token"]
-            token.refresh_token = data["refresh_token"]
-            token.expires_at = data["expires_at"]
-            await self.session.commit()
-            logger.info("Token refreshed successfully, new expiry: %s", data["expires_at"])
+            # Refresh if token expires in less than 5 minutes
+            if token.expires_at < time.time() + 300:
+                logger.info("Access token expired or expiring soon, refreshing...")
+                response = await self._http.post(
+                    settings.STRAVA_TOKEN_URL,
+                    data={
+                        "client_id": settings.STRAVA_CLIENT_ID,
+                        "client_secret": settings.STRAVA_CLIENT_SECRET,
+                        "grant_type": "refresh_token",
+                        "refresh_token": token.refresh_token,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
 
-        return token.access_token
+                token.access_token = data["access_token"]
+                token.refresh_token = data["refresh_token"]
+                token.expires_at = data["expires_at"]
+                await self.session.commit()
+                logger.info("Token refreshed successfully, new expiry: %s", data["expires_at"])
+
+            return token.access_token
 
     # ── Rate limiting ───────────────────────────────────────────────
 
@@ -101,29 +111,30 @@ class StravaClient:
 
     async def _wait_for_rate_limit(self):
         """If we're close to the rate limit, sleep until the window resets."""
-        if self.rate_limit_remaining_15min <= 5:
-            # 15-minute windows reset at :00, :15, :30, :45
-            now = time.time()
-            current_minute = int(now // 60) % 15
-            seconds_until_reset = (15 - current_minute) * 60 - (now % 60)
-            wait_time = max(seconds_until_reset + 5, 10)  # 5s buffer
-            logger.warning(
-                "Approaching 15-min rate limit (%d/%d used). Sleeping %.0fs...",
-                self._rate_limit_usage_15min,
-                self._rate_limit_limit_15min,
-                wait_time,
-            )
-            await asyncio.sleep(wait_time)
-            # Reset counter after sleep
-            self._rate_limit_usage_15min = 0
+        async with self._rate_limit_lock:
+            if self.rate_limit_remaining_15min <= 5:
+                # 15-minute windows reset at :00, :15, :30, :45
+                now = time.time()
+                current_minute = int(now // 60) % 15
+                seconds_until_reset = (15 - current_minute) * 60 - (now % 60)
+                wait_time = max(seconds_until_reset + 5, 10)  # 5s buffer
+                logger.warning(
+                    "Approaching 15-min rate limit (%d/%d used). Sleeping %.0fs...",
+                    self._rate_limit_usage_15min,
+                    self._rate_limit_limit_15min,
+                    wait_time,
+                )
+                await asyncio.sleep(wait_time)
+                # Reset counter after sleep
+                self._rate_limit_usage_15min = 0
 
-        if self.rate_limit_remaining_daily <= 20:
-            logger.error(
-                "Approaching daily rate limit (%d/%d used). Pausing sync.",
-                self._rate_limit_usage_daily,
-                self._rate_limit_limit_daily,
-            )
-            raise RateLimitExceeded(reset_after=3600)
+            if self.rate_limit_remaining_daily <= 20:
+                logger.error(
+                    "Approaching daily rate limit (%d/%d used). Pausing sync.",
+                    self._rate_limit_usage_daily,
+                    self._rate_limit_limit_daily,
+                )
+                raise RateLimitExceeded(reset_after=3600)
 
     # ── API methods ─────────────────────────────────────────────────
 
