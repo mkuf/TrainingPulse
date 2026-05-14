@@ -17,7 +17,7 @@
       "title": "\u2190 Back to Fitness & Freshness",
       "tooltip": "",
       "type": "link",
-      "url": "/d/strava-fitness"
+      "url": "/d/trainingpulse-fitness"
     },
     {
       "asDropdown": false,
@@ -28,7 +28,7 @@
       "targetBlank": false,
       "title": "Account overview",
       "type": "link",
-      "url": "/d/strava-account"
+      "url": "/d/trainingpulse-account"
     },
     {
       "asDropdown": false,
@@ -2218,7 +2218,7 @@
   ],
   "schemaVersion": 39,
   "tags": [
-    "strava",
+    "trainingpulse",
     "activity",
     "detail"
   ],
@@ -2297,7 +2297,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Strava Activity Detail",
-  "uid": "strava-activity-detail",
+  "title": "TrainingPulse — Activity detail",
+  "uid": "trainingpulse-activity-detail",
   "version": 1
 }

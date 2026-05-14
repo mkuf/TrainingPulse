@@ -1,8 +1,8 @@
-"""Strava Fitness Tracker — FastAPI application.
+"""TrainingPulse — FastAPI application.
 
 Provides:
 - OAuth2 login flow with Strava
-- Status page showing sync progress and current metrics
+- Status page showing sync progress and current metrics (TRIMP, CTL, ATL, TSB, and related training-load metrics)
 - Background scheduler for periodic syncing
 """
 
@@ -24,6 +24,8 @@ from database import async_session, engine
 from models import Activity, ActivityStream, Base, DailyMetrics, StravaToken
 from strava_client import StravaClient
 from sync import _snapshot_rate_limits, run_sync, sync_state
+
+APP_DISPLAY_NAME = "TrainingPulse"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +55,7 @@ async def lifespan(app: FastAPI):
         trigger_sync_task,
         "interval",
         minutes=settings.SYNC_INTERVAL_MINUTES,
-        id="strava_sync",
+        id="trainingpulse_sync",
         replace_existing=True,
         next_run_time=datetime.now(timezone.utc),  # Run immediately on startup
     )
@@ -69,7 +71,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Strava Fitness Tracker", lifespan=lifespan)
+app = FastAPI(title=APP_DISPLAY_NAME, lifespan=lifespan)
 
 # Mount static files for assets and favicon
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -166,10 +168,10 @@ async def auth_callback(code: str | None = None, error: str | None = None):
             "Connected!",
             f"""
             <div class="card success">
-                <h2>✅ Connected to Strava</h2>
+                <h2>✅ Strava account linked</h2>
                 <p>Welcome, <strong>{athlete.get('firstname', '')} {athlete.get('lastname', '')}</strong>!</p>
                 <p>Your activities are now being synced. This may take a while for the initial backfill.</p>
-                <p><a href="/" class="btn">View Status →</a></p>
+                <p><a href="/" class="btn btn-neutral">View Status →</a></p>
             </div>
             """,
         )
@@ -235,12 +237,15 @@ async def home():
                     "Setup Required",
                     f"""
                     <div class="card">
-                        <h2>🚴 Strava Fitness Tracker</h2>
-                        <p>Connect your Strava account to get started.</p>
+                        <h2>🚴 {APP_DISPLAY_NAME}</h2>
+                        <p>Connect your Strava account using the button below (opens Strava’s authorization page).</p>
                         <p>Make sure you have set the <strong>Authorization Callback Domain</strong>
                            in your <a href="https://www.strava.com/settings/api" target="_blank">
                            Strava API settings</a> to match your server hostname.</p>
-                        <a href="/auth/strava" class="btn btn-strava">Connect with Strava</a>
+                        <p class="fine-print">Compatible with Strava. Not affiliated with or endorsed by Strava.</p>
+                        <a href="/auth/strava" class="connect-with-strava">
+                            <img src="/static/assets/btn_strava_connect_with_orange.png" height="48" alt="Connect with Strava">
+                        </a>
                     </div>
                     """,
                 )
@@ -332,17 +337,17 @@ async def home():
                 <td>Last checked</td>
                 <td>
                     <span id="sync-rl-checked">Never</span>
-                    <button type="button" id="sync-rl-refresh" class="btn btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
+                    <button type="button" id="sync-rl-refresh" class="btn btn-neutral btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
                 </td>
             </tr>
             {error_row_initial}
         </table>
         <div class="sync-actions">
             <form action="/sync/trigger" method="post" style="display:inline;">
-                <button type="submit" class="btn" {"disabled" if sync_state.is_running else ""}>Sync Now</button>
+                <button type="submit" class="btn btn-neutral" {"disabled" if sync_state.is_running else ""}>Sync Now</button>
             </form>
             <form action="/sync/full" method="post" style="display:inline;" onsubmit="return confirm('Full resync will re-fetch all data and may take a long time. Continue?');">
-                <button type="submit" class="btn btn-warning" {"disabled" if sync_state.is_running else ""}>Full Resync</button>
+                <button type="submit" class="btn btn-caution" {"disabled" if sync_state.is_running else ""}>Full Resync</button>
             </form>
         </div>
     </div>
@@ -495,7 +500,7 @@ async def home():
         <h3>📈 Grafana Setup</h3>
         <p>Add a PostgreSQL data source in Grafana with these settings:</p>
         <table>
-            <tr><td>Host</td><td><code>strava-fitness-db:5432</code> (or your Docker network address)</td></tr>
+            <tr><td>Host</td><td><code>db:5432</code> (Docker Compose service name, or your network address)</td></tr>
             <tr><td>Database</td><td><code>strava_fitness</code></td></tr>
             <tr><td>User</td><td><code>strava</code></td></tr>
             <tr><td>Password</td><td><em>(your POSTGRES_PASSWORD)</em></td></tr>
@@ -506,11 +511,11 @@ async def home():
 
     return HTMLResponse(
         _page(
-            "Strava Fitness Tracker",
+            APP_DISPLAY_NAME,
             f"""
             <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
-                <img src="/static/assets/favicon.png" width="48" height="48" alt="Logo" style="border-radius: 8px;">
-                <h2 style="margin: 0;">Strava Fitness Tracker</h2>
+                <img src="/static/assets/favicon.svg" width="48" height="48" alt="{APP_DISPLAY_NAME}" style="border-radius: 8px;">
+                <h2 style="margin: 0;">{APP_DISPLAY_NAME}</h2>
             </div>
             {sync_info}
             {metrics_info}
@@ -611,7 +616,7 @@ async def refresh_rate_limit():
         if token is None:
             return JSONResponse(
                 status_code=400,
-                content={"error": "Not authenticated. Connect with Strava first."},
+                content={"error": "Not authenticated. Link your Strava account from the home page first."},
             )
         client = StravaClient(session)
         try:
@@ -653,35 +658,51 @@ def _page(title: str, body: str) -> str:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="/static/assets/favicon.png">
-    <title>{title} — Strava Fitness Tracker</title>
+    <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
+    <title>{title} — {APP_DISPLAY_NAME}</title>
     <style>
+        :root {{
+            --accent: #22d3ee;
+            --accent-hover: #06b6d4;
+            --accent-muted: #a5f3fc;
+            --bg-page: #0f0f0f;
+            --bg-card: #1a1a1a;
+            --bg-elevated: #222;
+            --border: #333;
+            --text: #e0e0e0;
+            --text-muted: #888;
+        }}
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #0f0f0f;
-            color: #e0e0e0;
+            background: var(--bg-page);
+            color: var(--text);
             padding: 2rem;
             max-width: 800px;
             margin: 0 auto;
             line-height: 1.6;
         }}
-        h2 {{ color: #fc4c02; margin-bottom: 1.5rem; }}
-        h3 {{ color: #fc4c02; margin-bottom: 1rem; }}
+        h2 {{ color: var(--accent); margin-bottom: 1.5rem; }}
+        h3 {{ color: var(--accent); margin-bottom: 1rem; }}
         .card {{
-            background: #1a1a1a;
-            border: 1px solid #333;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1.5rem;
             margin-bottom: 1.5rem;
         }}
         .card.success {{ border-color: #4caf50; }}
+        .fine-print {{
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin: 0.75rem 0 0.5rem;
+        }}
         table {{ width: 100%; border-collapse: collapse; }}
         td {{
             padding: 0.5rem 0;
             border-bottom: 1px solid #222;
         }}
-        td:first-child {{ color: #888; width: 40%; }}
+        td:first-child {{ color: var(--text-muted); width: 40%; }}
         code {{
             background: #2a2a2a;
             padding: 0.15rem 0.4rem;
@@ -695,16 +716,31 @@ def _page(title: str, body: str) -> str:
             text-decoration: none;
             font-weight: 600;
             margin-top: 1rem;
+            border: none;
+            cursor: pointer;
+            font: inherit;
+            text-align: center;
         }}
-        .btn-strava {{
-            background: #fc4c02;
-            color: white;
+        .btn-neutral {{
+            background: #333;
+            color: #fff;
         }}
-        .btn-strava:hover {{ background: #e04400; }}
-        .btn {{ background: #333; color: #fff; }}
-        .btn:hover {{ background: #444; }}
-        .btn-warning {{ background: #ff9800; color: #000; }}
-        .btn-warning:hover {{ background: #f57c00; }}
+        .btn-neutral:hover {{ background: #444; }}
+        .connect-with-strava {{
+            display: inline-block;
+            margin-top: 1rem;
+            line-height: 0;
+        }}
+        .connect-with-strava img {{
+            height: 48px;
+            width: auto;
+            vertical-align: middle;
+        }}
+        .btn-caution {{
+            background: #ca8a04;
+            color: #111;
+        }}
+        .btn-caution:hover {{ background: #a16207; color: #111; }}
         .btn[disabled] {{ opacity: 0.5; cursor: not-allowed; }}
         .btn-sm {{
             padding: 0.25rem 0.75rem;
@@ -714,7 +750,7 @@ def _page(title: str, body: str) -> str:
             font-weight: 500;
         }}
         .rl-meta {{
-            color: #888;
+            color: var(--text-muted);
             font-size: 0.85rem;
             margin-left: 0.5rem;
         }}
@@ -729,19 +765,19 @@ def _page(title: str, body: str) -> str:
         .metric {{
             text-align: center;
             padding: 1rem;
-            background: #222;
+            background: var(--bg-elevated);
             border-radius: 8px;
         }}
         .metric-value {{
             display: block;
             font-size: 2rem;
             font-weight: 700;
-            color: #fc4c02;
+            color: var(--accent);
         }}
         .metric-label {{
             display: block;
             font-size: 0.85rem;
-            color: #888;
+            color: var(--text-muted);
             margin-top: 0.25rem;
         }}
         .form-status {{
@@ -749,7 +785,8 @@ def _page(title: str, body: str) -> str:
             font-size: 1.1rem;
             margin-top: 0.5rem;
         }}
-        a {{ color: #fc4c02; }}
+        a {{ color: var(--accent); }}
+        a:hover {{ color: var(--accent-hover); }}
         progress {{
             display: block;
             width: 100%;
@@ -767,12 +804,12 @@ def _page(title: str, body: str) -> str:
             border-radius: 4px;
         }}
         progress::-webkit-progress-value {{
-            background: #fc4c02;
+            background: var(--accent);
             border-radius: 4px;
             transition: width 0.3s ease;
         }}
         progress::-moz-progress-bar {{
-            background: #fc4c02;
+            background: var(--accent);
             border-radius: 4px;
         }}
     </style>

@@ -1,10 +1,14 @@
 <p align="center">
-  <img src="app/static/assets/favicon.png" width="200" alt="Strava Fitness Tracker Logo">
+  <img src="app/static/assets/favicon.svg" width="200" alt="TrainingPulse logo">
 </p>
 
-# Strava Fitness & Performance Tracker
+# TrainingPulse
 
-A self-hosted Docker stack that syncs your Strava activities into PostgreSQL, derives training-load metrics like TRIMP, CTL, ATL, TSB, and FTP, and visualizes everything in Grafana.
+Self-hosted sync and dashboards for your **Strava** activities: PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
+
+## Strava trademark and API use
+
+**TrainingPulse is not affiliated with, endorsed by, or sponsored by Strava.** “Strava” is a trademark of Strava, Inc. Each person who runs this stack must register their own Strava API application and comply with the [Strava API Agreement](https://www.strava.com/legal/api) and [Strava API Brand Guidelines](https://developers.strava.com/guidelines).
 
 ## Disclaimer
 
@@ -54,7 +58,7 @@ Example views from the bundled dashboards.
 
    This brings up three containers: the FastAPI app on port `8000`, Grafana on port `3000`, and PostgreSQL (internal only).
 
-3. **Connect Strava.** Open the app at `http://your-host:8000/` and click **Connect with Strava** to authorize. The initial backfill starts automatically — the same page shows live progress, and ongoing syncs run every 15 minutes from then on.
+3. **Connect Strava.** Open the app at `http://your-host:8000/` and click the official **Connect with Strava** button to complete OAuth. The initial backfill starts automatically — the same page shows live progress, and ongoing syncs run every 15 minutes from then on.
 
 4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres data source (**`strava-pg`**) and the bundled dashboards are provisioned automatically, so the dashboards appear without any manual setup.
 
@@ -80,3 +84,7 @@ Out of the box Max HR is `190`, Resting HR is `60`, and FTP comes from your Stra
 ## Going further
 
 For architecture, the HTTP API, the full list of environment variables, and how each metric is calculated, see [`DEVELOPERS.md`](DEVELOPERS.md).
+
+## License
+
+This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0** as published by the Free Software Foundation. See the [`LICENSE`](LICENSE) file for the full text.

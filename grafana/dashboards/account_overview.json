@@ -14,7 +14,7 @@
       "targetBlank": false,
       "title": "Fitness and freshness",
       "type": "link",
-      "url": "/d/strava-fitness"
+      "url": "/d/trainingpulse-fitness"
     }
   ],
   "panels": [
@@ -408,7 +408,7 @@
     }
   ],
   "schemaVersion": 39,
-  "tags": ["strava", "account"],
+  "tags": ["trainingpulse", "account"],
   "templating": {
     "list": [
       {
@@ -425,7 +425,7 @@
   "time": { "from": "now-2y", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Strava Account overview",
-  "uid": "strava-account",
+  "title": "TrainingPulse — Account overview",
+  "uid": "trainingpulse-account",
   "version": 1
 }

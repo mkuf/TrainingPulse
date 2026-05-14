@@ -1,4 +1,4 @@
-"""SQLAlchemy models for the Strava fitness tracker."""
+"""SQLAlchemy models for TrainingPulse."""
 
 from datetime import date, datetime
 

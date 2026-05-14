@@ -57,16 +57,16 @@ def build_targets() -> list[Dashboard]:
     return [
         Dashboard(
             name="fitness",
-            path=f"{grafana}/d/strava-fitness/strava-fitness-and-freshness?orgId=1&{timerange}&kiosk",
+            path=f"{grafana}/d/trainingpulse-fitness/trainingpulse-fitness-and-freshness?orgId=1&{timerange}&kiosk",
         ),
         Dashboard(
             name="account_overview",
-            path=f"{grafana}/d/strava-account/strava-account-overview?orgId=1&{timerange}&kiosk",
+            path=f"{grafana}/d/trainingpulse-account/trainingpulse-account-overview?orgId=1&{timerange}&kiosk",
         ),
         Dashboard(
             name="activity_detail",
             path=(
-                f"{grafana}/d/strava-activity-detail/strava-activity-detail"
+                f"{grafana}/d/trainingpulse-activity-detail/trainingpulse-activity-detail"
                 f"?orgId=1&from={activity_from}&to={activity_to}"
                 f"&var-activity_id={activity_id}&kiosk"
             ),

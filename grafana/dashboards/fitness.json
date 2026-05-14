@@ -31,7 +31,7 @@
       "title": "Account overview",
       "tooltip": "Monthly, yearly, and period comparisons",
       "type": "link",
-      "url": "/d/strava-account"
+      "url": "/d/trainingpulse-account"
     }
   ],
   "panels": [
@@ -446,7 +446,7 @@
         "justifyMode": "center"
       },
       "title": "This week vs corridor",
-      "description": "Numbers for the **calendar week containing today** (ISO week, Monday start). **Floor** and **Ceiling** use the same rule as the chart: 80% and 125% of the average total weekly TRIMP from the **four complete weeks before** this week. **This week** is your summed TRIMP so far in the current week. **Floor** / **Ceiling** tiles use **blue** / **purple** backgrounds. **This week** tile color is **grey** under the floor, **green** between floor and ceiling (inclusive), and **orange** above the ceiling (when the corridor is defined).",
+      "description": "Numbers for the **calendar week containing today** (ISO week, Monday start). **Floor** and **Ceiling** use the same rule as the chart: 80% and 125% of the average total weekly TRIMP from the **four complete weeks before** this week. **This week** is your summed TRIMP so far in the current week. **Floor** / **Ceiling** tiles use **blue** / **purple** backgrounds. **This week** tile color is **grey** under the floor, **green** between floor and ceiling (inclusive), and a **warning highlight** above the ceiling (when the corridor is defined).",
       "transformations": [
         {
           "id": "configFromData",
@@ -640,7 +640,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Consecutive calendar weeks (Monday start, same as **This week vs corridor**) with at least one logged activity. Counting starts from the **last week that contains any activity** when **this week is still empty** — so you see how long your run was without forcing **0** before you train. **Orange**: current week already has an activity (live streak). **Grey**: current week has no activity yet (same number = run ending at your last active week; logging this week turns orange).",
+      "description": "Consecutive calendar weeks (Monday start, same as **This week vs corridor**) with at least one logged activity. Counting starts from the **last week that contains any activity** when **this week is still empty** — so you see how long your run was without forcing **0** before you train. **Highlight**: current week already has an activity (live streak). **Grey**: current week has no activity yet (same number = run ending at your last active week; logging this week applies the highlight).",
       "fieldConfig": {
         "defaults": {
           "decimals": 0,
@@ -744,7 +744,7 @@
                 "value": [
                   {
                     "title": "View Activity Detail",
-                    "url": "/d/strava-activity-detail?var-activity_id=${__data.fields.ID}",
+                    "url": "/d/trainingpulse-activity-detail?var-activity_id=${__data.fields.ID}",
                     "targetBlank": false
                   }
                 ]
@@ -879,7 +879,7 @@
     }
   ],
   "schemaVersion": 39,
-  "tags": ["strava", "fitness", "training"],
+  "tags": ["trainingpulse", "fitness", "training"],
   "templating": {
     "list": [
       {
@@ -902,7 +902,7 @@
     "time_options": ["7d", "30d", "90d", "6M", "1y", "2y"]
   },
   "timezone": "browser",
-  "title": "Strava Fitness & Freshness",
-  "uid": "strava-fitness",
+  "title": "TrainingPulse — Fitness & Freshness",
+  "uid": "trainingpulse-fitness",
   "version": 1
 }

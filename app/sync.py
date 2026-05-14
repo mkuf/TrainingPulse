@@ -652,7 +652,7 @@ async def run_sync(session: AsyncSession, force_resync: bool = False):
         token = token_result.scalar_one_or_none()
         if token is None:
             sync_state.phase = "idle"
-            sync_state.last_error = "Not authenticated. Please connect with Strava."
+            sync_state.last_error = "Not authenticated. Link your Strava account from the home page."
             return
 
         athlete_id = token.athlete_id

@@ -1,6 +1,6 @@
 # Developer notes
 
-Technical reference for people working on this project. Day-to-day setup lives in [`README.md`](README.md); this file covers architecture, the Strava endpoints we touch, the HTTP API, environment variables, and how training metrics are calculated.
+Technical reference for **TrainingPulse**. Day-to-day setup lives in [`README.md`](README.md); this file covers architecture, the Strava endpoints we touch, the HTTP API, environment variables, and how training metrics are calculated.
 
 ## Architecture
 
@@ -125,7 +125,9 @@ The script picks the highest-TRIMP recent ride for the activity-detail dashboard
 
 ## Source map
 
-- OAuth, status page, scheduler wiring: [`app/main.py`](app/main.py)
+- Strava **Connect with Strava** button asset: [`app/static/assets/btn_strava_connect_with_orange.png`](app/static/assets/btn_strava_connect_with_orange.png) — official artwork from the Strava API docs site (`btn_connectWith.png` at `https://strava.github.io/api/images/`). Do not substitute a custom-drawn button if you need to stay within Strava’s brand rules.
+
+- OAuth flow, status page, scheduler wiring: [`app/main.py`](app/main.py)
 - Sync orchestration, rate-limit handling, HR/FTP resolution: [`app/sync.py`](app/sync.py)
 - Training-load math (TRIMP, CTL, ATL, TSB, zones, power curve): [`app/metrics.py`](app/metrics.py)
 - SQLAlchemy schema: [`app/models.py`](app/models.py)
