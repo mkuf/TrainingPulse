@@ -6,9 +6,10 @@ Technical reference for **TrainingPulse**. Day-to-day setup lives in [`README.md
 
 ```
 Strava API → [FastAPI app] → PostgreSQL → Grafana
+                                      ↘ MCP service
 ```
 
-The FastAPI service in [`app/`](app/) handles OAuth, runs a background scheduler (APScheduler) that polls Strava every `SYNC_INTERVAL_MINUTES`, and writes activities, raw streams, and daily training-load metrics to PostgreSQL. Grafana queries PostgreSQL directly — there is no Prometheus, Redis, or other intermediate store.
+The FastAPI service in [`app/`](app/) handles OAuth, runs a background scheduler (APScheduler) that polls Strava every `SYNC_INTERVAL_MINUTES`, and writes activities, raw streams, and daily training-load metrics to PostgreSQL. Grafana queries PostgreSQL directly, and the MCP sidecar exposes a small read-only tool layer over the same database — there is no Prometheus, Redis, or other intermediate store.
 
 ## Strava endpoints and the fields they provide
 
@@ -47,6 +48,7 @@ Defined in [`app/config.py`](app/config.py) and wired through [`docker-compose.y
 | `POSTGRES_USER` | `strava` | PostgreSQL username. |
 | `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password. |
 | `POSTGRES_DB` | `strava_fitness` | PostgreSQL database name. |
+| `MCP_PORT` | `8001` | Host port for the network-accessible MCP endpoint at `/mcp`. |
 | `SYNC_INTERVAL_MINUTES` | `15` | Background poll interval. |
 | `SYNC_DETAIL_CONCURRENCY` | `5` | Parallel `GET /activities/{id}` requests during the detail-merge pass. Strava's 15-min quota is the real ceiling; higher values just keep workers fed. Set to `1` for sequential behavior. Not wired through compose by default — pass it via the `app` service `environment` if you want to tune it. |
 | `SYNC_STREAMS_CONCURRENCY` | `5` | Parallel `GET /activities/{id}/streams` requests during stream processing. Same caveats. |
@@ -81,6 +83,39 @@ Computed in [`app/metrics.py`](app/metrics.py) and stored alongside activities a
 | **TSB** | Form | `CTL − ATL`. Positive means fresh, negative means fatigued. |
 | **Best 20m** | — | Highest average power sustained for 20 continuous minutes within an activity. |
 | **Est. FTP** | — | 95% of the best 20-minute power. |
+
+## MCP service
+
+The `mcp` Compose service runs [`app/mcp_server.py`](app/mcp_server.py) and exposes streamable HTTP at:
+
+```text
+http://your-host:${MCP_PORT:-8001}/mcp
+```
+
+It is designed for Cursor or another MCP-aware client to ask conversational questions about local TrainingPulse data. The service is read-only and does not expose `strava_tokens`.
+
+Initial tools:
+
+- `get_training_summary(start_date, end_date, sport_type?)`
+- `compare_periods(period_a_start, period_a_end, period_b_start, period_b_end, sport_type?)`
+- `list_activities(start_date?, end_date?, sport_type?, gear_name?, limit?)`
+- `get_activity_detail(activity_id)`
+- `get_gear_usage(start_date?, end_date?)`
+- `get_sync_health()`
+
+Example Cursor MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "trainingpulse": {
+      "url": "http://your-host:8001/mcp"
+    }
+  }
+}
+```
+
+Because the MCP port is published on the host network like Grafana and the app, keep it on a trusted private network. Tool responses can include private activity names, dates, gear, HR, power, and training-load data. PostgreSQL remains internal to Docker Compose.
 
 ## Demo data
 
@@ -128,6 +163,7 @@ The script picks the highest-TRIMP recent ride for the activity-detail dashboard
 - Strava **Connect with Strava** button asset: [`app/static/assets/btn_strava_connect_with_orange.png`](app/static/assets/btn_strava_connect_with_orange.png) — official artwork from the Strava API docs site (`btn_connectWith.png` at `https://strava.github.io/api/images/`). Do not substitute a custom-drawn button if you need to stay within Strava’s brand rules.
 
 - OAuth flow, status page, scheduler wiring: [`app/main.py`](app/main.py)
+- Read-only MCP tools: [`app/mcp_server.py`](app/mcp_server.py)
 - Sync orchestration, rate-limit handling, HR/FTP resolution: [`app/sync.py`](app/sync.py)
 - Training-load math (TRIMP, CTL, ATL, TSB, zones, power curve): [`app/metrics.py`](app/metrics.py)
 - SQLAlchemy schema: [`app/models.py`](app/models.py)

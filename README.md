@@ -56,11 +56,13 @@ Example views from the bundled dashboards.
    docker compose up -d
    ```
 
-   This brings up three containers: the FastAPI app on port `8000`, Grafana on port `3000`, and PostgreSQL (internal only).
+   This brings up four containers: the FastAPI app on port `8000`, Grafana on port `3000`, the MCP service on port `8001`, and PostgreSQL (internal only).
 
 3. **Connect Strava.** Open the app at `http://your-host:8000/` and click the official **Connect with Strava** button to complete OAuth. The initial backfill starts automatically — the same page shows live progress, and ongoing syncs run every 15 minutes from then on.
 
 4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres data source (**`strava-pg`**) and the bundled dashboards are provisioned automatically, so the dashboards appear without any manual setup.
+
+5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp` for Cursor or another MCP-aware client. It exposes training summaries, activity lookup, gear usage, and sync-health tools over your network; keep it on a trusted network because tool results can include private training data.
 
 ## What data lives where
 
