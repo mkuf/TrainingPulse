@@ -62,7 +62,7 @@ Example views from the bundled dashboards.
 
 4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres data source (**`strava-pg`**) and the bundled dashboards are provisioned automatically, so the dashboards appear without any manual setup.
 
-5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp` for Cursor or another MCP-aware client. It exposes training summaries, activity lookup, gear usage, and sync-health tools over your network; keep it on a trusted network because tool results can include private training data.
+5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp` for Cursor or another MCP-aware client. It exposes training summaries, activity lookup, gear usage, and sync-health tools over your network; keep it on a trusted network because tool results can include private training data. If you connect through a homeserver hostname or LAN IP, add it to `MCP_ALLOWED_HOSTS` in `.env`.
 
 ## What data lives where
 

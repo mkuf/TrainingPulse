@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timezone
 from typing import Any, AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import Select, desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,29 @@ from models import Activity, ActivityStream, AthleteSettings, DailyMetrics
 APP_NAME = "TrainingPulse MCP"
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
+DEFAULT_ALLOWED_HOSTS = "localhost:*,127.0.0.1:*"
+
+
+def _csv_env(name: str, default: str) -> list[str]:
+    return [
+        value.strip()
+        for value in os.environ.get(name, default).split(",")
+        if value.strip()
+    ]
+
+
+def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
+    origins: list[str] = []
+    for host in allowed_hosts:
+        if host.startswith(("http://", "https://")):
+            origins.append(host)
+            continue
+        origins.append(f"http://{host}")
+        origins.append(f"https://{host}")
+    return origins
+
+
+MCP_ALLOWED_HOSTS = _csv_env("MCP_ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS)
 
 
 mcp = FastMCP(
@@ -28,6 +52,11 @@ mcp = FastMCP(
     ),
     stateless_http=True,
     json_response=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=MCP_ALLOWED_HOSTS,
+        allowed_origins=_allowed_origins(MCP_ALLOWED_HOSTS),
+    ),
 )
 
 

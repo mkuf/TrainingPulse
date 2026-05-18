@@ -44,6 +44,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-strava}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-strava_fitness}
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8001
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost:*,127.0.0.1:*}
     depends_on:
       db:
         condition: service_healthy

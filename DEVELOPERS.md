@@ -49,6 +49,7 @@ Defined in [`app/config.py`](app/config.py) and wired through [`docker-compose.y
 | `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password. |
 | `POSTGRES_DB` | `strava_fitness` | PostgreSQL database name. |
 | `MCP_PORT` | `8001` | Host port for the network-accessible MCP endpoint at `/mcp`. |
+| `MCP_ALLOWED_HOSTS` | `localhost:*,127.0.0.1:*` | Comma-separated Host header allowlist for MCP DNS-rebinding protection. Add your homeserver hostname or LAN IP when connecting from another machine. |
 | `SYNC_INTERVAL_MINUTES` | `15` | Background poll interval. |
 | `SYNC_DETAIL_CONCURRENCY` | `5` | Parallel `GET /activities/{id}` requests during the detail-merge pass. Strava's 15-min quota is the real ceiling; higher values just keep workers fed. Set to `1` for sequential behavior. Not wired through compose by default — pass it via the `app` service `environment` if you want to tune it. |
 | `SYNC_STREAMS_CONCURRENCY` | `5` | Parallel `GET /activities/{id}/streams` requests during stream processing. Same caveats. |
@@ -93,6 +94,14 @@ http://your-host:${MCP_PORT:-8001}/mcp
 ```
 
 It is designed for Cursor or another MCP-aware client to ask conversational questions about local TrainingPulse data. The service is read-only and does not expose `strava_tokens`.
+
+The MCP SDK validates incoming Host headers to protect against DNS rebinding. If you connect through a homeserver hostname or LAN IP, add it to `MCP_ALLOWED_HOSTS` in `.env`:
+
+```dotenv
+MCP_ALLOWED_HOSTS=localhost:*,127.0.0.1:*,homeserver.local:*,192.168.1.10:*
+```
+
+Use the same hostname in your MCP client URL, for example `http://homeserver.local:8001/mcp`.
 
 Initial tools:
 
