@@ -22,6 +22,110 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "id": 1,
+      "title": "Monthly trends",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Monthly volume trend in the selected dashboard time range.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "decimals": 1,
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Activities" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "Activities" },
+              { "id": "decimals", "value": 0 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "id": 15,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min", "max"] }
+      },
+      "title": "Monthly distance and activities",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS time,\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  COUNT(*)::int AS \"Activities\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Monthly training load and moving time in the selected dashboard time range.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "decimals": 1,
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Moving time (h)" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "Moving time (h)" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "TRIMP" },
+            "properties": [{ "id": "decimals", "value": 0 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "id": 16,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min", "max"] }
+      },
+      "title": "Monthly training load",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND((SUM(moving_time) / 3600.0)::numeric, 1) AS \"Moving time (h)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 18,
       "title": "Monthly totals",
       "type": "row"
     },
@@ -29,7 +133,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "description": "Aggregates use the dashboard time range. Month boundaries follow PostgreSQL `date_trunc` in the database session timezone. **Calories (kcal)** sums `activities.calories` (from Strava detailed activity when synced); activities without that field contribute 0 to the period total.",
       "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 10 },
       "id": 2,
       "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Month" }] },
       "title": "By calendar month",
@@ -45,8 +149,112 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
       "id": 3,
+      "title": "Yearly trends",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Yearly volume trend in the selected dashboard time range.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "decimals": 1,
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Activities" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "Activities" },
+              { "id": "decimals", "value": 0 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "id": 17,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min", "max"] }
+      },
+      "title": "Yearly distance and activities",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS time,\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  COUNT(*)::int AS \"Activities\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+      "description": "Yearly training load and moving time in the selected dashboard time range.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "decimals": 1,
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Moving time (h)" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.axisLabel", "value": "Moving time (h)" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "TRIMP" },
+            "properties": [{ "id": "decimals", "value": 0 }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "id": 20,
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min", "max"] }
+      },
+      "title": "Yearly training load",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
+          "format": "time_series",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND((SUM(moving_time) / 3600.0)::numeric, 1) AS \"Moving time (h)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "id": 19,
       "title": "Yearly totals",
       "type": "row"
     },
@@ -54,7 +262,7 @@
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "description": "Sums `activities.calories` per calendar year (Strava kcal when present on the row).",
       "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
       "id": 4,
       "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Year" }] },
       "title": "By calendar year",
@@ -70,7 +278,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
       "id": 5,
       "title": "Compare to previous periods",
       "type": "row"
@@ -87,7 +295,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 21 },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 39 },
       "id": 6,
       "options": {
         "colorMode": "background",
@@ -117,7 +325,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 21 },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 39 },
       "id": 7,
       "options": {
         "colorMode": "background",
@@ -146,7 +354,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 21 },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 39 },
       "id": 8,
       "options": {
         "colorMode": "background",
@@ -176,7 +384,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 26 },
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 44 },
       "id": 9,
       "options": {
         "colorMode": "background",
@@ -205,7 +413,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 26 },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 44 },
       "id": 10,
       "options": {
         "colorMode": "background",
@@ -234,7 +442,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 31 },
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 49 },
       "id": 11,
       "options": {
         "colorMode": "background",
@@ -263,7 +471,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 31 },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 49 },
       "id": 12,
       "options": {
         "colorMode": "background",
@@ -284,7 +492,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 },
       "id": 13,
       "title": "Activity locations",
       "type": "row"
@@ -404,7 +612,7 @@
           "rawSql": "WITH raw AS (\n  SELECT\n    (t.point->>0)::double precision AS lat,\n    (t.point->>1)::double precision AS lng\n  FROM activity_streams s\n  INNER JOIN activities a ON a.id = s.activity_id\n  CROSS JOIN LATERAL jsonb_array_elements(s.data->'latlng') WITH ORDINALITY AS t(point, idx)\n  WHERE $__timeFilter(a.start_date)\n    AND s.data ? 'latlng'\n    AND t.idx % 20 = 1\n),\nb AS (\n  SELECT\n    percentile_cont(0.02) WITHIN GROUP (ORDER BY lat) AS lat_min,\n    percentile_cont(0.98) WITHIN GROUP (ORDER BY lat) AS lat_max,\n    percentile_cont(0.02) WITHIN GROUP (ORDER BY lng) AS lng_min,\n    percentile_cont(0.98) WITHIN GROUP (ORDER BY lng) AS lng_max\n  FROM raw\n)\nSELECT lat, lng FROM (\n  SELECT lat_min AS lat, lng_min AS lng FROM b\n  UNION ALL SELECT lat_min AS lat, lng_max AS lng FROM b\n  UNION ALL SELECT lat_max AS lat, lng_min AS lng FROM b\n  UNION ALL SELECT lat_max AS lat, lng_max AS lng FROM b\n) corners"
         }
       ],
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 37 }
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 55 }
     }
   ],
   "schemaVersion": 39,
