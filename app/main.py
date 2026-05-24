@@ -527,20 +527,6 @@ async def home(request: Request):
         </div>
         """
 
-    grafana_info = f"""
-    <div class="card">
-        <h3>📈 Grafana Setup</h3>
-        <p>Add a PostgreSQL data source in Grafana with these settings:</p>
-        <table>
-            <tr><td>Host</td><td><code>db:5432</code> (Docker Compose service name, or your network address)</td></tr>
-            <tr><td>Database</td><td><code>trainingpulse</code></td></tr>
-            <tr><td>User</td><td><code>strava</code></td></tr>
-            <tr><td>Password</td><td><em>(your POSTGRES_PASSWORD)</em></td></tr>
-            <tr><td>TLS/SSL</td><td>Disable</td></tr>
-        </table>
-    </div>
-    """
-
     return HTMLResponse(
         _page(
             APP_DISPLAY_NAME,
@@ -552,7 +538,6 @@ async def home(request: Request):
             {sync_info}
             {metrics_info}
             {_plugin_links_html(active_plugins)}
-            {grafana_info}
             """,
         )
     )
