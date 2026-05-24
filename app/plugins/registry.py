@@ -28,7 +28,7 @@ def _parse_enabled() -> set[str]:
     return {name.strip().lower() for name in raw.split(",") if name.strip()}
 
 
-def load_plugins() -> list[TrainingPulsePlugin]:
+def load_plugins(*, for_mcp: bool = False) -> list[TrainingPulsePlugin]:
     enabled = _parse_enabled()
     loaded: list[TrainingPulsePlugin] = []
     for name in ("withings", "fddb"):
@@ -39,9 +39,16 @@ def load_plugins() -> list[TrainingPulsePlugin]:
             logger.warning("Unknown plugin in ENABLED_PLUGINS: %s", name)
             continue
         plugin = builder()
-        if not plugin.is_configured():
+        if for_mcp:
+            if not plugin.is_mcp_available():
+                logger.warning(
+                    "Plugin %s is enabled but has no database URL — skipping MCP tools",
+                    name,
+                )
+                continue
+        elif not plugin.is_configured():
             logger.warning(
-                "Plugin %s is enabled but not configured — skipping routes and MCP tools",
+                "Plugin %s is enabled but not configured — skipping routes and sync",
                 name,
             )
             continue

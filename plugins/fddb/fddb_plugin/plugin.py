@@ -33,6 +33,9 @@ class FddbPlugin:
     def is_configured(self) -> bool:
         return settings.is_configured()
 
+    def is_mcp_available(self) -> bool:
+        return settings.is_enabled() and bool(settings.DATABASE_URL)
+
     @property
     def engine(self):
         return self._engine

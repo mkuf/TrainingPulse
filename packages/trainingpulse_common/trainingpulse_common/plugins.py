@@ -22,6 +22,9 @@ class TrainingPulsePlugin(Protocol):
     def is_configured(self) -> bool:
         """True when required credentials and database URL are set."""
 
+    def is_mcp_available(self) -> bool:
+        """True when enabled and the plugin database URL is set (read-only MCP)."""
+
     @property
     def engine(self) -> AsyncEngine:
         ...

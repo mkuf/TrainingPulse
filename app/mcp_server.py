@@ -448,7 +448,7 @@ async def get_sync_health() -> dict[str, Any]:
     }
 
 
-_plugin_instances = load_plugins()
+_plugin_instances = load_plugins(for_mcp=True)
 register_plugin_mcp_tools(mcp, _plugin_instances)
 
 

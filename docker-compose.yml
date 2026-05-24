@@ -63,11 +63,6 @@ services:
       ENABLED_PLUGINS: ${ENABLED_PLUGINS:-}
       WITHINGS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/withings
       FDDB_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/fddb_nutrition
-      WITHINGS_CLIENT_ID: ${WITHINGS_CLIENT_ID:-}
-      WITHINGS_CLIENT_SECRET: ${WITHINGS_CLIENT_SECRET:-}
-      FDDB_USER: ${FDDB_USER:-}
-      FDDB_PW: ${FDDB_PW:-}
-      FDDB_COOKIE: ${FDDB_COOKIE:-}
     depends_on:
       db:
         condition: service_healthy
