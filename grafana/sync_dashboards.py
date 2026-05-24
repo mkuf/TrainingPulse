@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Push dashboards from grafana/dashboards/ to a Grafana instance via HTTP API.
 
+Includes top-level dashboards (*.json) and addon dashboards (addons/*.json).
+
 Env: GRAFANA_TLS_SKIP_VERIFY=1 (or true/yes/on) disables TLS certificate verification
 for https:// URLs (e.g. self-signed Grafana). Use only on trusted networks.
+GRAFANA_ADDON_FOLDER_ID — optional folder id for addons/*.json (defaults to GRAFANA_FOLDER_ID).
 """
 
 from __future__ import annotations
@@ -49,9 +52,15 @@ def main() -> int:
         return 1
 
     paths = sorted(dashboards_dir.glob("*.json"))
+    addons_dir = dashboards_dir / "addons"
+    if addons_dir.is_dir():
+        paths.extend(sorted(addons_dir.glob("*.json")))
     if not paths:
         print(f"No JSON dashboards in {dashboards_dir}", file=sys.stderr)
         return 1
+
+    addon_folder_id = os.environ.get("GRAFANA_ADDON_FOLDER_ID")
+    addon_folder = int(addon_folder_id) if addon_folder_id else folder_id
 
     url = f"{base}/api/dashboards/db"
     failed = False
@@ -65,8 +74,11 @@ def main() -> int:
             continue
 
         dashboard["id"] = None
+        target_folder = (
+            addon_folder if path.parent.name == "addons" else folder_id
+        )
         body = json.dumps(
-            {"dashboard": dashboard, "overwrite": True, "folderId": folder_id}
+            {"dashboard": dashboard, "overwrite": True, "folderId": target_folder}
         ).encode("utf-8")
 
         req = urllib.request.Request(

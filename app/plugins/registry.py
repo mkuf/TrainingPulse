@@ -28,6 +28,13 @@ def _parse_enabled() -> set[str]:
     return {name.strip().lower() for name in raw.split(",") if name.strip()}
 
 
+def enabled_plugin_names() -> list[str]:
+    """Sorted plugin names listed in ENABLED_PLUGINS (withings, fddb)."""
+    known = ("withings", "fddb")
+    enabled = _parse_enabled()
+    return [name for name in known if name in enabled]
+
+
 def load_plugins(*, for_mcp: bool = False) -> list[TrainingPulsePlugin]:
     enabled = _parse_enabled()
     loaded: list[TrainingPulsePlugin] = []

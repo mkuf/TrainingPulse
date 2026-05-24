@@ -23,7 +23,12 @@ from config import settings
 from database import async_session, engine
 from models import Activity, ActivityStream, Base, DailyMetrics, StravaToken
 from strava_client import StravaClient
-from plugins.registry import dispose_plugins, load_plugins, setup_plugins
+from plugins.registry import dispose_plugins, enabled_plugin_names, load_plugins, setup_plugins
+
+_PLUGIN_LINKS: dict[str, tuple[str, str]] = {
+    "withings": ("Withings (body weight)", "/plugins/withings/"),
+    "fddb": ("FDDB (nutrition)", "/plugins/fddb/"),
+}
 from sync import _snapshot_rate_limits, run_sync, sync_state
 
 APP_DISPLAY_NAME = "TrainingPulse"
@@ -226,9 +231,33 @@ async def _progress_counts(session, athlete_id: int) -> dict:
     }
 
 
+def _plugin_links_html(active_names: set[str]) -> str:
+    enabled = enabled_plugin_names()
+    if not enabled:
+        return ""
+    items: list[str] = []
+    for name in enabled:
+        label, path = _PLUGIN_LINKS[name]
+        if name in active_names:
+            items.append(f'<li><a href="{path}">{label}</a></li>')
+        else:
+            items.append(
+                f'<li>{label} <span class="fine-print">(not configured — see .env)</span></li>'
+            )
+    return f"""
+    <div class="card">
+        <h3>🔌 Plugins</h3>
+        <ul style="margin: 0.5rem 0 0 1.25rem; padding: 0;">
+            {"".join(items)}
+        </ul>
+    </div>
+    """
+
+
 @app.get("/", response_class=HTMLResponse)
-async def home():
+async def home(request: Request):
     """Status page showing sync state and current metrics."""
+    active_plugins = {p.name for p in getattr(request.app.state, "plugins", [])}
     async with async_session() as session:
         # Check if authenticated
         token_result = await session.execute(select(StravaToken).limit(1))
@@ -522,6 +551,7 @@ async def home():
             </div>
             {sync_info}
             {metrics_info}
+            {_plugin_links_html(active_plugins)}
             {grafana_info}
             """,
         )

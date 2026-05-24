@@ -513,7 +513,6 @@
         "label": "Training",
         "name": "DS_TRAINING",
         "query": "grafana-postgresql-datasource",
-        "regex": "/^Training$/",
         "type": "datasource"
       },
       {
@@ -523,7 +522,6 @@
         "label": "Nutrition",
         "name": "DS_NUTRITION",
         "query": "grafana-postgresql-datasource",
-        "regex": "/^Nutrition$/",
         "type": "datasource"
       },
       {
@@ -533,7 +531,6 @@
         "label": "Weight",
         "name": "DS_WEIGHT",
         "query": "grafana-postgresql-datasource",
-        "regex": "/^Weight$/",
         "type": "datasource"
       },
       {
@@ -559,7 +556,7 @@
     "time_options": ["30d", "90d", "6M", "1y", "2y"]
   },
   "timezone": "browser",
-  "title": "Nutrition, training and weight",
-  "uid": "tp-nutrition-training",
-  "version": 5
+  "title": "TrainingPulse — Nutrition, training and weight",
+  "uid": "trainingpulse-nutrition-training-weight",
+  "version": 6
 }
