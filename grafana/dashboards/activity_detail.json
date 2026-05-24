@@ -62,7 +62,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -109,7 +109,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(distance::numeric, 0) AS \"Distance (m)\" FROM activities WHERE id = ${activity_id}",
           "format": "table",
@@ -129,7 +129,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -176,7 +176,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT moving_time AS \"Moving Time\" FROM activities WHERE id = ${activity_id}",
           "format": "table",
@@ -196,7 +196,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -243,7 +243,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE id = ${activity_id}",
           "format": "table",
@@ -327,7 +327,7 @@
       "type": "text",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": {
@@ -349,7 +349,7 @@
       "type": "text",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": { "defaults": {}, "overrides": [] },
       "options": {
@@ -503,7 +503,7 @@
       "type": "text",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {},
@@ -544,7 +544,7 @@
       "type": "geomap",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -627,7 +627,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  (point->>0)::float AS lat,\n  (point->>1)::float AS lng\nFROM activity_streams,\nLATERAL jsonb_array_elements(data->'latlng') AS point\nWHERE activity_id = ${activity_id}\n  AND data ? 'latlng'",
           "format": "table",
@@ -647,7 +647,7 @@
       "type": "timeseries",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -681,7 +681,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
           "format": "time_series",
@@ -713,7 +713,7 @@
       "type": "timeseries",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -766,7 +766,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  h.val::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
           "format": "time_series",
@@ -786,7 +786,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -833,7 +833,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(average_heartrate::numeric, 0) AS \"Avg HR\" FROM activities WHERE id = ${activity_id}",
           "format": "table",
@@ -853,7 +853,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -900,7 +900,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(max_heartrate::numeric, 0) AS \"Max HR\" FROM activities WHERE id = ${activity_id} AND max_heartrate IS NOT NULL",
           "format": "table",
@@ -920,7 +920,7 @@
       "type": "timeseries",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -965,7 +965,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(v.val::numeric, 2) AS \"Speed\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'velocity_smooth') WITH ORDINALITY AS v(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'velocity_smooth'\n  AND t.idx = v.idx2\nORDER BY t.idx",
           "format": "time_series",
@@ -985,7 +985,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1032,7 +1032,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT average_speed * 3.6 AS \"Avg Speed\" FROM activities WHERE id = ${activity_id} AND average_speed IS NOT NULL",
           "format": "table",
@@ -1052,7 +1052,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1099,7 +1099,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT MAX(v.val::numeric) * 3.6 AS \"Max Speed\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'velocity_smooth') AS v(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'velocity_smooth'",
           "format": "table",
@@ -1119,7 +1119,7 @@
       "type": "timeseries",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1152,7 +1152,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  p.val::int AS \"Power\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'watts') WITH ORDINALITY AS p(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'watts'\n  AND t.idx = p.idx2\nORDER BY t.idx",
           "format": "time_series",
@@ -1172,7 +1172,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1219,7 +1219,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT max_watts AS \"Max Power\" FROM activities WHERE id = ${activity_id} AND max_watts IS NOT NULL",
           "format": "table",
@@ -1239,7 +1239,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1286,7 +1286,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(average_watts::numeric, 0) AS \"Avg Power\" FROM activities WHERE id = ${activity_id} AND average_watts IS NOT NULL",
           "format": "table",
@@ -1306,7 +1306,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1353,7 +1353,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(best_20min_power::numeric, 0) AS \"Best 20min\" FROM activities WHERE id = ${activity_id} AND best_20min_power IS NOT NULL",
           "format": "table",
@@ -1373,7 +1373,7 @@
       "type": "timeseries",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1406,7 +1406,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  c.val::int AS \"Cadence\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'cadence') WITH ORDINALITY AS c(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'cadence'\n  AND t.idx = c.idx2\nORDER BY t.idx",
           "format": "time_series",
@@ -1426,7 +1426,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1473,7 +1473,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT ROUND(AVG(c.val::numeric), 0) AS \"Avg Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'cadence' AND c.val::numeric > 0",
           "format": "table",
@@ -1493,7 +1493,7 @@
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1540,7 +1540,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT MAX(c.val::int) AS \"Max Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'cadence'",
           "format": "table",
@@ -1560,7 +1560,7 @@
       "type": "timeseries",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1593,7 +1593,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  temp.val::float AS \"Temperature\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'temp') WITH ORDINALITY AS temp(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'temp'\n  AND t.idx = temp.idx2\nORDER BY t.idx",
           "format": "time_series",
@@ -1625,7 +1625,7 @@
       "type": "piechart",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1738,7 +1738,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = ${activity_id}\n  AND hr_zone_seconds IS NOT NULL",
           "format": "table",
@@ -1758,7 +1758,7 @@
       "type": "bargauge",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -1867,7 +1867,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = ${activity_id}\n  AND hr_zone_seconds IS NOT NULL",
           "format": "table",
@@ -1899,7 +1899,7 @@
       "type": "piechart",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2042,7 +2042,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = ${activity_id}\n  AND power_zone_seconds IS NOT NULL",
           "format": "table",
@@ -2062,7 +2062,7 @@
       "type": "bargauge",
       "datasource": {
         "type": "grafana-postgresql-datasource",
-        "uid": ""
+        "uid": "${DS_POSTGRESQL}"
       },
       "fieldConfig": {
         "defaults": {
@@ -2201,7 +2201,7 @@
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
-            "uid": ""
+            "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = ${activity_id}\n  AND power_zone_seconds IS NOT NULL",
           "format": "table",
@@ -2237,7 +2237,7 @@
         "current": {},
         "datasource": {
           "type": "grafana-postgresql-datasource",
-          "uid": ""
+          "uid": "${DS_POSTGRESQL}"
         },
         "definition": "SELECT id AS __value, start_date::date || ' \u2014 ' || name || ' (' || sport_type || ')' AS __text FROM activities ORDER BY start_date DESC LIMIT 200",
         "hide": 0,
@@ -2246,14 +2246,14 @@
         "multi": false,
         "name": "activity_id",
         "query": "SELECT id AS __value, start_date::date || ' \u2014 ' || name || ' (' || sport_type || ')' AS __text FROM activities ORDER BY start_date DESC LIMIT 200",
-        "refresh": 2,
+        "refresh": 1,
         "sort": 0,
         "type": "query"
       },
       {
         "datasource": {
           "type": "grafana-postgresql-datasource",
-          "uid": ""
+          "uid": "${DS_POSTGRESQL}"
         },
         "definition": "SELECT description FROM activities WHERE id = ${activity_id}",
         "hide": 2,
@@ -2266,7 +2266,7 @@
       {
         "datasource": {
           "type": "grafana-postgresql-datasource",
-          "uid": ""
+          "uid": "${DS_POSTGRESQL}"
         },
         "definition": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '\u2014') FROM activities WHERE id = ${activity_id}",
         "hide": 2,
@@ -2279,7 +2279,7 @@
       {
         "datasource": {
           "type": "grafana-postgresql-datasource",
-          "uid": ""
+          "uid": "${DS_POSTGRESQL}"
         },
         "definition": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '\u2014') FROM activities WHERE id = ${activity_id}",
         "hide": 2,
@@ -2299,5 +2299,5 @@
   "timezone": "browser",
   "title": "TrainingPulse — Activity detail",
   "uid": "trainingpulse-activity-detail",
-  "version": 1
+  "version": 4
 }
