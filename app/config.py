@@ -11,8 +11,11 @@ class Settings:
 
     DATABASE_URL: str = os.environ.get(
         "DATABASE_URL",
-        "postgresql+asyncpg://strava:changeme@localhost:5432/strava_fitness",
+        "postgresql+asyncpg://trainingpulse:changeme@localhost:5432/trainingpulse",
     )
+
+    # Comma-separated plugin names: withings, fddb
+    ENABLED_PLUGINS: str = os.environ.get("ENABLED_PLUGINS", "")
 
     APP_BASE_URL: str = os.environ.get("APP_BASE_URL", "http://localhost:8000")
 

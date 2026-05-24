@@ -48,7 +48,7 @@ ACTIVITY_ID="${ACTIVITY_ID:-}"
 if [ -z "$ACTIVITY_ID" ]; then
   ACTIVITY_ID=$(
     docker compose -f "$REPO_ROOT/docker-compose.yml" exec -T db \
-      psql -U strava -d strava_fitness -t -A -c \
+      psql -U trainingpulse -d trainingpulse -t -A -c \
       "SELECT id FROM activities WHERE sport_type IN ('Ride','VirtualRide','MountainBikeRide') AND best_20min_power IS NOT NULL AND has_heartrate AND start_date > now() - interval '30 days' ORDER BY trimp DESC NULLS LAST LIMIT 1;"
   )
 fi
@@ -59,7 +59,7 @@ fi
 
 ACTIVITY_RANGE=$(
   docker compose -f "$REPO_ROOT/docker-compose.yml" exec -T db \
-    psql -U strava -d strava_fitness -t -A -F'|' -c \
+    psql -U trainingpulse -d trainingpulse -t -A -F'|' -c \
     "SELECT EXTRACT(EPOCH FROM (start_date - interval '5 minutes'))::bigint * 1000, EXTRACT(EPOCH FROM (start_date + (moving_time + 300) * interval '1 second'))::bigint * 1000 FROM activities WHERE id = $ACTIVITY_ID;"
 )
 ACTIVITY_FROM_MS="${ACTIVITY_RANGE%%|*}"

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trainingpulse-fddb"
+version = "0.1.0"
+description = "FDDB nutrition plugin for TrainingPulse"
+requires-python = ">=3.12"
+dependencies = [
+    "trainingpulse-common",
+    "fastapi>=0.115",
+    "httpx>=0.28",
+    "beautifulsoup4>=4.12",
+    "sqlalchemy[asyncio]>=2.0.40",
+    "apscheduler>=3.11",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fddb_plugin*"]

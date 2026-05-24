@@ -3,24 +3,27 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-strava}
+      POSTGRES_USER: ${POSTGRES_USER:-trainingpulse}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-strava_fitness}
+      POSTGRES_DB: ${POSTGRES_DB:-trainingpulse}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/02-init-addon-databases.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-strava} -d ${POSTGRES_DB:-strava_fitness}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trainingpulse} -d ${POSTGRES_DB:-trainingpulse}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   app:
-    build: ./app
+    build:
+      context: .
+      dockerfile: app/Dockerfile
     restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-strava}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-strava_fitness}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-trainingpulse}
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID}
       STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
@@ -30,21 +33,41 @@ services:
       REST_HR: ${REST_HR}
       FTP: ${FTP}
       SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
+      ENABLED_PLUGINS: ${ENABLED_PLUGINS:-}
+      WITHINGS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/withings
+      FDDB_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/fddb_nutrition
+      WITHINGS_CLIENT_ID: ${WITHINGS_CLIENT_ID:-}
+      WITHINGS_CLIENT_SECRET: ${WITHINGS_CLIENT_SECRET:-}
+      WITHINGS_SYNC_INTERVAL_MINUTES: ${WITHINGS_SYNC_INTERVAL_MINUTES:-60}
+      FDDB_USER: ${FDDB_USER:-}
+      FDDB_PW: ${FDDB_PW:-}
+      FDDB_COOKIE: ${FDDB_COOKIE:-}
+      FDDB_SYNC_INTERVAL_MINUTES: ${FDDB_SYNC_INTERVAL_MINUTES:-60}
     depends_on:
       db:
         condition: service_healthy
 
   mcp:
-    build: ./app
+    build:
+      context: .
+      dockerfile: app/Dockerfile
     restart: unless-stopped
     command: ["python", "mcp_server.py"]
     ports:
       - "${MCP_PORT:-8001}:8001"
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-strava}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-strava_fitness}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-trainingpulse}
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8001
       MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost:*,127.0.0.1:*}
+      ENABLED_PLUGINS: ${ENABLED_PLUGINS:-}
+      WITHINGS_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/withings
+      FDDB_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/fddb_nutrition
+      WITHINGS_CLIENT_ID: ${WITHINGS_CLIENT_ID:-}
+      WITHINGS_CLIENT_SECRET: ${WITHINGS_CLIENT_SECRET:-}
+      FDDB_USER: ${FDDB_USER:-}
+      FDDB_PW: ${FDDB_PW:-}
+      FDDB_COOKIE: ${FDDB_COOKIE:-}
     depends_on:
       db:
         condition: service_healthy
@@ -58,9 +81,9 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
       - GF_AUTH_BASIC_ENABLED=false
-      - POSTGRES_USER=${POSTGRES_USER:-strava}
+      - POSTGRES_USER=${POSTGRES_USER:-trainingpulse}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
-      - POSTGRES_DB=${POSTGRES_DB:-strava_fitness}
+      - POSTGRES_DB=${POSTGRES_DB:-trainingpulse}
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards

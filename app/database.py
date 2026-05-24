@@ -1,12 +1,13 @@
 """Database engine and session management."""
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
+from trainingpulse_common import make_async_engine, make_session_factory
 
 from config import settings
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+engine = make_async_engine(settings.DATABASE_URL)
 
-async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+async_session = make_session_factory(engine)
 
 
 async def get_session() -> AsyncSession:

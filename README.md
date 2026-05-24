@@ -60,9 +60,22 @@ Example views from the bundled dashboards.
 
 3. **Connect Strava.** Open the app at `http://your-host:8000/` and click the official **Connect with Strava** button to complete OAuth. The initial backfill starts automatically — the same page shows live progress, and ongoing syncs run every 15 minutes from then on.
 
-4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres data source (**`strava-pg`**) and the bundled dashboards are provisioned automatically, so the dashboards appear without any manual setup.
+4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres datasource **`trainingpulse-pg`** and the bundled dashboards are provisioned automatically.
 
-5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp` for Cursor or another MCP-aware client. It exposes training summaries, activity lookup, gear usage, and sync-health tools over your network; keep it on a trusted network because tool results can include private training data. If you connect through a homeserver hostname or LAN IP, add it to `MCP_ALLOWED_HOSTS` in `.env`.
+5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp` for Cursor or another MCP-aware client. It exposes training summaries, activity lookup, gear usage, and sync-health tools over your network; keep it on a trusted network because tool results can include private training data. If you connect through a homeserver hostname or LAN IP, add it to `MCP_ALLOWED_HOSTS` in `.env`. When plugins are enabled (below), weight and nutrition tools are registered on the same endpoint.
+
+## Optional plugins (Withings, FDDB)
+
+TrainingPulse can load **in-process plugins** for body weight (Withings) and daily nutrition (FDDB). They use separate Postgres databases on the same server (`withings`, `fddb_nutrition`) and appear in Grafana under the **Addons** folder.
+
+1. Set `ENABLED_PLUGINS=withings,fddb` in `.env` (comma-separated; omit or leave empty for core-only).
+2. Add plugin credentials (`WITHINGS_CLIENT_*`, or `FDDB_USER` / `FDDB_PW` / `FDDB_COOKIE` — see `.env.example`).
+3. Restart: `docker compose up -d --build`
+
+| Plugin | Setup UI | Partner callback (Withings) |
+|--------|----------|---------------------------|
+| Withings | `/plugins/withings/` | `{APP_BASE_URL}/plugins/withings/get_token` |
+| FDDB | `/plugins/fddb/` | Cookie from browser (see `.env.example`) |
 
 ## What data lives where
 

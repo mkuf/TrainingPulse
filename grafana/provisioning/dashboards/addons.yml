@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: TrainingPulse Addons
+    orgId: 1
+    folder: Addons
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json/addons

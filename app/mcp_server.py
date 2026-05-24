@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session
 from models import Activity, ActivityStream, AthleteSettings, DailyMetrics
+from plugins.registry import load_plugins, register_plugin_mcp_tools
 
 APP_NAME = "TrainingPulse MCP"
 DEFAULT_LIMIT = 25
@@ -48,7 +49,9 @@ mcp = FastMCP(
     APP_NAME,
     instructions=(
         "Read-only access to TrainingPulse activity, training-load, gear, "
-        "and sync-health summaries. Do not request Strava OAuth tokens."
+        "and sync-health summaries. When Withings/FDDB plugins are enabled, "
+        "weight and nutrition tools are also available. Do not request OAuth "
+        "tokens or FDDB cookies."
     ),
     stateless_http=True,
     json_response=True,
@@ -443,6 +446,10 @@ async def get_sync_health() -> dict[str, Any]:
             "tsb": _round(latest_metrics.tsb, 1) if latest_metrics else None,
         },
     }
+
+
+_plugin_instances = load_plugins()
+register_plugin_mcp_tools(mcp, _plugin_instances)
 
 
 if __name__ == "__main__":

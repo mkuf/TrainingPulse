@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trainingpulse-withings"
+version = "0.1.0"
+description = "Withings weight plugin for TrainingPulse"
+requires-python = ">=3.12"
+dependencies = [
+    "trainingpulse-common",
+    "fastapi>=0.115",
+    "httpx>=0.28",
+    "sqlalchemy[asyncio]>=2.0.40",
+    "apscheduler>=3.11",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["withings_plugin*"]

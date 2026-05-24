@@ -23,6 +23,7 @@ from config import settings
 from database import async_session, engine
 from models import Activity, ActivityStream, Base, DailyMetrics, StravaToken
 from strava_client import StravaClient
+from plugins.registry import dispose_plugins, load_plugins, setup_plugins
 from sync import _snapshot_rate_limits, run_sync, sync_state
 
 APP_DISPLAY_NAME = "TrainingPulse"
@@ -44,20 +45,22 @@ async def trigger_sync_task(force_resync: bool = False):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: create tables, start scheduler."""
-    # Create all tables (schema migrations / DDL are applied manually outside the app)
+    """Application lifespan: create tables, start scheduler, load plugins."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables created/verified")
 
-    # Start the scheduler
+    app.state.scheduler = scheduler
+    plugins = load_plugins()
+    app.state.plugins = await setup_plugins(app, scheduler, plugins)
+
     scheduler.add_job(
         trigger_sync_task,
         "interval",
         minutes=settings.SYNC_INTERVAL_MINUTES,
         id="trainingpulse_sync",
         replace_existing=True,
-        next_run_time=datetime.now(timezone.utc),  # Run immediately on startup
+        next_run_time=datetime.now(timezone.utc),
     )
     scheduler.start()
     logger.info(
@@ -66,8 +69,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     scheduler.shutdown(wait=False)
+    await dispose_plugins(app.state.plugins)
     await engine.dispose()
 
 
@@ -501,7 +504,7 @@ async def home():
         <p>Add a PostgreSQL data source in Grafana with these settings:</p>
         <table>
             <tr><td>Host</td><td><code>db:5432</code> (Docker Compose service name, or your network address)</td></tr>
-            <tr><td>Database</td><td><code>strava_fitness</code></td></tr>
+            <tr><td>Database</td><td><code>trainingpulse</code></td></tr>
             <tr><td>User</td><td><code>strava</code></td></tr>
             <tr><td>Password</td><td><em>(your POSTGRES_PASSWORD)</em></td></tr>
             <tr><td>TLS/SSL</td><td>Disable</td></tr>

@@ -5,11 +5,43 @@ Technical reference for **TrainingPulse**. Day-to-day setup lives in [`README.md
 ## Architecture
 
 ```
-Strava API → [FastAPI app] → PostgreSQL → Grafana
-                                      ↘ MCP service
+Strava API → [app/ FastAPI core] → PostgreSQL (trainingpulse)
+Optional plugins (withings, fddb) → PostgreSQL (withings | fddb_nutrition)
+Grafana → all provisioned Postgres datasources
+MCP → trainingpulse DB + optional plugin DBs
 ```
 
-The FastAPI service in [`app/`](app/) handles OAuth, runs a background scheduler (APScheduler) that polls Strava every `SYNC_INTERVAL_MINUTES`, and writes activities, raw streams, and daily training-load metrics to PostgreSQL. Grafana queries PostgreSQL directly, and the MCP sidecar exposes a small read-only tool layer over the same database — there is no Prometheus, Redis, or other intermediate store.
+The core service in [`app/`](app/) handles Strava OAuth, APScheduler sync, TRIMP/CTL/ATL/TSB, and the status UI. Optional plugins under [`plugins/`](plugins/) are loaded in-process via [`app/plugins/registry.py`](app/plugins/registry.py) when listed in `ENABLED_PLUGINS` and fully configured — they are not separate containers.
+
+Shared helpers live in [`packages/trainingpulse_common/`](packages/trainingpulse_common/) (async DB factories, `SimpleSyncState`, MCP readonly sessions).
+
+```mermaid
+flowchart TB
+  subgraph app_container [app and mcp containers]
+    Main[app.main]
+    Reg[plugins.registry]
+    Main --> Reg
+    Reg --> Withings[withings_plugin]
+    Reg --> Fddb[fddb_plugin]
+  end
+  subgraph pg [Postgres]
+    TP[trainingpulse]
+    W[withings]
+    F[fddb_nutrition]
+  end
+  Main --> TP
+  Withings --> W
+  Fddb --> F
+```
+
+### Plugin HTTP routes
+
+| Plugin | Prefix | Notes |
+|--------|--------|-------|
+| Withings | `/plugins/withings` | OAuth at `/auth/withings`, callback `/get_token` |
+| FDDB | `/plugins/fddb` | Cookie-based scrape; no OAuth |
+
+Grafana addon dashboards in [`grafana/dashboards/addons/`](grafana/dashboards/addons/) query Postgres directly (no Infinity HTTP layer).
 
 ## Strava endpoints and the fields they provide
 
@@ -45,9 +77,16 @@ Defined in [`app/config.py`](app/config.py) and wired through [`docker-compose.y
 | `STRAVA_CLIENT_ID` | — | Strava API client ID. |
 | `STRAVA_CLIENT_SECRET` | — | Strava API client secret. |
 | `APP_BASE_URL` | `http://localhost:8000` | Public URL of the app; used to build the OAuth callback. |
-| `POSTGRES_USER` | `strava` | PostgreSQL username. |
+| `POSTGRES_USER` | `trainingpulse` | PostgreSQL username (core + plugin DBs). |
 | `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password. |
-| `POSTGRES_DB` | `strava_fitness` | PostgreSQL database name. |
+| `POSTGRES_DB` | `trainingpulse` | Core TrainingPulse database name. |
+| `ENABLED_PLUGINS` | empty | Comma-separated: `withings`, `fddb`. |
+| `WITHINGS_DATABASE_URL` | `…/withings` | Withings plugin DB (compose sets this). |
+| `WITHINGS_CLIENT_ID` / `WITHINGS_CLIENT_SECRET` | — | Withings Partner app. |
+| `WITHINGS_SYNC_INTERVAL_MINUTES` | `60` | Withings poll interval. |
+| `FDDB_DATABASE_URL` | `…/fddb_nutrition` | FDDB plugin DB. |
+| `FDDB_USER` / `FDDB_PW` / `FDDB_COOKIE` | — | FDDB scrape credentials. |
+| `FDDB_SYNC_INTERVAL_MINUTES` | `60` | FDDB poll interval. |
 | `MCP_PORT` | `8001` | Host port for the network-accessible MCP endpoint at `/mcp`. |
 | `MCP_ALLOWED_HOSTS` | `localhost:*,127.0.0.1:*` | Comma-separated Host header allowlist for MCP DNS-rebinding protection. Add your homeserver hostname or LAN IP when connecting from another machine. |
 | `SYNC_INTERVAL_MINUTES` | `15` | Background poll interval. |
@@ -111,6 +150,11 @@ Initial tools:
 - `get_activity_detail(activity_id)`
 - `get_gear_usage(start_date?, end_date?)`
 - `get_sync_health()`
+
+When plugins are enabled and configured, the same MCP server also exposes:
+
+- **Withings:** `get_weight_summary`, `list_weight_measurements`, `get_latest_weight`, `compare_weight_periods`
+- **FDDB:** `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods`, `get_fddb_sync_health`
 
 Example Cursor MCP configuration:
 
@@ -178,3 +222,6 @@ The script picks the highest-TRIMP recent ride for the activity-detail dashboard
 - SQLAlchemy schema: [`app/models.py`](app/models.py)
 - Settings loader: [`app/config.py`](app/config.py)
 - Grafana provisioning and dashboards: [`grafana/`](grafana/)
+- Plugin registry: [`app/plugins/registry.py`](app/plugins/registry.py)
+- Withings plugin: [`plugins/withings/withings_plugin/`](plugins/withings/withings_plugin/)
+- FDDB plugin: [`plugins/fddb/fddb_plugin/`](plugins/fddb/fddb_plugin/)
