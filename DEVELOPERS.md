@@ -174,6 +174,8 @@ Because the MCP port is published on the host network like Grafana and the app, 
 
 [`app/seed_demo_data.py`](app/seed_demo_data.py) populates the DB with ~12 months of fully synthetic, Strava-style activities so the Grafana dashboards can be screenshotted without exposing real training data. All rows belong to athlete id `99999999` and use activity ids in the `9000000000+` range. The script reuses [`app/metrics.py`](app/metrics.py) for TRIMP, HR / power zones, the power curve, and the CTL / ATL / TSB recalculation, so the seeded data renders identically to a real sync.
 
+It also seeds the addon databases when `FDDB_DATABASE_URL` and `WITHINGS_DATABASE_URL` are set (as in docker-compose): one `daily_nutrition` row per day in `fddb_nutrition`, and morning weigh-ins in `withings.weight_measurements` (demo `grpid` values `9000000000+`). OAuth token tables (`strava_tokens`, `withings_tokens`) are never touched.
+
 Run it inside the container:
 
 ```bash
@@ -186,7 +188,7 @@ Flags:
 
 - `--days N` (default `365`): how far back to start the synthetic history.
 - `--seed N` (default `42`): RNG seed so output is reproducible.
-- `--force`: truncate `activities`, `activity_streams`, `daily_metrics`, and `athlete_settings` before seeding. `strava_tokens` is never touched.
+- `--force`: truncate `activities`, `activity_streams`, `daily_metrics`, and `athlete_settings` before seeding; also truncates `daily_nutrition` and demo `weight_measurements` (`grpid >= 9000000000`). `strava_tokens` and `withings_tokens` are never touched.
 
 To remove the seeded rows later:
 
@@ -195,6 +197,18 @@ DELETE FROM activity_streams WHERE activity_id >= 9000000000;
 DELETE FROM activities       WHERE athlete_id  = 99999999;
 DELETE FROM daily_metrics    WHERE athlete_id  = 99999999;
 DELETE FROM athlete_settings WHERE athlete_id  = 99999999;
+```
+
+In the `fddb_nutrition` database:
+
+```sql
+TRUNCATE daily_nutrition;
+```
+
+In the `withings` database:
+
+```sql
+DELETE FROM weight_measurements WHERE grpid >= 9000000000;
 ```
 
 The synthetic streams intentionally omit `latlng`, so the activity-detail map panel stays empty rather than implying a real location.

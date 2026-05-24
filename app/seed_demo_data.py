@@ -6,6 +6,10 @@ virtual rides, walks, hikes, strength) with realistic streams, then reuses
 [`metrics.py`](metrics.py) to derive TRIMP, HR / power zones, the power
 curve, and the daily CTL / ATL / TSB curve.
 
+Also seeds the FDDB (`daily_nutrition`) and Withings (`weight_measurements`)
+addon databases when `FDDB_DATABASE_URL` / `WITHINGS_DATABASE_URL` are set
+(as in docker-compose). OAuth token tables are never touched.
+
 Run inside the app container:
 
     docker compose exec app python seed_demo_data.py --force
@@ -17,6 +21,12 @@ at 9_000_000_000, so they are easy to delete later:
     DELETE FROM activity_streams WHERE activity_id >= 9000000000;
     DELETE FROM daily_metrics    WHERE athlete_id = 99999999;
     DELETE FROM athlete_settings WHERE athlete_id = 99999999;
+
+    -- fddb_nutrition database
+    TRUNCATE daily_nutrition;
+
+    -- withings database
+    DELETE FROM weight_measurements WHERE grpid >= 9000000000;
 """
 
 from __future__ import annotations
@@ -27,11 +37,20 @@ import logging
 import math
 import random
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
+from fddb_plugin.config import settings as fddb_settings
+from fddb_plugin.models import Base as FddbBase
+from fddb_plugin.models import DailyNutrition
 from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from trainingpulse_common import make_async_engine, make_session_factory
+from withings_plugin.config import settings as withings_settings
+from withings_plugin.models import Base as WithingsBase
+from withings_plugin.models import WeightMeasurement
 
 from database import async_session, engine
 from metrics import (
@@ -56,6 +75,7 @@ logger = logging.getLogger("seed_demo_data")
 
 DEMO_ATHLETE_ID = 99_999_999
 DEMO_ACTIVITY_ID_BASE = 9_000_000_000
+DEMO_GRPID_BASE = 9_000_000_000
 
 MAX_HR = 185
 REST_HR = 50
@@ -474,6 +494,86 @@ def plan_activities(days: int, rng: random.Random) -> list[tuple[datetime, str, 
     return plan
 
 
+# ── Addon data (FDDB + Withings) ─────────────────────────────────────
+
+
+def _history_start_day(days: int) -> datetime:
+    end_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return end_day - timedelta(days=days)
+
+
+def generate_daily_nutrition(
+    start_day: date,
+    days: int,
+    rng: random.Random,
+    hard_training_days: set[date] | None = None,
+) -> list[DailyNutrition]:
+    """One FDDB row per calendar day with macros that bump on hard-training days."""
+    hard = hard_training_days or set()
+    rows: list[DailyNutrition] = []
+    for offset in range(days):
+        day = start_day + timedelta(days=offset)
+        kcal = rng.uniform(2200, 2600)
+        if day.weekday() >= 5:
+            kcal += rng.uniform(100, 300)
+        if day in hard:
+            kcal += rng.uniform(200, 400)
+        kcal = round(kcal, 1)
+        protein_g = round(kcal * 0.25 / 4, 1)
+        carbs_g = round(kcal * 0.45 / 4, 1)
+        fat_g = round(kcal * 0.30 / 9, 1)
+        rows.append(
+            DailyNutrition(
+                date=day,
+                kcal=kcal,
+                protein_g=protein_g,
+                carbs_g=carbs_g,
+                sugar_g=round(carbs_g * rng.uniform(0.15, 0.35), 1),
+                fat_g=fat_g,
+                fiber_g=round(rng.uniform(25, 40), 1),
+            )
+        )
+    return rows
+
+
+def generate_weight_measurements(
+    start_day: date,
+    days: int,
+    rng: random.Random,
+) -> list[WeightMeasurement]:
+    """Morning weigh-ins ~3–4×/week with a slow downward trend."""
+    rows: list[WeightMeasurement] = []
+    grpid = DEMO_GRPID_BASE
+    span = max(days, 1)
+    for offset in range(days):
+        day = start_day + timedelta(days=offset)
+        weigh_in = day.weekday() in (0, 2, 4, 6) or (day.weekday() == 1 and rng.random() < 0.4)
+        if not weigh_in:
+            continue
+        progress = offset / span
+        weight_kg = round(72.5 - progress * 1.5 + rng.gauss(0, 0.15), 2)
+        fat_mass_pct = round(16.5 - progress * 0.5 + rng.gauss(0, 0.3), 1)
+        measured_at = datetime(
+            day.year,
+            day.month,
+            day.day,
+            7,
+            rng.choice([0, 15, 30]),
+            tzinfo=timezone.utc,
+        )
+        rows.append(
+            WeightMeasurement(
+                grpid=grpid,
+                measured_at=measured_at,
+                weight_kg=weight_kg,
+                fat_mass_pct=fat_mass_pct,
+                deviceid="demo-scale",
+            )
+        )
+        grpid += 1
+    return rows
+
+
 # ── DB ops ──────────────────────────────────────────────────────────
 
 
@@ -491,11 +591,100 @@ async def _table_counts(session: AsyncSession) -> dict[str, int]:
     return counts
 
 
+async def _addon_table_counts(session: AsyncSession, model) -> int:
+    result = await session.execute(select(func.count()).select_from(model))
+    return int(result.scalar_one() or 0)
+
+
+async def _collect_all_counts(
+    main_session: AsyncSession,
+    fddb_session: AsyncSession | None,
+    withings_session: AsyncSession | None,
+) -> dict[str, int]:
+    counts = await _table_counts(main_session)
+    if fddb_session is not None:
+        counts["daily_nutrition"] = await _addon_table_counts(fddb_session, DailyNutrition)
+    if withings_session is not None:
+        counts["weight_measurements"] = await _addon_table_counts(withings_session, WeightMeasurement)
+    return counts
+
+
 async def _truncate(session: AsyncSession) -> None:
     logger.info("--force: truncating activities, activity_streams, daily_metrics, athlete_settings")
     for table in (ActivityStream, Activity, DailyMetrics, AthleteSettings):
         await session.execute(delete(table))
     await session.commit()
+
+
+async def _truncate_addons(
+    fddb_session: AsyncSession | None,
+    withings_session: AsyncSession | None,
+) -> None:
+    if fddb_session is not None:
+        logger.info("--force: truncating daily_nutrition")
+        await fddb_session.execute(delete(DailyNutrition))
+        await fddb_session.commit()
+    if withings_session is not None:
+        logger.info("--force: truncating demo weight_measurements (grpid >= %d)", DEMO_GRPID_BASE)
+        await withings_session.execute(
+            delete(WeightMeasurement).where(WeightMeasurement.grpid >= DEMO_GRPID_BASE)
+        )
+        await withings_session.commit()
+
+
+async def _ensure_addon_schema(
+    fddb_engine: AsyncEngine | None,
+    withings_engine: AsyncEngine | None,
+) -> None:
+    if fddb_engine is not None:
+        async with fddb_engine.begin() as conn:
+            await conn.run_sync(FddbBase.metadata.create_all)
+    if withings_engine is not None:
+        async with withings_engine.begin() as conn:
+            await conn.run_sync(WithingsBase.metadata.create_all)
+
+
+@asynccontextmanager
+async def _optional_session(session_factory) -> AsyncIterator[AsyncSession | None]:
+    if session_factory is None:
+        yield None
+        return
+    async with session_factory() as session:
+        yield session
+
+
+async def _seed_addons(
+    args: argparse.Namespace,
+    plan: list[tuple[datetime, str, str, int]],
+    rng: random.Random,
+    fddb_session_factory,
+    withings_session_factory,
+) -> None:
+    history_start = _history_start_day(args.days)
+    start_date = history_start.date()
+    hard_training_days = {
+        start_dt.date() for start_dt, _, intensity, _ in plan if intensity in ("Z4", "Z5")
+    }
+
+    nutrition_rows = generate_daily_nutrition(start_date, args.days, rng, hard_training_days)
+    weight_rows = generate_weight_measurements(start_date, args.days, rng)
+
+    if fddb_session_factory is not None:
+        async with fddb_session_factory() as session:
+            session.add_all(nutrition_rows)
+            await session.commit()
+        logger.info("Inserted %d daily_nutrition rows", len(nutrition_rows))
+
+    if withings_session_factory is not None:
+        async with withings_session_factory() as session:
+            session.add_all(weight_rows)
+            await session.commit()
+        logger.info(
+            "Inserted %d weight_measurements rows (grpid %d-%d)",
+            len(weight_rows),
+            DEMO_GRPID_BASE,
+            DEMO_GRPID_BASE + len(weight_rows) - 1 if weight_rows else DEMO_GRPID_BASE,
+        )
 
 
 async def _upsert_profile(session: AsyncSession, profile: AthleteProfile) -> AthleteSettings:
@@ -526,92 +715,125 @@ async def _seed(args: argparse.Namespace) -> None:
     rng = random.Random(args.seed)
     profile = AthleteProfile()
 
+    fddb_engine = make_async_engine(fddb_settings.DATABASE_URL) if fddb_settings.DATABASE_URL else None
+    withings_engine = (
+        make_async_engine(withings_settings.DATABASE_URL) if withings_settings.DATABASE_URL else None
+    )
+    fddb_session_factory = make_session_factory(fddb_engine) if fddb_engine is not None else None
+    withings_session_factory = (
+        make_session_factory(withings_engine) if withings_engine is not None else None
+    )
+
     # Make sure tables exist (mirrors main.py lifespan behavior, for standalone runs).
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _ensure_addon_schema(fddb_engine, withings_engine)
 
     async with async_session() as session:
-        counts = await _table_counts(session)
-        non_empty = {t: c for t, c in counts.items() if c > 0}
-        if non_empty and not args.force:
-            logger.error(
-                "Refusing to seed: existing rows found (%s). Re-run with --force to wipe.",
-                ", ".join(f"{t}={c}" for t, c in non_empty.items()),
-            )
-            sys.exit(2)
-        if args.force:
-            await _truncate(session)
+        async with _optional_session(fddb_session_factory) as fddb_session:
+            async with _optional_session(withings_session_factory) as withings_session:
+                counts = await _collect_all_counts(session, fddb_session, withings_session)
+                non_empty = {t: c for t, c in counts.items() if c > 0}
+                if non_empty and not args.force:
+                    logger.error(
+                        "Refusing to seed: existing rows found (%s). Re-run with --force to wipe.",
+                        ", ".join(f"{t}={c}" for t, c in non_empty.items()),
+                    )
+                    sys.exit(2)
+                if args.force:
+                    await _truncate(session)
+                    await _truncate_addons(fddb_session, withings_session)
 
-        await _upsert_profile(session, profile)
+                await _upsert_profile(session, profile)
 
-        plan = plan_activities(args.days, rng)
-        logger.info(
-            "Generating %d activities across %d days for athlete %d",
-            len(plan),
-            args.days,
-            profile.athlete_id,
-        )
-
-        best_20_overall: float = 0.0
-        batch_activities: list[Activity] = []
-        batch_streams: list[ActivityStream] = []
-        BATCH = 25
-
-        for i, (start_dt, sport, intensity, duration_s) in enumerate(plan):
-            sport_cfg = next(cfg for name, _, cfg in SPORTS if name == sport)
-            data = synthesize_streams(sport, sport_cfg, duration_s, intensity, profile, start_dt, rng)
-            activity, stream_row = build_activity(
-                DEMO_ACTIVITY_ID_BASE + i,
-                profile,
-                sport,
-                sport_cfg,
-                intensity,
-                duration_s,
-                start_dt,
-                data,
-            )
-            if activity.best_20min_power is not None and activity.best_20min_power > best_20_overall:
-                best_20_overall = activity.best_20min_power
-
-            batch_activities.append(activity)
-            batch_streams.append(stream_row)
-
-            if len(batch_activities) >= BATCH:
-                session.add_all(batch_activities)
-                session.add_all(batch_streams)
-                await session.commit()
-                logger.info("Inserted %d / %d activities", i + 1, len(plan))
-                batch_activities.clear()
-                batch_streams.clear()
-
-        if batch_activities:
-            session.add_all(batch_activities)
-            session.add_all(batch_streams)
-            await session.commit()
-
-        # Update estimated_ftp from the best 20-min power across all seeded rides.
-        if best_20_overall > 0:
-            settings_row = (
-                await session.execute(
-                    select(AthleteSettings).where(AthleteSettings.athlete_id == profile.athlete_id)
+                plan = plan_activities(args.days, rng)
+                logger.info(
+                    "Generating %d activities across %d days for athlete %d",
+                    len(plan),
+                    args.days,
+                    profile.athlete_id,
                 )
-            ).scalar_one()
-            settings_row.estimated_ftp = int(round(best_20_overall * 0.95))
-            await session.commit()
-            logger.info(
-                "Best 20-min power = %.0f W, estimated_ftp = %d W",
-                best_20_overall,
-                settings_row.estimated_ftp,
-            )
 
-        logger.info("Recalculating daily metrics (CTL / ATL / TSB)...")
-        await recalculate_daily_metrics(session, profile.athlete_id)
+                best_20_overall: float = 0.0
+                batch_activities: list[Activity] = []
+                batch_streams: list[ActivityStream] = []
+                BATCH = 25
+
+                for i, (start_dt, sport, intensity, duration_s) in enumerate(plan):
+                    sport_cfg = next(cfg for name, _, cfg in SPORTS if name == sport)
+                    data = synthesize_streams(
+                        sport, sport_cfg, duration_s, intensity, profile, start_dt, rng
+                    )
+                    activity, stream_row = build_activity(
+                        DEMO_ACTIVITY_ID_BASE + i,
+                        profile,
+                        sport,
+                        sport_cfg,
+                        intensity,
+                        duration_s,
+                        start_dt,
+                        data,
+                    )
+                    if (
+                        activity.best_20min_power is not None
+                        and activity.best_20min_power > best_20_overall
+                    ):
+                        best_20_overall = activity.best_20min_power
+
+                    batch_activities.append(activity)
+                    batch_streams.append(stream_row)
+
+                    if len(batch_activities) >= BATCH:
+                        session.add_all(batch_activities)
+                        session.add_all(batch_streams)
+                        await session.commit()
+                        logger.info("Inserted %d / %d activities", i + 1, len(plan))
+                        batch_activities.clear()
+                        batch_streams.clear()
+
+                if batch_activities:
+                    session.add_all(batch_activities)
+                    session.add_all(batch_streams)
+                    await session.commit()
+
+                if best_20_overall > 0:
+                    settings_row = (
+                        await session.execute(
+                            select(AthleteSettings).where(
+                                AthleteSettings.athlete_id == profile.athlete_id
+                            )
+                        )
+                    ).scalar_one()
+                    settings_row.estimated_ftp = int(round(best_20_overall * 0.95))
+                    await session.commit()
+                    logger.info(
+                        "Best 20-min power = %.0f W, estimated_ftp = %d W",
+                        best_20_overall,
+                        settings_row.estimated_ftp,
+                    )
+
+                logger.info("Recalculating daily metrics (CTL / ATL / TSB)...")
+                await recalculate_daily_metrics(session, profile.athlete_id)
+
+                await _seed_addons(
+                    args,
+                    plan,
+                    rng,
+                    fddb_session_factory,
+                    withings_session_factory,
+                )
 
     await engine.dispose()
-    logger.info("Done. Athlete id = %d, activity ids %d-%d.",
-                DEMO_ATHLETE_ID,
-                DEMO_ACTIVITY_ID_BASE,
-                DEMO_ACTIVITY_ID_BASE + len(plan) - 1)
+    if fddb_engine is not None:
+        await fddb_engine.dispose()
+    if withings_engine is not None:
+        await withings_engine.dispose()
+    logger.info(
+        "Done. Athlete id = %d, activity ids %d-%d.",
+        DEMO_ATHLETE_ID,
+        DEMO_ACTIVITY_ID_BASE,
+        DEMO_ACTIVITY_ID_BASE + len(plan) - 1,
+    )
 
 
 def main() -> None:
@@ -621,7 +843,10 @@ def main() -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Truncate activities, activity_streams, daily_metrics, athlete_settings first.",
+        help=(
+            "Truncate activities, activity_streams, daily_metrics, athlete_settings, "
+            "daily_nutrition, and demo weight_measurements first."
+        ),
     )
     args = parser.parse_args()
     asyncio.run(_seed(args))
