@@ -217,13 +217,15 @@ The synthetic streams intentionally omit `latlng`, so the activity-detail map pa
 
 [`grafana/take_screenshots.sh`](grafana/take_screenshots.sh) captures full-page PNGs of each Grafana dashboard by running the official Playwright Python container against the live stack. The screenshots write to [`screenshots/`](screenshots/) and use the bundled demo data when the DB has been seeded with [`app/seed_demo_data.py`](app/seed_demo_data.py).
 
+Captured dashboards: `fitness.png`, `account_overview.png`, `activity_detail.png`, and `nutrition_training_weight.png` (the FDDB / Withings addon dashboard in Grafana’s **Addons** folder).
+
 Prerequisites: the stack is running (`docker compose up -d`) and the DB has data. Then:
 
 ```bash
 ./grafana/take_screenshots.sh
 ```
 
-The script picks the highest-TRIMP recent ride for the activity-detail dashboard, computes a tight time range that spans that activity (so HR / power / cadence streams render at full resolution), and uses `from=now-30d&to=now` for the other two dashboards. Override behavior via env vars listed at the top of the script (`ACTIVITY_ID`, `TIMERANGE`, `WIDTH`, `HEIGHT`, `WAIT_MS`, etc.). The Playwright image is pulled on first run; each invocation runs a quick `pip install playwright` inside the container (the base image ships Chromium but not the Python package).
+The script picks the highest-TRIMP recent ride for the activity-detail dashboard, computes a tight time range that spans that activity (so HR / power / cadence streams render at full resolution), and uses `from=now-30d&to=now` for the fitness, account-overview, and addon dashboards. Override behavior via env vars listed at the top of the script (`ACTIVITY_ID`, `TIMERANGE`, `WIDTH`, `HEIGHT`, `WAIT_MS`, etc.). The Playwright image is pulled on first run; each invocation runs a quick `pip install playwright` inside the container (the base image ships Chromium but not the Python package).
 
 ## Source map
 

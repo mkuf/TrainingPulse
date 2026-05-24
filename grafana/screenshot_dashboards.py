@@ -10,7 +10,7 @@ Environment variables (with defaults):
     WIDTH              1920
     HEIGHT             1080            # initial viewport; full_page=True grows it
     WAIT_MS            15000           # tail wait after networkidle for paint to settle
-    TIMERANGE          from=now-30d&to=now (used for fitness + account_overview)
+    TIMERANGE          from=now-30d&to=now (fitness, account_overview, addon dashboards)
     ACTIVITY_ID        (required) numeric id used for the activity-detail dashboard
     ACTIVITY_FROM_MS   (required) epoch-ms start for the activity-detail time range
     ACTIVITY_TO_MS     (required) epoch-ms end for the activity-detail time range
@@ -69,6 +69,17 @@ def build_targets() -> list[Dashboard]:
                 f"{grafana}/d/trainingpulse-activity-detail/trainingpulse-activity-detail"
                 f"?orgId=1&from={activity_from}&to={activity_to}"
                 f"&var-activity_id={activity_id}&kiosk"
+            ),
+        ),
+        Dashboard(
+            name="nutrition_training_weight",
+            path=(
+                f"{grafana}/d/trainingpulse-nutrition-training-weight/"
+                f"trainingpulse-nutrition-training-and-weight"
+                f"?orgId=1&{timerange}&kiosk"
+                f"&var-DS_TRAINING=trainingpulse-pg"
+                f"&var-DS_NUTRITION=fddb-pg"
+                f"&var-DS_WEIGHT=withings-pg"
             ),
         ),
     ]

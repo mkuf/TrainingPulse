@@ -14,7 +14,7 @@
 #   WIDTH             default: 1920
 #   HEIGHT            default: 1080
 #   WAIT_MS           default: 15000
-#   TIMERANGE         default: from=now-30d&to=now (fitness + account_overview)
+#   TIMERANGE         default: from=now-30d&to=now (fitness, account_overview, addon dashboards)
 #   ACTIVITY_ID       default: highest-TRIMP ride in the last 30 days
 #
 # The Playwright *Python* image bundles Chromium but not the `playwright` PyPI

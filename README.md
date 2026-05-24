@@ -20,17 +20,21 @@ Example views from the bundled dashboards.
 
 <table>
 <tr>
-<td align="center" valign="top" width="33%">
-<a href="screenshots/activity_detail.png"><img src="screenshots/activity_detail.png" width="260" alt="Activity detail dashboard"></a><br />
+<td align="center" valign="top" width="25%">
+<a href="screenshots/activity_detail.png"><img src="screenshots/activity_detail.png" width="200" alt="Activity detail dashboard"></a><br />
 <sub>Activity detail</sub>
 </td>
-<td align="center" valign="top" width="33%">
-<a href="screenshots/fitness.png"><img src="screenshots/fitness.png" width="260" alt="Fitness and Freshness dashboard"></a><br />
+<td align="center" valign="top" width="25%">
+<a href="screenshots/fitness.png"><img src="screenshots/fitness.png" width="200" alt="Fitness and Freshness dashboard"></a><br />
 <sub>Fitness &amp; Freshness</sub>
 </td>
-<td align="center" valign="top" width="33%">
-<a href="screenshots/account_overview.png"><img src="screenshots/account_overview.png" width="260" alt="Account overview dashboard"></a><br />
+<td align="center" valign="top" width="25%">
+<a href="screenshots/account_overview.png"><img src="screenshots/account_overview.png" width="200" alt="Account overview dashboard"></a><br />
 <sub>Account overview</sub>
+</td>
+<td align="center" valign="top" width="25%">
+<a href="screenshots/nutrition_training_weight.png"><img src="screenshots/nutrition_training_weight.png" width="200" alt="Nutrition, training and weight dashboard"></a><br />
+<sub>Nutrition &amp; weight</sub>
 </td>
 </tr>
 </table>
