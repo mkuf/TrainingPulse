@@ -40,6 +40,10 @@ class Settings:
     # How often to poll Strava for new activities (minutes)
     SYNC_INTERVAL_MINUTES: int = int(os.environ.get("SYNC_INTERVAL_MINUTES", "15"))
 
+    # Re-list activities this many days back on each sync to detect Strava edits.
+    # Set to 0 to disable reconciliation (incremental new-activity sync only).
+    SYNC_RECONCILE_DAYS: int = int(os.environ.get("SYNC_RECONCILE_DAYS", "90"))
+
     # Concurrency for per-activity API calls during sync. Strava's 15-min quota
     # is the real ceiling; small values (3-8) just keep workers fed without
     # bursting too hard. Setting either to 1 restores fully sequential behavior.

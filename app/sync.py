@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Iterable, TypeVar
 
 import httpx
@@ -27,7 +27,6 @@ from strava_client import RateLimitExceeded, StravaClient
 
 logger = logging.getLogger(__name__)
 
-
 class SyncState:
     """Tracks the current state of the sync process.
 
@@ -37,7 +36,7 @@ class SyncState:
 
     def __init__(self):
         self.is_running: bool = False
-        self.phase: str = "idle"  # idle, backfilling, detailing, streaming, incremental, calculating
+        self.phase: str = "idle"  # idle, backfilling, reconciling, detailing, streaming, incremental, calculating
         # List backfill progress (from GET /athlete/activities)
         self.total_activities: int = 0
         self.synced_activities: int = 0
@@ -239,6 +238,93 @@ def _normal_gear_id(raw: object) -> str | None:
     return s
 
 
+def _strava_updated_at_from_payload(a: dict) -> datetime | None:
+    raw = a.get("updated_at")
+    if not raw:
+        return None
+    return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+
+
+def _activity_list_fields_differ(existing: Activity, row: dict) -> bool:
+    """True when summary/list fields from Strava differ from the stored activity.
+
+    Detail-only fields (description, calories, device_name, gear_name) are
+    intentionally excluded — they are not present on GET /athlete/activities.
+    """
+
+    def _eq(field: str) -> bool:
+        a = getattr(existing, field)
+        b = row.get(field)
+        if field in ("distance", "average_heartrate", "max_heartrate", "average_watts", "max_watts", "kilojoules", "average_speed", "total_elevation_gain", "weighted_average_watts", "suffer_score"):
+            if a is None and b is None:
+                return False
+            if a is None or b is None:
+                return True
+            return float(a) != float(b)
+        return a != b
+
+    for field in (
+        "name",
+        "sport_type",
+        "start_date",
+        "elapsed_time",
+        "moving_time",
+        "distance",
+        "average_heartrate",
+        "max_heartrate",
+        "has_heartrate",
+        "average_watts",
+        "max_watts",
+        "gear_id",
+        "kilojoules",
+        "device_watts",
+    ):
+        if _eq(field):
+            return True
+    return False
+
+
+def _should_full_refresh_activity(existing: Activity, row: dict) -> bool:
+    """True when summary stats changed enough to re-fetch streams and metrics."""
+    strava_at = row.get("strava_updated_at")
+    if strava_at is not None and existing.strava_updated_at is not None:
+        if strava_at > existing.strava_updated_at:
+            return True
+    return _activity_list_fields_differ(existing, row)
+
+
+async def _mark_activity_for_detail_refresh(
+    session: AsyncSession, activity_id: int
+) -> None:
+    """Re-merge GET /activities/{id} (notes, gear, calories, device) without streams."""
+    await session.execute(
+        update(Activity)
+        .where(Activity.id == activity_id)
+        .values(strava_detail_synced=False)
+    )
+    await session.commit()
+
+
+async def _mark_activity_for_full_refresh(
+    session: AsyncSession, activity_id: int
+) -> None:
+    """Queue detail + streams re-fetch and clear derived metrics for one activity."""
+    await session.execute(
+        update(Activity)
+        .where(Activity.id == activity_id)
+        .values(
+            strava_detail_synced=False,
+            synced_streams=False,
+            trimp=None,
+            hr_zone_seconds=None,
+            power_zone_seconds=None,
+            best_20min_power=None,
+            power_curve=None,
+        )
+    )
+    await session.commit()
+
+
 async def _activity_row_from_strava(
     a: dict, client: StravaClient, *, resolve_gear: bool = True
 ) -> dict:
@@ -298,6 +384,7 @@ async def _activity_row_from_strava(
         "gear_name": resolved_gear_name,
         "weighted_average_watts": wavg,
         "suffer_score": a.get("suffer_score"),
+        "strava_updated_at": _strava_updated_at_from_payload(a),
     }
 
 
@@ -352,36 +439,33 @@ async def _upsert_activities_from_list(
     values = []
     for a in activities:
         row = await _activity_row_from_strava(a, client, resolve_gear=False)
-        row["strava_detail_synced"] = False
         values.append(row)
 
     stmt = pg_insert(Activity).values(values)
+    list_upsert_set = {
+        "name": stmt.excluded.name,
+        "sport_type": stmt.excluded.sport_type,
+        "start_date": stmt.excluded.start_date,
+        "elapsed_time": stmt.excluded.elapsed_time,
+        "moving_time": stmt.excluded.moving_time,
+        "distance": stmt.excluded.distance,
+        "average_heartrate": stmt.excluded.average_heartrate,
+        "max_heartrate": stmt.excluded.max_heartrate,
+        "has_heartrate": stmt.excluded.has_heartrate,
+        "average_watts": stmt.excluded.average_watts,
+        "max_watts": stmt.excluded.max_watts,
+        "average_speed": stmt.excluded.average_speed,
+        "total_elevation_gain": stmt.excluded.total_elevation_gain,
+        "kilojoules": stmt.excluded.kilojoules,
+        "device_watts": stmt.excluded.device_watts,
+        "gear_id": stmt.excluded.gear_id,
+        "weighted_average_watts": stmt.excluded.weighted_average_watts,
+        "suffer_score": stmt.excluded.suffer_score,
+        "strava_updated_at": stmt.excluded.strava_updated_at,
+    }
     stmt = stmt.on_conflict_do_update(
         index_elements=["id"],
-        set_={
-            "name": stmt.excluded.name,
-            "description": stmt.excluded.description,
-            "sport_type": stmt.excluded.sport_type,
-            "start_date": stmt.excluded.start_date,
-            "elapsed_time": stmt.excluded.elapsed_time,
-            "moving_time": stmt.excluded.moving_time,
-            "distance": stmt.excluded.distance,
-            "average_heartrate": stmt.excluded.average_heartrate,
-            "max_heartrate": stmt.excluded.max_heartrate,
-            "has_heartrate": stmt.excluded.has_heartrate,
-            "average_watts": stmt.excluded.average_watts,
-            "max_watts": stmt.excluded.max_watts,
-            "average_speed": stmt.excluded.average_speed,
-            "total_elevation_gain": stmt.excluded.total_elevation_gain,
-            "kilojoules": stmt.excluded.kilojoules,
-            "calories": stmt.excluded.calories,
-            "device_watts": stmt.excluded.device_watts,
-            "device_name": stmt.excluded.device_name,
-            "gear_id": stmt.excluded.gear_id,
-            "gear_name": stmt.excluded.gear_name,
-            "weighted_average_watts": stmt.excluded.weighted_average_watts,
-            "suffer_score": stmt.excluded.suffer_score,
-        },
+        set_=list_upsert_set,
     )
     await session.execute(stmt)
     await session.commit()
@@ -686,6 +770,9 @@ async def run_sync(session: AsyncSession, force_resync: bool = False):
         else:
             # Incremental sync (list pages only)
             await _incremental_sync(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
+            await _reconcile_recent_activities(
+                client, session, athlete_id
+            )
 
         await _drain_strava_detail_queue(session, client, athlete_id)
         # Process any activities that don't have streams yet
@@ -800,6 +887,86 @@ async def _incremental_sync(
         page += 1
 
     logger.info("Incremental sync: %d new activities", total_new)
+
+
+async def _reconcile_recent_activities(
+    client: StravaClient,
+    session: AsyncSession,
+    athlete_id: int,
+) -> None:
+    """Re-list recent activities; refresh detail for the window, streams on summary change."""
+    if settings.SYNC_RECONCILE_DAYS <= 0:
+        return
+
+    sync_state.phase = "reconciling"
+    after = int(
+        (
+            datetime.now(timezone.utc)
+            - timedelta(days=settings.SYNC_RECONCILE_DAYS)
+        ).timestamp()
+    )
+    logger.info(
+        "Reconciling activities updated in the last %d days (after=%s)",
+        settings.SYNC_RECONCILE_DAYS,
+        after,
+    )
+
+    page = 1
+    total_checked = 0
+    total_full_refresh = 0
+    total_detail_refresh = 0
+
+    while True:
+        activities = await client.get_activities(
+            page=page, per_page=200, after=after
+        )
+        _snapshot_rate_limits(client)
+        if not activities:
+            break
+
+        ids = [int(a["id"]) for a in activities]
+        existing_result = await session.execute(
+            select(Activity).where(
+                Activity.athlete_id == athlete_id,
+                Activity.id.in_(ids),
+            )
+        )
+        existing_by_id = {row.id: row for row in existing_result.scalars().all()}
+
+        to_full_refresh: list[int] = []
+        to_detail_refresh: list[int] = []
+        for a in activities:
+            row = await _activity_row_from_strava(a, client, resolve_gear=False)
+            existing = existing_by_id.get(row["id"])
+            if existing is None:
+                continue
+            if _should_full_refresh_activity(existing, row):
+                to_full_refresh.append(row["id"])
+            else:
+                # Summary list cannot see notes/gear/calories/device; re-detail
+                # every activity in the window so late Strava edits are picked up.
+                to_detail_refresh.append(row["id"])
+
+        for activity_id in to_full_refresh:
+            await _mark_activity_for_full_refresh(session, activity_id)
+        for activity_id in to_detail_refresh:
+            await _mark_activity_for_detail_refresh(session, activity_id)
+
+        stored = await _upsert_activities_from_list(session, activities, client)
+        total_checked += stored
+        total_full_refresh += len(to_full_refresh)
+        total_detail_refresh += len(to_detail_refresh)
+
+        if len(activities) < 200:
+            break
+        page += 1
+
+    logger.info(
+        "Reconcile complete: %d activities in window, %d full refresh, %d detail refresh",
+        total_checked,
+        total_full_refresh,
+        total_detail_refresh,
+    )
 
 
 async def _process_pending_streams(

@@ -56,6 +56,8 @@ flowchart LR
 
 Backfill walks `GET /athlete/activities` page by page and upserts every activity **without** blocking pagination on detail calls. A separate pass then calls `GET /activities/{id}` for each row until calories, ride notes, kilojoules, and other detail-only fields are merged (tracked by `activities.strava_detail_synced`). Detail and stream fetches run with bounded concurrency and sleep on HTTP 429, so whatever does not fit in the current rate-limit window continues automatically on the next scheduled sync.
 
+**Incremental sync and edits:** After the first backfill, each scheduled sync fetches *new* activities (list `after` = latest `start_date` in the DB), then **reconciles** the last `SYNC_RECONCILE_DAYS` (default 90) by re-listing that window. For every existing activity in that window, a **detail** merge (`GET /activities/{id}`) is queued so ride notes, gear, calories, and device name stay current even when added on Strava after the first import (the list endpoint does not include those fields). When summary stats change or Strava `updated_at` advances, a **full** refresh is queued instead (detail + streams + TRIMP/power metrics). List upserts never overwrite detail-only columns on existing rows. Activities older than the reconcile window need **Full resync**.
+
 ## HTTP API
 
 | Method | Endpoint | Description |
@@ -64,7 +66,7 @@ Backfill walks `GET /athlete/activities` page by page and upserts every activity
 | `GET`  | `/auth/strava`               | Start the Strava OAuth flow. |
 | `GET`  | `/auth/callback`             | OAuth redirect target; exchanges the code for tokens. |
 | `GET`  | `/sync/status`               | JSON sync status (consumed by the status page poller). |
-| `POST` | `/sync/trigger`              | Manually run an incremental sync. |
+| `POST` | `/sync/trigger`              | Manually run an incremental sync (includes reconcile window when enabled). |
 | `POST` | `/sync/full`                 | Full historical resync: re-lists all activities and reprocesses streams. |
 | `POST` | `/sync/refresh-rate-limit`   | Make one lightweight Strava call to refresh rate-limit headers. |
 
@@ -89,6 +91,7 @@ Defined in [`app/config.py`](app/config.py) and wired through [`docker-compose.y
 | `MCP_PORT` | `8001` | Host port for the network-accessible MCP endpoint at `/mcp`. |
 | `MCP_ALLOWED_HOSTS` | `localhost:*,127.0.0.1:*` | Comma-separated Host header allowlist for MCP DNS-rebinding protection. Add your homeserver hostname or LAN IP when connecting from another machine. |
 | `SYNC_INTERVAL_MINUTES` | `15` | Background poll interval. |
+| `SYNC_RECONCILE_DAYS` | `90` | On each incremental sync, re-list activities from this many days back to detect Strava edits. Set `0` to disable. |
 | `SYNC_DETAIL_CONCURRENCY` | `5` | Parallel `GET /activities/{id}` requests during the detail-merge pass. Strava's 15-min quota is the real ceiling; higher values just keep workers fed. Set to `1` for sequential behavior. Not wired through compose by default — pass it via the `app` service `environment` if you want to tune it. |
 | `SYNC_STREAMS_CONCURRENCY` | `5` | Parallel `GET /activities/{id}/streams` requests during stream processing. Same caveats. |
 | `MAX_HR` | unset | Explicit Max HR override. See precedence below. |
