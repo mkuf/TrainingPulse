@@ -45,18 +45,18 @@ Grafana addon dashboards in [`grafana/dashboards/addons/`](grafana/dashboards/ad
 
 ## Strava endpoints and the fields they provide
 
-A single activity is assembled from three separate Strava endpoints. The list endpoint is cheap (one call per 200 activities), but `description`, `calories`, `device_name`, and full `gear` info are only available on the per-activity detail endpoint — and streams are a third, separate per-activity call. That is why a full backfill costs roughly `2N + N/200` requests against Strava's 100 / 15-min and 1000 / day limits.
+A single activity is assembled from three separate Strava endpoints. The list endpoint is cheap (one call per 200 activities), but `description`, `private_note`, `calories`, `device_name`, and full `gear` info are only available on the per-activity detail endpoint — and streams are a third, separate per-activity call. That is why a full backfill costs roughly `2N + N/200` requests against Strava's 100 / 15-min and 1000 / day limits.
 
 ```mermaid
 flowchart LR
     A["GET /athlete/activities (list)"] -->|"SummaryActivity: suffer_score, kilojoules, watts, HR"| DB[(activities)]
-    B["GET /activities/{id} (detail)"] -->|"DetailedActivity adds: description, calories, device_name, gear"| DB
+    B["GET /activities/{id} (detail)"] -->|"DetailedActivity adds: description, private_note, calories, device_name, gear"| DB
     C["GET /activities/{id}/streams"] -->|"time, hr, watts, latlng, ..."| DB
 ```
 
-Backfill walks `GET /athlete/activities` page by page and upserts every activity **without** blocking pagination on detail calls. A separate pass then calls `GET /activities/{id}` for each row until calories, ride notes, kilojoules, and other detail-only fields are merged (tracked by `activities.strava_detail_synced`). Detail and stream fetches run with bounded concurrency and sleep on HTTP 429, so whatever does not fit in the current rate-limit window continues automatically on the next scheduled sync.
+Backfill walks `GET /athlete/activities` page by page and upserts every activity **without** blocking pagination on detail calls. A separate pass then calls `GET /activities/{id}` for each row until description, private notes, calories, kilojoules, and other detail-only fields are merged (tracked by `activities.strava_detail_synced`). Detail and stream fetches run with bounded concurrency and sleep on HTTP 429, so whatever does not fit in the current rate-limit window continues automatically on the next scheduled sync.
 
-**Incremental sync and edits:** After the first backfill, each scheduled sync fetches *new* activities (list `after` = latest `start_date` in the DB), then **reconciles** the last `SYNC_RECONCILE_DAYS` (default 90) by re-listing that window. For every existing activity in that window, a **detail** merge (`GET /activities/{id}`) is queued so ride notes, gear, calories, and device name stay current even when added on Strava after the first import (the list endpoint does not include those fields). When summary stats change or Strava `updated_at` advances, a **full** refresh is queued instead (detail + streams + TRIMP/power metrics). List upserts never overwrite detail-only columns on existing rows. Activities older than the reconcile window need **Full resync**.
+**Incremental sync and edits:** After the first backfill, each scheduled sync fetches *new* activities (list `after` = latest `start_date` in the DB), then **reconciles** the last `SYNC_RECONCILE_DAYS` (default 90) by re-listing that window. For every existing activity in that window, a **detail** merge (`GET /activities/{id}`) is queued so description, private notes, gear, calories, and device name stay current even when added on Strava after the first import (the list endpoint does not include those fields). When summary stats change or Strava `updated_at` advances, a **full** refresh is queued instead (detail + streams + TRIMP/power metrics). List upserts never overwrite detail-only columns on existing rows. Activities older than the reconcile window need **Full resync**.
 
 ## HTTP API
 

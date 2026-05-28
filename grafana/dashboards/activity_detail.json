@@ -499,7 +499,7 @@
     },
     {
       "id": 15,
-      "title": "Ride Notes",
+      "title": "Description",
       "type": "text",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -520,10 +520,39 @@
       },
       "targets": [],
       "gridPos": {
-        "h": 12,
+        "h": 6,
         "w": 12,
         "x": 12,
         "y": 1
+      }
+    },
+    {
+      "id": 207,
+      "title": "Private Notes",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "${private_note_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 7
       }
     },
     {
@@ -2260,6 +2289,19 @@
         "includeAll": false,
         "name": "description_var",
         "query": "SELECT description FROM activities WHERE id = ${activity_id}",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT private_note FROM activities WHERE id = ${activity_id}",
+        "hide": 2,
+        "includeAll": false,
+        "name": "private_note_var",
+        "query": "SELECT private_note FROM activities WHERE id = ${activity_id}",
         "refresh": 2,
         "type": "query"
       },

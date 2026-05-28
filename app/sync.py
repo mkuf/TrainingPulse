@@ -248,7 +248,7 @@ def _strava_updated_at_from_payload(a: dict) -> datetime | None:
 def _activity_list_fields_differ(existing: Activity, row: dict) -> bool:
     """True when summary/list fields from Strava differ from the stored activity.
 
-    Detail-only fields (description, calories, device_name, gear_name) are
+    Detail-only fields (description, private_note, calories, device_name, gear_name) are
     intentionally excluded — they are not present on GET /athlete/activities.
     """
 
@@ -364,6 +364,7 @@ async def _activity_row_from_strava(
         "athlete_id": athlete_id,
         "name": a.get("name", ""),
         "description": a.get("description"),
+        "private_note": a.get("private_note"),
         "sport_type": a.get("sport_type", a.get("type", "")),
         "start_date": datetime.fromisoformat(a["start_date"].replace("Z", "+00:00")),
         "elapsed_time": a.get("elapsed_time", 0),

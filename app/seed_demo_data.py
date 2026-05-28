@@ -398,6 +398,7 @@ def build_activity(
         athlete_id=profile.athlete_id,
         name=name,
         description=f"Demo {sport.lower()} ({intensity}).",
+        private_note=f"Demo private note ({intensity}).",
         sport_type=sport,
         start_date=start_date,
         elapsed_time=duration_s,
