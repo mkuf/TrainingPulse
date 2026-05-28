@@ -9,17 +9,19 @@ from withings_plugin.models import Base
 
 logger = logging.getLogger(__name__)
 
+_CREATE_SCHEMA = text("CREATE SCHEMA IF NOT EXISTS withings")
 _ALTER_GRPID = text(
-    "ALTER TABLE weight_measurements "
+    "ALTER TABLE withings.weight_measurements "
     "ALTER COLUMN grpid TYPE BIGINT USING grpid::bigint"
 )
 _ALTER_USERID = text(
-    "ALTER TABLE withings_tokens "
+    "ALTER TABLE withings.withings_tokens "
     "ALTER COLUMN userid TYPE BIGINT USING userid::bigint"
 )
 
 
 async def ensure_schema(conn: AsyncConnection) -> None:
+    await conn.execute(_CREATE_SCHEMA)
     await conn.run_sync(Base.metadata.create_all)
     for label, stmt in (
         ("weight_measurements.grpid", _ALTER_GRPID),

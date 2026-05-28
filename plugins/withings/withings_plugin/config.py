@@ -17,13 +17,7 @@ class Settings:
     PLUGIN_PREFIX: str = "/plugins/withings"
     WITHINGS_REDIRECT_URI: str = os.environ.get("WITHINGS_REDIRECT_URI", "").strip()
 
-    DATABASE_URL: str = os.environ.get(
-        "WITHINGS_DATABASE_URL",
-        os.environ.get(
-            "DATABASE_URL",
-            "postgresql+asyncpg://trainingpulse:changeme@localhost:5432/withings",
-        ),
-    )
+    DATABASE_URL: str = os.environ["DATABASE_URL"]
 
     SYNC_INTERVAL_MINUTES: int = int(
         os.environ.get("WITHINGS_SYNC_INTERVAL_MINUTES", os.environ.get("SYNC_INTERVAL_MINUTES", "60"))

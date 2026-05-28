@@ -2,12 +2,14 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, Integer, func
+from sqlalchemy import Date, DateTime, Float, Integer, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+_FDDB_SCHEMA = MetaData(schema="fddb")
 
 
 class Base(DeclarativeBase):
-    pass
+    metadata = _FDDB_SCHEMA
 
 
 class DailyNutrition(Base):

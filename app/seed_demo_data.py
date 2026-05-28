@@ -6,9 +6,8 @@ virtual rides, walks, hikes, strength) with realistic streams, then reuses
 [`metrics.py`](metrics.py) to derive TRIMP, HR / power zones, the power
 curve, and the daily CTL / ATL / TSB curve.
 
-Also seeds the FDDB (`daily_nutrition`) and Withings (`weight_measurements`)
-addon databases when `FDDB_DATABASE_URL` / `WITHINGS_DATABASE_URL` are set
-(as in docker-compose). OAuth token tables are never touched.
+Also seeds FDDB (`fddb.daily_nutrition`) and Withings (`withings.weight_measurements`)
+in the same database as core (via `DATABASE_URL`). OAuth token tables are never touched.
 
 Run inside the app container:
 
@@ -22,11 +21,9 @@ at 9_000_000_000, so they are easy to delete later:
     DELETE FROM daily_metrics    WHERE athlete_id = 99999999;
     DELETE FROM athlete_settings WHERE athlete_id = 99999999;
 
-    -- fddb_nutrition database
-    TRUNCATE daily_nutrition;
+    TRUNCATE fddb.daily_nutrition;
 
-    -- withings database
-    DELETE FROM weight_measurements WHERE grpid >= 9000000000;
+    DELETE FROM withings.weight_measurements WHERE grpid >= 9000000000;
 """
 
 from __future__ import annotations
@@ -636,11 +633,15 @@ async def _ensure_addon_schema(
     fddb_engine: AsyncEngine | None,
     withings_engine: AsyncEngine | None,
 ) -> None:
+    from sqlalchemy import text
+
     if fddb_engine is not None:
         async with fddb_engine.begin() as conn:
+            await conn.execute(text("CREATE SCHEMA IF NOT EXISTS fddb"))
             await conn.run_sync(FddbBase.metadata.create_all)
     if withings_engine is not None:
         async with withings_engine.begin() as conn:
+            await conn.execute(text("CREATE SCHEMA IF NOT EXISTS withings"))
             await conn.run_sync(WithingsBase.metadata.create_all)
 
 

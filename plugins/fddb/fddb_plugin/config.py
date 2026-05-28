@@ -17,10 +17,7 @@ class Settings:
 
     PLUGIN_PREFIX: str = "/plugins/fddb"
 
-    DATABASE_URL: str = os.environ.get(
-        "FDDB_DATABASE_URL",
-        "postgresql+asyncpg://trainingpulse:changeme@localhost:5432/fddb_nutrition",
-    )
+    DATABASE_URL: str = os.environ["DATABASE_URL"]
 
     SYNC_INTERVAL_MINUTES: int = int(
         os.environ.get("FDDB_SYNC_INTERVAL_MINUTES", os.environ.get("SYNC_INTERVAL_MINUTES", "60"))

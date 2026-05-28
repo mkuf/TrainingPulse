@@ -77,9 +77,7 @@ def build_targets() -> list[Dashboard]:
                 f"{grafana}/d/trainingpulse-nutrition-training-weight/"
                 f"trainingpulse-nutrition-training-and-weight"
                 f"?orgId=1&{timerange}&kiosk"
-                f"&var-DS_TRAINING=trainingpulse-pg"
-                f"&var-DS_NUTRITION=fddb-pg"
-                f"&var-DS_WEIGHT=withings-pg"
+                f"&var-DS_POSTGRESQL=trainingpulse"
             ),
         ),
     ]

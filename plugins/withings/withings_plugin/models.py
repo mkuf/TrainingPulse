@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     Integer,
+    MetaData,
     String,
     Text,
     UniqueConstraint,
@@ -14,9 +15,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+_WITHINGS_SCHEMA = MetaData(schema="withings")
+
 
 class Base(DeclarativeBase):
-    pass
+    metadata = _WITHINGS_SCHEMA
 
 
 class WithingsToken(Base):

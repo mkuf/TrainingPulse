@@ -9,6 +9,7 @@ from typing import Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+from sqlalchemy import text
 from trainingpulse_common import make_async_engine, make_session_factory
 
 from fddb_plugin.config import settings
@@ -46,6 +47,7 @@ class FddbPlugin:
 
     async def ensure_schema(self) -> None:
         async with self._engine.begin() as conn:
+            await conn.execute(text("CREATE SCHEMA IF NOT EXISTS fddb"))
             await conn.run_sync(Base.metadata.create_all)
 
     def register_routes(self, app: FastAPI, *, prefix: str) -> None:

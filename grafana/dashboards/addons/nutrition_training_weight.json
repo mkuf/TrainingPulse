@@ -4,7 +4,7 @@
       {
         "datasource": {
           "type": "grafana-postgresql-datasource",
-          "uid": "${DS_TRAINING}"
+          "uid": "${DS_POSTGRESQL}"
         },
         "enable": false,
         "iconColor": "#FC4C02",
@@ -41,7 +41,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "fixedColor": "#FF9830", "mode": "fixed" },
@@ -62,11 +62,11 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date::timestamp AS time, kcal FROM daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT date::timestamp AS time, kcal FROM fddb.daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
@@ -74,7 +74,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "fixedColor": "#5794F2", "mode": "fixed" },
@@ -95,11 +95,11 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date::timestamp AS time, kcal FROM daily_nutrition ORDER BY date DESC LIMIT 1",
+          "rawSql": "SELECT date::timestamp AS time, kcal FROM fddb.daily_nutrition ORDER BY date DESC LIMIT 1",
           "refId": "A"
         }
       ],
@@ -107,7 +107,7 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "fixedColor": "#FC4C02", "mode": "fixed" },
@@ -128,7 +128,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
@@ -148,7 +148,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -166,11 +166,11 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date::timestamp AS time, kcal AS \"kcal\" FROM daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT date::timestamp AS time, kcal AS \"kcal\" FROM fddb.daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
@@ -178,7 +178,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -201,11 +201,11 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date::timestamp AS time,\n  protein_g AS \"Protein\",\n  carbs_g AS \"Carbs\",\n  fat_g AS \"Fat\"\nFROM daily_nutrition\nWHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date\nORDER BY 1",
+          "rawSql": "SELECT\n  date::timestamp AS time,\n  protein_g AS \"Protein\",\n  carbs_g AS \"Carbs\",\n  fat_g AS \"Fat\"\nFROM fddb.daily_nutrition\nWHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -220,7 +220,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "fixedColor": "#FC4C02", "mode": "fixed" },
@@ -245,7 +245,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
@@ -258,7 +258,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -281,7 +281,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
@@ -300,7 +300,7 @@
       "type": "row"
     },
     {
-      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_WEIGHT}" },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
       "fieldConfig": {
         "defaults": {
           "color": { "fixedColor": "#8AB8FF", "mode": "fixed" },
@@ -325,11 +325,11 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_WEIGHT}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT measured_at AS time, weight_kg AS \"Weight\" FROM weight_measurements WHERE measured_at >= $__timeFrom() AND measured_at <= $__timeTo() ORDER BY 1",
+          "rawSql": "SELECT measured_at AS time, weight_kg AS \"Weight\" FROM withings.weight_measurements WHERE measured_at >= $__timeFrom() AND measured_at <= $__timeTo() ORDER BY 1",
           "refId": "A"
         }
       ],
@@ -376,19 +376,19 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date::timestamp AS time, kcal AS \"kcal\" FROM daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT date::timestamp AS time, kcal AS \"kcal\" FROM fddb.daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
           "refId": "Kcal"
         },
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_WEIGHT}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT measured_at AS time, weight_kg AS \"Weight\" FROM weight_measurements WHERE measured_at >= $__timeFrom() AND measured_at <= $__timeTo() ORDER BY 1",
+          "rawSql": "SELECT measured_at AS time, weight_kg AS \"Weight\" FROM withings.weight_measurements WHERE measured_at >= $__timeFrom() AND measured_at <= $__timeTo() ORDER BY 1",
           "refId": "Weight"
         }
       ],
@@ -428,15 +428,15 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_NUTRITION}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date::timestamp AS time, kcal AS \"kcal\" FROM daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT date::timestamp AS time, kcal AS \"kcal\" FROM fddb.daily_nutrition WHERE date >= $__timeFrom()::date AND date <= $__timeTo()::date ORDER BY 1",
           "refId": "Kcal"
         },
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
@@ -481,15 +481,15 @@
       },
       "targets": [
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_WEIGHT}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_trunc('day', measured_at)::date::timestamp AS time,\n  ROUND(AVG(weight_kg)::numeric, 2) AS \"Weight\"\nFROM weight_measurements\nWHERE measured_at >= $__timeFrom() AND measured_at <= $__timeTo()\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('day', measured_at)::date::timestamp AS time,\n  ROUND(AVG(weight_kg)::numeric, 2) AS \"Weight\"\nFROM withings.weight_measurements\nWHERE measured_at >= $__timeFrom() AND measured_at <= $__timeTo()\nGROUP BY 1\nORDER BY 1",
           "refId": "Weight"
         },
         {
-          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
@@ -510,32 +510,14 @@
         "current": {},
         "hide": 0,
         "includeAll": false,
-        "label": "Training",
-        "name": "DS_TRAINING",
-        "query": "grafana-postgresql-datasource",
-        "type": "datasource"
-      },
-      {
-        "current": {},
-        "hide": 0,
-        "includeAll": false,
-        "label": "Nutrition",
-        "name": "DS_NUTRITION",
-        "query": "grafana-postgresql-datasource",
-        "type": "datasource"
-      },
-      {
-        "current": {},
-        "hide": 0,
-        "includeAll": false,
-        "label": "Weight",
-        "name": "DS_WEIGHT",
+        "label": "PostgreSQL",
+        "name": "DS_POSTGRESQL",
         "query": "grafana-postgresql-datasource",
         "type": "datasource"
       },
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
-        "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_TRAINING}" },
+        "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
         "definition": "SELECT DISTINCT sport_type AS __text, sport_type AS __value FROM activities WHERE sport_type IS NOT NULL AND sport_type <> '' ORDER BY 1",
         "hide": 0,
         "includeAll": true,

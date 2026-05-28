@@ -6,9 +6,9 @@ Technical reference for **TrainingPulse**. Day-to-day setup lives in [`README.md
 
 ```
 Strava API → [app/ FastAPI core] → PostgreSQL (trainingpulse)
-Optional plugins (withings, fddb) → PostgreSQL (withings | fddb_nutrition)
-Grafana → all provisioned Postgres datasources
-MCP → trainingpulse DB + optional plugin DBs
+Optional plugins (withings, fddb) → PostgreSQL schemas `withings`, `fddb` in POSTGRES_DB
+Grafana → provisioned Postgres datasource
+MCP → same database as core (+ plugin schemas when enabled)
 ```
 
 The core service in [`app/`](app/) handles Strava OAuth, APScheduler sync, TRIMP/CTL/ATL/TSB, and the status UI. Optional plugins under [`plugins/`](plugins/) are loaded in-process via [`app/plugins/registry.py`](app/plugins/registry.py) when listed in `ENABLED_PLUGINS` and fully configured — they are not separate containers.
@@ -24,14 +24,14 @@ flowchart TB
     Reg --> Withings[withings_plugin]
     Reg --> Fddb[fddb_plugin]
   end
-  subgraph pg [Postgres]
-    TP[trainingpulse]
-    W[withings]
-    F[fddb_nutrition]
+  subgraph pg [Postgres trainingpulse]
+    Public[public]
+    Wsch[withings schema]
+    Fsch[fddb schema]
   end
-  Main --> TP
-  Withings --> W
-  Fddb --> F
+  Main --> Public
+  Withings --> Wsch
+  Fddb --> Fsch
 ```
 
 ### Plugin HTTP routes
@@ -81,10 +81,9 @@ Defined in [`app/config.py`](app/config.py) and wired through [`docker-compose.y
 | `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password. |
 | `POSTGRES_DB` | `trainingpulse` | Core TrainingPulse database name. |
 | `ENABLED_PLUGINS` | empty | Comma-separated: `withings`, `fddb`. |
-| `WITHINGS_DATABASE_URL` | `…/withings` | Withings plugin DB (compose sets this). |
+| `DATABASE_URL` | compose-built | Async SQLAlchemy URL; required by core and plugins (`postgresql+asyncpg://…`). |
 | `WITHINGS_CLIENT_ID` / `WITHINGS_CLIENT_SECRET` | — | Withings Partner app. |
 | `WITHINGS_SYNC_INTERVAL_MINUTES` | `60` | Withings poll interval. |
-| `FDDB_DATABASE_URL` | `…/fddb_nutrition` | FDDB plugin DB. |
 | `FDDB_USER` / `FDDB_PW` / `FDDB_COOKIE` | — | FDDB scrape credentials. |
 | `FDDB_SYNC_INTERVAL_MINUTES` | `60` | FDDB poll interval. |
 | `MCP_PORT` | `8001` | Host port for the network-accessible MCP endpoint at `/mcp`. |
@@ -174,7 +173,7 @@ Because the MCP port is published on the host network like Grafana and the app, 
 
 [`app/seed_demo_data.py`](app/seed_demo_data.py) populates the DB with ~12 months of fully synthetic, Strava-style activities so the Grafana dashboards can be screenshotted without exposing real training data. All rows belong to athlete id `99999999` and use activity ids in the `9000000000+` range. The script reuses [`app/metrics.py`](app/metrics.py) for TRIMP, HR / power zones, the power curve, and the CTL / ATL / TSB recalculation, so the seeded data renders identically to a real sync.
 
-It also seeds the addon databases when `FDDB_DATABASE_URL` and `WITHINGS_DATABASE_URL` are set (as in docker-compose): one `daily_nutrition` row per day in `fddb_nutrition`, and morning weigh-ins in `withings.weight_measurements` (demo `grpid` values `9000000000+`). OAuth token tables (`strava_tokens`, `withings_tokens`) are never touched.
+It also seeds `fddb.daily_nutrition` (one row per day) and `withings.weight_measurements` (morning weigh-ins; demo `grpid` values `9000000000+`). OAuth token tables (`strava_tokens`, `withings_tokens`) are never touched.
 
 Run it inside the container:
 
@@ -199,16 +198,9 @@ DELETE FROM daily_metrics    WHERE athlete_id  = 99999999;
 DELETE FROM athlete_settings WHERE athlete_id  = 99999999;
 ```
 
-In the `fddb_nutrition` database:
-
 ```sql
-TRUNCATE daily_nutrition;
-```
-
-In the `withings` database:
-
-```sql
-DELETE FROM weight_measurements WHERE grpid >= 9000000000;
+TRUNCATE fddb.daily_nutrition;
+DELETE FROM withings.weight_measurements WHERE grpid >= 9000000000;
 ```
 
 The synthetic streams intentionally omit `latlng`, so the activity-detail map panel stays empty rather than implying a real location.
