@@ -346,6 +346,96 @@ async def get_activity_detail(activity_id: int) -> dict[str, Any]:
     }
 
 
+DEFAULT_MAX_POINTS = 500
+ABSOLUTE_MAX_POINTS = 2000
+DEFAULT_STREAM_TYPES = {"time", "heartrate", "watts"}
+ALL_STREAM_TYPES = {
+    "time",
+    "heartrate",
+    "watts",
+    "cadence",
+    "altitude",
+    "velocity_smooth",
+    "grade_smooth",
+    "distance",
+    "latlng",
+    "temp",
+}
+
+
+def _downsample(data: list, max_points: int) -> list:
+    """Downsample a list using nth-point decimation, always keeping first and last."""
+    length = len(data)
+    if length <= max_points:
+        return data
+    step = (length - 1) / (max_points - 1)
+    indices = {0, length - 1}
+    indices.update(int(round(i * step)) for i in range(max_points))
+    sorted_indices = sorted(indices)[:max_points]
+    return [data[i] for i in sorted_indices]
+
+
+@mcp.tool()
+async def get_activity_streams(
+    activity_id: int,
+    stream_types: str | None = None,
+    max_points: int | None = None,
+) -> dict[str, Any]:
+    """Return raw time-series streams (HR, power, etc.) for an activity.
+
+    Use this to analyze the full workout profile beyond zone buckets.
+    Available stream types: time, heartrate, watts, cadence, altitude,
+    velocity_smooth, grade_smooth, distance, latlng, temp.
+    Defaults to time, heartrate, and watts if not specified.
+    Large streams are downsampled to max_points (default 500, max 2000).
+    """
+    if max_points is None:
+        max_points = DEFAULT_MAX_POINTS
+    max_points = min(max(1, max_points), ABSOLUTE_MAX_POINTS)
+
+    requested: set[str] = DEFAULT_STREAM_TYPES
+    if stream_types:
+        parsed = {s.strip().lower() for s in stream_types.split(",") if s.strip()}
+        valid = parsed & ALL_STREAM_TYPES
+        if not valid:
+            return {
+                "activity_id": activity_id,
+                "error": f"No valid stream types in '{stream_types}'. "
+                f"Available: {', '.join(sorted(ALL_STREAM_TYPES))}",
+            }
+        requested = valid
+        requested.add("time")  # always include time axis
+
+    stmt = select(ActivityStream).where(ActivityStream.activity_id == activity_id)
+
+    async with _readonly_session() as session:
+        stream = (await session.scalars(stmt)).first()
+
+    if stream is None:
+        return {"activity_id": activity_id, "found": False, "streams": {}}
+
+    result_streams: dict[str, list] = {}
+    sample_count = stream.sample_count
+    returned_count = 0
+
+    for stype in requested:
+        raw = stream.data.get(stype)
+        if raw is None:
+            continue
+        sampled = _downsample(raw, max_points)
+        result_streams[stype] = sampled
+        returned_count = max(returned_count, len(sampled))
+
+    return {
+        "activity_id": activity_id,
+        "found": True,
+        "sample_count": sample_count,
+        "returned_count": returned_count,
+        "downsampled": sample_count > returned_count,
+        "streams": result_streams,
+    }
+
+
 @mcp.tool()
 async def get_gear_usage(
     start_date: str | None = None,
