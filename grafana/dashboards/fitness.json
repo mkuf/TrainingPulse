@@ -237,7 +237,7 @@
         "justifyMode": "auto"
       },
       "title": "Athlete FTP",
-      "description": "Left: Current FTP from Strava settings. Right: Estimated FTP based on 95% of your best 20-minute power.",
+      "description": "Left: Current FTP from athlete settings. Right: Estimated FTP based on 95% of your best 20-minute power.",
       "type": "stat",
       "targets": [
         {
@@ -588,7 +588,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "One bar per calendar day with at least one activity in the selected time range. Empty gaps are days without a logged activity. Uses the same dates as your Strava sync (`activities.start_date`).",
+      "description": "One bar per calendar day with at least one activity in the selected time range. Empty gaps are days without a logged activity. Uses the same dates as your activity sync (`activities.start_date`).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "fixed", "fixedColor": "#FC4C02" },
@@ -720,7 +720,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  id AS \"ID\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  suffer_score AS \"Strava RE\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  id AS \"ID\",\n  source AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  training_load AS \"Load\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }

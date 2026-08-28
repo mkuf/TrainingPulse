@@ -37,10 +37,10 @@
       "keepTime": false,
       "tags": [],
       "targetBlank": true,
-      "title": "View on Strava",
-      "tooltip": "Open this activity on strava.com",
+      "title": "View on intervals.icu",
+      "tooltip": "Open this activity on intervals.icu when the id is an icu_ activity.",
       "type": "link",
-      "url": "https://www.strava.com/activities/${activity_id}"
+      "url": "https://intervals.icu/activities/${activity_id:regex:icu_(.*):$1}"
     }
   ],
   "panels": [
@@ -111,7 +111,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(distance::numeric, 0) AS \"Distance (m)\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT ROUND(distance::numeric, 0) AS \"Distance (m)\" FROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": null
         }
@@ -178,7 +178,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT moving_time AS \"Moving Time\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT moving_time AS \"Moving Time\" FROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": null
         }
@@ -245,7 +245,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": null
         }
@@ -309,7 +309,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elevation (m)\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elevation (m)\" FROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": "A"
         }
@@ -368,7 +368,7 @@
     {
       "id": 201,
       "title": "Work (kcal, kJ)",
-      "description": "Strava **calories** (kcal) and **kilojoules** (kJ) from the detailed activity API after sync. Parentheses: rounded kJ.",
+      "description": "**Calories** (kcal) and **kilojoules** (kJ) from the detailed activity after sync. Parentheses: rounded kJ.",
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -421,7 +421,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT CASE\n  WHEN calories IS NULL AND kilojoules IS NULL THEN '— (—)'\n  ELSE concat(\n    CASE WHEN calories IS NULL THEN '—' ELSE ROUND(calories::numeric, 0)::text END,\n    ' (',\n    CASE WHEN kilojoules IS NULL THEN '—' ELSE ROUND(kilojoules::numeric, 0)::text END,\n    ')'\n  )\nEND AS \"Work\"\nFROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT CASE\n  WHEN calories IS NULL AND kilojoules IS NULL THEN '— (—)'\n  ELSE concat(\n    CASE WHEN calories IS NULL THEN '—' ELSE ROUND(calories::numeric, 0)::text END,\n    ' (',\n    CASE WHEN kilojoules IS NULL THEN '—' ELSE ROUND(kilojoules::numeric, 0)::text END,\n    ')'\n  )\nEND AS \"Work\"\nFROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": "A"
         }
@@ -485,7 +485,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(weighted_average_watts::numeric, 0) AS \"Watts\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT ROUND(weighted_average_watts::numeric, 0) AS \"Watts\" FROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": "A"
         }
@@ -658,7 +658,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  (point->>0)::float AS lat,\n  (point->>1)::float AS lng\nFROM activity_streams,\nLATERAL jsonb_array_elements(data->'latlng') AS point\nWHERE activity_id = ${activity_id}\n  AND data ? 'latlng'",
+          "rawSql": "SELECT\n  (point->>0)::float AS lat,\n  (point->>1)::float AS lng\nFROM activity_streams,\nLATERAL jsonb_array_elements(data->'latlng') AS point\nWHERE activity_id = '${activity_id}'\n  AND data ? 'latlng'",
           "format": "table",
           "refId": null
         }
@@ -712,7 +712,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(e.val::numeric, 1) AS \"Elevation\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'altitude') WITH ORDINALITY AS e(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'altitude'\n  AND t.idx = e.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -797,7 +797,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  h.val::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  h.val::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -864,7 +864,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(average_heartrate::numeric, 0) AS \"Avg HR\" FROM activities WHERE id = ${activity_id}",
+          "rawSql": "SELECT ROUND(average_heartrate::numeric, 0) AS \"Avg HR\" FROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": null
         }
@@ -931,7 +931,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(max_heartrate::numeric, 0) AS \"Max HR\" FROM activities WHERE id = ${activity_id} AND max_heartrate IS NOT NULL",
+          "rawSql": "SELECT ROUND(max_heartrate::numeric, 0) AS \"Max HR\" FROM activities WHERE id = '${activity_id}' AND max_heartrate IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -996,7 +996,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(v.val::numeric, 2) AS \"Speed\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'velocity_smooth') WITH ORDINALITY AS v(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'velocity_smooth'\n  AND t.idx = v.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  ROUND(v.val::numeric, 2) AS \"Speed\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'velocity_smooth') WITH ORDINALITY AS v(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'velocity_smooth'\n  AND t.idx = v.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1063,7 +1063,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT average_speed * 3.6 AS \"Avg Speed\" FROM activities WHERE id = ${activity_id} AND average_speed IS NOT NULL",
+          "rawSql": "SELECT average_speed * 3.6 AS \"Avg Speed\" FROM activities WHERE id = '${activity_id}' AND average_speed IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -1130,7 +1130,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT MAX(v.val::numeric) * 3.6 AS \"Max Speed\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'velocity_smooth') AS v(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'velocity_smooth'",
+          "rawSql": "SELECT MAX(v.val::numeric) * 3.6 AS \"Max Speed\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'velocity_smooth') AS v(val) WHERE s.activity_id = '${activity_id}' AND s.data ? 'velocity_smooth'",
           "format": "table",
           "refId": null
         }
@@ -1183,7 +1183,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  p.val::int AS \"Power\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'watts') WITH ORDINALITY AS p(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'watts'\n  AND t.idx = p.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  p.val::int AS \"Power\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'watts') WITH ORDINALITY AS p(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'watts'\n  AND t.idx = p.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1250,7 +1250,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT max_watts AS \"Max Power\" FROM activities WHERE id = ${activity_id} AND max_watts IS NOT NULL",
+          "rawSql": "SELECT max_watts AS \"Max Power\" FROM activities WHERE id = '${activity_id}' AND max_watts IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -1317,7 +1317,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(average_watts::numeric, 0) AS \"Avg Power\" FROM activities WHERE id = ${activity_id} AND average_watts IS NOT NULL",
+          "rawSql": "SELECT ROUND(average_watts::numeric, 0) AS \"Avg Power\" FROM activities WHERE id = '${activity_id}' AND average_watts IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -1384,7 +1384,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(best_20min_power::numeric, 0) AS \"Best 20min\" FROM activities WHERE id = ${activity_id} AND best_20min_power IS NOT NULL",
+          "rawSql": "SELECT ROUND(best_20min_power::numeric, 0) AS \"Best 20min\" FROM activities WHERE id = '${activity_id}' AND best_20min_power IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -1437,7 +1437,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  c.val::int AS \"Cadence\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'cadence') WITH ORDINALITY AS c(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'cadence'\n  AND t.idx = c.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  c.val::int AS \"Cadence\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'cadence') WITH ORDINALITY AS c(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'cadence'\n  AND t.idx = c.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1504,7 +1504,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT ROUND(AVG(c.val::numeric), 0) AS \"Avg Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'cadence' AND c.val::numeric > 0",
+          "rawSql": "SELECT ROUND(AVG(c.val::numeric), 0) AS \"Avg Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = '${activity_id}' AND s.data ? 'cadence' AND c.val::numeric > 0",
           "format": "table",
           "refId": null
         }
@@ -1571,7 +1571,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT MAX(c.val::int) AS \"Max Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = ${activity_id} AND s.data ? 'cadence'",
+          "rawSql": "SELECT MAX(c.val::int) AS \"Max Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = '${activity_id}' AND s.data ? 'cadence'",
           "format": "table",
           "refId": null
         }
@@ -1624,7 +1624,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  temp.val::float AS \"Temperature\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'temp') WITH ORDINALITY AS temp(val, idx2)\nWHERE s.activity_id = ${activity_id}\n  AND s.data ? 'temp'\n  AND t.idx = temp.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  temp.val::float AS \"Temperature\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'temp') WITH ORDINALITY AS temp(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'temp'\n  AND t.idx = temp.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1769,7 +1769,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = ${activity_id}\n  AND hr_zone_seconds IS NOT NULL",
+          "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = '${activity_id}'\n  AND hr_zone_seconds IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -1898,7 +1898,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = ${activity_id}\n  AND hr_zone_seconds IS NOT NULL",
+          "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = '${activity_id}'\n  AND hr_zone_seconds IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -2073,7 +2073,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = ${activity_id}\n  AND power_zone_seconds IS NOT NULL",
+          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = '${activity_id}'\n  AND power_zone_seconds IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -2232,7 +2232,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = ${activity_id}\n  AND power_zone_seconds IS NOT NULL",
+          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = '${activity_id}'\n  AND power_zone_seconds IS NOT NULL",
           "format": "table",
           "refId": null
         }
@@ -2284,11 +2284,11 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_POSTGRESQL}"
         },
-        "definition": "SELECT description FROM activities WHERE id = ${activity_id}",
+        "definition": "SELECT description FROM activities WHERE id = '${activity_id}'",
         "hide": 2,
         "includeAll": false,
         "name": "description_var",
-        "query": "SELECT description FROM activities WHERE id = ${activity_id}",
+        "query": "SELECT description FROM activities WHERE id = '${activity_id}'",
         "refresh": 2,
         "type": "query"
       },
@@ -2297,11 +2297,11 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_POSTGRESQL}"
         },
-        "definition": "SELECT private_note FROM activities WHERE id = ${activity_id}",
+        "definition": "SELECT private_note FROM activities WHERE id = '${activity_id}'",
         "hide": 2,
         "includeAll": false,
         "name": "private_note_var",
-        "query": "SELECT private_note FROM activities WHERE id = ${activity_id}",
+        "query": "SELECT private_note FROM activities WHERE id = '${activity_id}'",
         "refresh": 2,
         "type": "query"
       },
@@ -2310,11 +2310,11 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_POSTGRESQL}"
         },
-        "definition": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '\u2014') FROM activities WHERE id = ${activity_id}",
+        "definition": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '\u2014') FROM activities WHERE id = '${activity_id}'",
         "hide": 2,
         "includeAll": false,
         "name": "device_name_var",
-        "query": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '\u2014') FROM activities WHERE id = ${activity_id}",
+        "query": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '\u2014') FROM activities WHERE id = '${activity_id}'",
         "refresh": 2,
         "type": "query"
       },
@@ -2323,11 +2323,11 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_POSTGRESQL}"
         },
-        "definition": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '\u2014') FROM activities WHERE id = ${activity_id}",
+        "definition": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '\u2014') FROM activities WHERE id = '${activity_id}'",
         "hide": 2,
         "includeAll": false,
         "name": "gear_label_var",
-        "query": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '\u2014') FROM activities WHERE id = ${activity_id}",
+        "query": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '\u2014') FROM activities WHERE id = '${activity_id}'",
         "refresh": 2,
         "type": "query"
       }

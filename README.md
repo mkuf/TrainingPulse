@@ -4,11 +4,11 @@
 
 # TrainingPulse
 
-Self-hosted sync and dashboards for your **Strava** activities: PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
+Self-hosted sync and dashboards for your training: **intervals.icu** and **Google Health**, PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
 
-## Strava trademark and API use
+## Trademarks and API use
 
-**TrainingPulse is not affiliated with, endorsed by, or sponsored by Strava.** “Strava” is a trademark of Strava, Inc. Each person who runs this stack must register their own Strava API application and comply with the [Strava API Agreement](https://www.strava.com/legal/api) and [Strava API Brand Guidelines](https://developers.strava.com/guidelines).
+**TrainingPulse is not affiliated with, endorsed by, or sponsored by intervals.icu or Google.** Each person who runs this stack must use their own API credentials and comply with the respective terms of service.
 
 ## Disclaimer
 
@@ -42,17 +42,18 @@ Example views from the bundled dashboards.
 ## What you need
 
 - Docker and Docker Compose
-- A Strava API application: create one at [strava.com/settings/api](https://www.strava.com/settings/api) and note the **Client ID** and **Client Secret**. Set the **Authorization Callback Domain** to the hostname where you will run the stack (for example `localhost` or `myserver.local`).
+- An **intervals.icu** API key (Settings → Developer Settings)
+- Optional: a **Google Cloud OAuth client** with Google Health API enabled (redirect URI `{APP_BASE_URL}/auth/google/callback`)
 
 ## Setup
 
-1. **Configure your environment.** Copy the example file and fill in your Strava credentials, a strong database password, and the URL the app will be reachable at:
+1. **Configure your environment.** Copy the example file and fill in credentials:
 
    ```bash
    cp .env.example .env
    ```
 
-   At minimum, set `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`, `POSTGRES_PASSWORD`, and `APP_BASE_URL` (used to build the OAuth callback).
+   At minimum, set `INTERVALS_ICU_API_KEY`, `POSTGRES_PASSWORD`, and `APP_BASE_URL`. For Google Health, also set `GOOGLE_HEALTH_CLIENT_ID` / `GOOGLE_HEALTH_CLIENT_SECRET`.
 
 2. **Start the stack.** From the repo root:
 
@@ -62,11 +63,13 @@ Example views from the bundled dashboards.
 
    This brings up four containers: the FastAPI app on port `8000`, Grafana on port `3000`, the MCP service on port `8001`, and PostgreSQL (internal only).
 
-3. **Connect Strava.** Open the app at `http://your-host:8000/` and click the official **Connect with Strava** button to complete OAuth. The initial backfill starts automatically — the same page shows live progress, and ongoing syncs run every 15 minutes from then on.
+3. **Connect sources.** Open the app at `http://your-host:8000/`. intervals.icu syncs automatically when the API key is set. For Google Health, click **Connect Google Health** to complete Google OAuth. Ongoing syncs run every 15 minutes.
+
+   **Google OAuth tip:** set the consent screen publishing status to **In production** (you can leave the app unverified for personal use) so refresh tokens are not limited to 7 days. Testing mode requires reconnecting about weekly.
 
 4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres datasource **`trainingpulse`** and the bundled dashboards are provisioned automatically.
 
-5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp` for Cursor or another MCP-aware client. It exposes training summaries, activity lookup, gear usage, and sync-health tools over your network; keep it on a trusted network because tool results can include private training data. If you connect through a homeserver hostname or LAN IP, add it to `MCP_ALLOWED_HOSTS` in `.env`. When plugins are enabled (below), weight and nutrition tools are registered on the same endpoint.
+5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp`.
 
 ## Optional plugins (Withings, FDDB)
 
@@ -79,31 +82,25 @@ TrainingPulse can load **in-process plugins** for body weight (Withings) and dai
 | Plugin | Setup UI | Partner callback (Withings) |
 |--------|----------|---------------------------|
 | Withings | `/plugins/withings/` | `{APP_BASE_URL}/plugins/withings/get_token` |
-| FDDB | `/plugins/fddb/` | Cookie from browser (see `.env.example`) |
+| FDDB | `/plugins/fddb/` | n/a (cookie auth) |
 
-## What data lives where
+## What is stored
 
-**Pulled from Strava and stored locally:**
+**From intervals.icu / Google Health and stored locally:**
 
-- Activity summaries (name, sport, times, distance, elevation, average/max HR and power, kilojoules, calories, device and gear, suffer score) — merged from the list and detail endpoints.
-- Raw telemetry streams (heart rate, power, cadence, temperature, grade, GPS, etc.) for every activity that has them.
-- OAuth tokens (auto-refreshed) and your Strava athlete profile values used for HR zones and FTP, unless overridden in the environment.
+- Activity summaries (sport, time, distance, HR, power when available) with a `source` of `icu` or `google_health`
+- Activity streams (HR, power, GPS when available) for maps and zone/TRIMP calculations
+- Athlete settings (HR zones, FTP) from intervals.icu sport-settings unless overridden in the environment
+- Google OAuth tokens for Google Health (auto-refreshed); intervals.icu uses the API key from env only
 
-**Computed by this project:**
+**Computed locally:**
 
-- Per-activity **TRIMP** (heart-rate zone-weighted training load), with a sport-based estimate when an activity has no HR data.
-- Time spent in each **heart-rate and power zone** per activity.
-- **Best 20-minute power** and an **estimated FTP** (95% of best 20-minute power).
-- Daily **CTL (Fitness)**, **ATL (Fatigue)**, and **TSB (Form)**
+- TRIMP, HR/power zone time, estimated FTP, daily CTL / ATL / TSB
 
-## Overriding HR and FTP
+**Overlap:** Bike-like Google Health sessions are skipped when an intervals.icu activity already covers the same time window.
 
-Out of the box Max HR is `190`, Resting HR is `60`, and FTP comes from your Strava profile (falling back to `200`). Override any of them by setting `MAX_HR`, `REST_HR`, or `FTP` in your `.env`. See [`DEVELOPERS.md`](DEVELOPERS.md) for the full precedence rules, including how to let Strava's profile values drive Max HR and zones.
+Out of the box Max HR is `190`, Resting HR is `60`, and FTP comes from intervals.icu (falling back to `200`). Override with `MAX_HR`, `REST_HR`, or `FTP` in `.env`.
 
-## Going further
+Upgrading from the old Strava-based schema **wipes** local activities and re-syncs from the new providers (IDs are incompatible).
 
-For architecture, the HTTP API, the full list of environment variables, and how each metric is calculated, see [`DEVELOPERS.md`](DEVELOPERS.md).
-
-## License
-
-This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0** as published by the Free Software Foundation. See the [`LICENSE`](LICENSE) file for the full text.
+For architecture, the HTTP API, environment variables, and metric formulas, see [`DEVELOPERS.md`](DEVELOPERS.md).

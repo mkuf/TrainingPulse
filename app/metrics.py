@@ -59,11 +59,11 @@ def get_hr_zone_boundaries(
 ) -> list[tuple[float, float]]:
     """Return HR zone boundaries as (min_hr, max_hr) tuples.
 
-    If Strava provides custom zones, use those. Otherwise compute
+    If custom zones are provided, use those. Otherwise compute
     standard percentage-based zones.
     """
     if custom_zones:
-        # Strava zones come as [{"min": 0, "max": 123}, {"min": 123, "max": 153}, ...]
+        # Zones come as [{"min": 0, "max": 123}, {"min": 123, "max": 153}, ...]
         return [(z["min"], z["max"]) for z in custom_zones]
 
     # Standard 5-zone model based on percentage of max HR

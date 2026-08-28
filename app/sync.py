@@ -1,10 +1,12 @@
-"""Activity sync engine — handles backfilling and incremental sync from Strava."""
+"""Activity sync engine — intervals.icu + Google Health into one store."""
+
+from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable, Iterable, TypeVar
-
 import httpx
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -12,80 +14,73 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import async_session
+from google_health_client import GoogleHealthClient
+from google_health_client import RateLimitExceeded as GoogleHealthRateLimitExceeded
+from intervals_client import IntervalsClient
+from intervals_client import RateLimitExceeded as IntervalsRateLimitExceeded
 from metrics import (
-    calculate_trimp_from_streams,
-    calculate_power_zones,
     calculate_best_interval,
     calculate_power_curve,
+    calculate_power_zones,
+    calculate_trimp_from_streams,
     estimate_trimp_without_hr,
     get_hr_zone_boundaries,
     get_power_zone_boundaries,
     recalculate_daily_metrics,
 )
-from models import Activity, ActivityStream, AthleteSettings, StravaToken
-from strava_client import RateLimitExceeded, StravaClient
+from models import Activity, ActivityStream, AthleteSettings
 
 logger = logging.getLogger(__name__)
 
-class SyncState:
-    """Tracks the current state of the sync process.
+RateLimitExceeded = IntervalsRateLimitExceeded  # default alias for shared helpers
 
-    All counters are in-memory only; they reset on process restart but reflect
-    DB truth on the next sync run.
-    """
+SOURCE_ICU = "icu"
+SOURCE_GOOGLE_HEALTH = "google_health"
+
+# Bike-like exercise types (prefer intervals.icu when overlapping)
+_BIKE_EXERCISE_TYPES = {
+    "BIKING",
+    "ROAD_BIKING",
+    "MOUNTAIN_BIKING",
+    "SPINNING",
+    "CYCLING",
+    "INDOOR_CYCLING",
+    "HAND_CYCLING",
+}
+
+
+class SyncState:
+    """Tracks the current state of the sync process."""
 
     def __init__(self):
         self.is_running: bool = False
-        self.phase: str = "idle"  # idle, backfilling, reconciling, detailing, streaming, incremental, calculating
-        # List backfill progress (from GET /athlete/activities)
+        self.phase: str = "idle"
+        self.provider: str = ""  # icu | google_health | ""
         self.total_activities: int = 0
         self.synced_activities: int = 0
-        # Detail merge progress (from GET /activities/{id})
         self.details_fetched: int = 0
         self.details_pending: int = 0
-        # Stream fetch progress (from GET /activities/{id}/streams)
         self.streams_fetched: int = 0
         self.streams_pending: int = 0
-        # Strava publishes two budgets per response: overall (read + write)
-        # and read-only. Reads are what we actually do, so the read budget is
-        # what triggers 429s. We track both.
         self.rate_limit_15min_usage: int = 0
-        self.rate_limit_15min_limit: int = 200
+        self.rate_limit_15min_limit: int = 2500
         self.rate_limit_daily_usage: int = 0
-        self.rate_limit_daily_limit: int = 2000
-        self.read_rate_limit_15min_usage: int = 0
-        self.read_rate_limit_15min_limit: int = 100
-        self.read_rate_limit_daily_usage: int = 0
-        self.read_rate_limit_daily_limit: int = 1000
-        # Wall-clock time of the most recent rate-limit snapshot. None until the
-        # first Strava API call of the process lifetime.
+        self.rate_limit_daily_limit: int = 5000
         self.rate_limit_last_checked_at: datetime | None = None
         self.last_error: str | None = None
         self.last_sync: datetime | None = None
 
 
-# Global sync state (shared across the app)
 sync_state = SyncState()
-
 
 T = TypeVar("T")
 
 
-def _snapshot_rate_limits(client: StravaClient) -> None:
-    """Copy the client's last-seen rate-limit counters into sync_state.
-
-    Also stamps ``rate_limit_last_checked_at`` so the UI can show how stale
-    the displayed numbers are. We track both the overall budget (read + write
-    combined, ``X-RateLimit-*``) and the read budget (``X-ReadRateLimit-*``).
-    """
+def _snapshot_rate_limits(client: IntervalsClient) -> None:
     sync_state.rate_limit_15min_usage = client._rate_limit_usage_15min
     sync_state.rate_limit_15min_limit = client._rate_limit_limit_15min
     sync_state.rate_limit_daily_usage = client._rate_limit_usage_daily
     sync_state.rate_limit_daily_limit = client._rate_limit_limit_daily
-    sync_state.read_rate_limit_15min_usage = client._read_rate_limit_usage_15min
-    sync_state.read_rate_limit_15min_limit = client._read_rate_limit_limit_15min
-    sync_state.read_rate_limit_daily_usage = client._read_rate_limit_usage_daily
-    sync_state.read_rate_limit_daily_limit = client._read_rate_limit_limit_daily
     sync_state.rate_limit_last_checked_at = datetime.now(timezone.utc)
 
 
@@ -94,12 +89,6 @@ async def _run_with_concurrency(
     worker: Callable[[T], Awaitable[None]],
     concurrency: int,
 ) -> bool:
-    """Run ``worker(item)`` over ``items`` with at most ``concurrency`` in flight.
-
-    Returns ``True`` if all workers completed, ``False`` if any task hit
-    ``RateLimitExceeded`` (in which case the remaining work is cancelled and
-    the caller should stop this phase; the next scheduled sync resumes it).
-    """
     items = list(items)
     if not items:
         return True
@@ -115,7 +104,7 @@ async def _run_with_concurrency(
                 return
             try:
                 await worker(item)
-            except RateLimitExceeded:
+            except (IntervalsRateLimitExceeded, GoogleHealthRateLimitExceeded):
                 rate_limited.set()
                 raise
 
@@ -128,7 +117,7 @@ async def _run_with_concurrency(
                 t.cancel()
 
     for r in results:
-        if isinstance(r, RateLimitExceeded):
+        if isinstance(r, (IntervalsRateLimitExceeded, GoogleHealthRateLimitExceeded)):
             return False
         if isinstance(r, BaseException) and not isinstance(r, asyncio.CancelledError):
             raise r
@@ -136,74 +125,176 @@ async def _run_with_concurrency(
 
 
 def _activity_needs_streams(activity: Activity) -> bool:
-    """True when we derive TRIMP/HR zones and power metrics from stream data (HR or power meter)."""
     return bool(activity.has_heartrate or activity.device_watts)
 
 
+def _icu_activity_id(raw_id: object) -> str:
+    s = str(raw_id).strip()
+    if s.startswith("icu_"):
+        return s
+    if s.startswith("icu:"):
+        return "icu_" + s[4:]
+    return f"icu_{s}"
+
+
+def _google_health_activity_id(raw_id: object) -> str:
+    s = str(raw_id).strip()
+    if s.startswith("ghealth_"):
+        return s
+    if s.startswith("fitbit_"):
+        return "ghealth_" + s[len("fitbit_"):]
+    if s.startswith("fitbit:"):
+        s = s[7:]
+    # Prefer last path segment of resource name
+    if "/" in s:
+        s = s.rstrip("/").split("/")[-1]
+    return f"ghealth_{s}"
+
+
+
+def _parse_dt(raw: object) -> datetime | None:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+    s = str(raw).strip()
+    if not s:
+        return None
+    s = s.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        # date-only
+        try:
+            d = date.fromisoformat(s[:10])
+            return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _parse_duration_seconds(raw: object) -> int:
+    if raw is None:
+        return 0
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    s = str(raw).strip()
+    if s.endswith("s") and s[:-1].replace(".", "", 1).isdigit():
+        return int(float(s[:-1]))
+    try:
+        return int(float(s))
+    except ValueError:
+        return 0
+
+
+def _normal_gear_id(raw: object) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s or s.lower() == "none":
+        return None
+    return s[:64]
+
+
+# ── Athlete settings ────────────────────────────────────────────────
+
+
 async def fetch_and_store_athlete_settings(
-    client: StravaClient, session: AsyncSession, athlete_id: int
+    session: AsyncSession,
+    athlete_id: int,
+    *,
+    icu_client: IntervalsClient | None = None,
 ) -> AthleteSettings:
-    """Fetch HR zones/FTP from Strava and store them, allowing for environment overrides."""
-    # Priority 1: Environment Overrides
+    """Resolve HR/FTP: env → intervals.icu sport-settings → fallbacks."""
     max_hr = settings.MAX_HR
     rest_hr = settings.REST_HR
     ftp = settings.FTP
-
     hr_zones = None
-    strava_max_hr = None
-    strava_ftp = None
+    provider_max_hr = None
+    provider_ftp = None
+    provider_rest_hr = None
 
-    try:
-        # Fetch from Strava to get custom zones and profile data
-        zones_data = await client.get_athlete_zones()
-        if "heart_rate" in zones_data:
-            hr_data = zones_data["heart_rate"]
-            hr_zones = hr_data.get("zones")
-            if hr_zones:
-                last_zone = hr_zones[-1]
-                if last_zone.get("max", 0) > 0:
-                    strava_max_hr = last_zone["max"]
-                elif len(hr_zones) >= 2:
-                    strava_max_hr = hr_zones[-2].get("max")
-
+    if icu_client is not None:
         try:
-            athlete_data = await client.get_athlete()
-            strava_ftp = athlete_data.get("ftp")
-        except Exception:
-            pass
+            sport_settings = await icu_client.get_sport_settings()
+            _snapshot_rate_limits(icu_client)
+            items = sport_settings if isinstance(sport_settings, list) else [sport_settings]
+            # Prefer Ride, then first entry
+            chosen = None
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                sport = (item.get("type") or item.get("sport") or "").lower()
+                if sport in ("ride", "cycling", "bike"):
+                    chosen = item
+                    break
+                if chosen is None:
+                    chosen = item
+            if isinstance(chosen, dict):
+                provider_ftp = chosen.get("ftp") or chosen.get("icu_ftp")
+                if chosen.get("max_hr"):
+                    provider_max_hr = int(chosen["max_hr"])
+                if chosen.get("resting_hr") or chosen.get("rest_hr"):
+                    provider_rest_hr = int(
+                        chosen.get("resting_hr") or chosen.get("rest_hr")
+                    )
+                zones = chosen.get("hr_zones")
+                if isinstance(zones, list) and zones:
+                    # Convert simple threshold list to Strava-like zone objects if needed
+                    if zones and isinstance(zones[0], (int, float)):
+                        hr_zones = []
+                        for i, hi in enumerate(zones[1:], start=0):
+                            lo = zones[i]
+                            hr_zones.append({"min": lo, "max": hi})
+                    else:
+                        hr_zones = zones
+            athlete = await icu_client.get_athlete()
+            _snapshot_rate_limits(icu_client)
+            if provider_ftp is None:
+                provider_ftp = athlete.get("ftp") or athlete.get("icu_ftp")
+            if provider_rest_hr is None and athlete.get("icu_resting_hr"):
+                provider_rest_hr = int(athlete["icu_resting_hr"])
+        except Exception as e:
+            logger.warning("Could not fetch athlete data from intervals.icu: %s", e)
 
-    except Exception as e:
-        logger.warning("Could not fetch athlete data from Strava: %s", e)
-
-    # Resolution logic: Env > Strava > Fallback
     is_hr_overridden = False
-
     if max_hr is not None:
         logger.info("Using MAX_HR from environment: %d", max_hr)
         is_hr_overridden = True
     else:
-        max_hr = strava_max_hr or settings.FALLBACK_MAX_HR
-        logger.info("Using MAX_HR: %d (%s)", max_hr, "Strava" if strava_max_hr else "Fallback")
+        max_hr = provider_max_hr or settings.FALLBACK_MAX_HR
+        logger.info(
+            "Using MAX_HR: %d (%s)",
+            max_hr,
+            "intervals.icu" if provider_max_hr else "Fallback",
+        )
 
     if rest_hr is not None:
         logger.info("Using REST_HR from environment: %d", rest_hr)
         is_hr_overridden = True
     else:
-        rest_hr = settings.FALLBACK_REST_HR
-        logger.info("Using REST_HR: %d (Fallback)", rest_hr)
+        rest_hr = provider_rest_hr or settings.FALLBACK_REST_HR
+        logger.info(
+            "Using REST_HR: %d (%s)",
+            rest_hr,
+            "intervals.icu" if provider_rest_hr else "Fallback",
+        )
 
     if ftp is not None:
         logger.info("Using FTP from environment: %d", ftp)
     else:
-        ftp = strava_ftp or settings.FALLBACK_FTP
-        logger.info("Using FTP: %d (%s)", ftp, "Strava" if strava_ftp else "Fallback")
+        ftp = int(provider_ftp) if provider_ftp else settings.FALLBACK_FTP
+        logger.info(
+            "Using FTP: %d (%s)",
+            ftp,
+            "intervals.icu" if provider_ftp else "Fallback",
+        )
 
-    # Zone Consistency: If HR is overridden, ignore Strava custom zones to force recalculation
-    if is_hr_overridden and hr_zones is not None:
-        logger.info("HR overridden in environment; ignoring Strava custom zones for consistency.")
+    if is_hr_overridden:
         hr_zones = None
 
-    # Upsert athlete settings
     stmt = pg_insert(AthleteSettings).values(
         athlete_id=athlete_id,
         max_hr=max_hr,
@@ -229,33 +320,323 @@ async def fetch_and_store_athlete_settings(
     return result.scalar_one()
 
 
-def _normal_gear_id(raw: object) -> str | None:
-    if raw is None:
-        return None
-    s = str(raw).strip()
-    if not s or s.lower() == "none":
-        return None
-    return s
+async def resolve_athlete_id(
+    session: AsyncSession, *, icu_client: IntervalsClient | None = None
+) -> int:
+    """Pick a stable local athlete_id (prefer intervals.icu id)."""
+    existing = await session.execute(select(AthleteSettings).limit(1))
+    row = existing.scalar_one_or_none()
+    if row is not None:
+        return row.athlete_id
+
+    if icu_client is not None:
+        athlete = await icu_client.get_athlete()
+        _snapshot_rate_limits(icu_client)
+        aid = athlete.get("id")
+        if aid is not None:
+            # intervals ids may be "i123" or numeric
+            digits = re.sub(r"\D", "", str(aid))
+            if digits:
+                return int(digits)
+
+    return 1
 
 
-def _strava_updated_at_from_payload(a: dict) -> datetime | None:
-    raw = a.get("updated_at")
-    if not raw:
+# ── Field mapping: intervals.icu ────────────────────────────────────
+
+
+def _provider_updated_at_from_payload(a: dict) -> datetime | None:
+    for key in ("updated", "updated_at", "icu_ignore_entry"):
+        dt = _parse_dt(a.get(key))
+        if dt:
+            return dt
+    return None
+
+
+def _activity_row_from_intervals(a: dict, athlete_id: int) -> dict:
+    raw_id = a.get("id")
+    start = _parse_dt(a.get("start_date") or a.get("start_date_local"))
+    if start is None:
+        raise ValueError(f"Activity {raw_id} missing start_date")
+
+    moving = int(a.get("moving_time") or a.get("icu_moving_time") or 0)
+    elapsed = int(a.get("elapsed_time") or a.get("icu_elapsed_time") or moving)
+
+    avg_hr = a.get("average_heartrate") or a.get("icu_average_heartrate")
+    max_hr = a.get("max_heartrate") or a.get("icu_max_heartrate")
+    has_hr = bool(a.get("has_heartrate") or avg_hr or max_hr)
+
+    avg_watts = a.get("average_watts") or a.get("icu_average_watts")
+    max_watts = a.get("max_watts") or a.get("icu_max_watts")
+    wavg = a.get("weighted_average_watts") or a.get("icu_weighted_avg_watts")
+    if wavg is not None:
+        wavg = float(wavg)
+
+    device_watts = bool(
+        a.get("device_watts")
+        or a.get("icu_pm_ftp")
+        or avg_watts
+        or wavg
+    )
+
+    gear = a.get("gear")
+    gear_name = None
+    gear_id = _normal_gear_id(a.get("gear_id") or a.get("icu_gear_id"))
+    if isinstance(gear, dict):
+        gear_name = (gear.get("name") or gear.get("nickname") or "").strip() or None
+        if not gear_id:
+            gear_id = _normal_gear_id(gear.get("id"))
+    elif isinstance(gear, str) and gear.strip():
+        gear_name = gear.strip()[:255]
+
+    sport = a.get("type") or a.get("sport_type") or a.get("activity_type") or ""
+    training_load = a.get("icu_training_load") or a.get("training_load")
+
+    dev = a.get("device_name") or a.get("icu_device")
+    if isinstance(dev, str):
+        dev = dev[:255]
+    else:
+        dev = None
+
+    return {
+        "id": _icu_activity_id(raw_id),
+        "source": SOURCE_ICU,
+        "athlete_id": athlete_id,
+        "name": a.get("name") or "",
+        "description": a.get("description"),
+        "private_note": a.get("private_note") or a.get("coach_notes"),
+        "sport_type": str(sport),
+        "start_date": start,
+        "elapsed_time": elapsed,
+        "moving_time": moving,
+        "distance": float(a.get("distance") or 0.0),
+        "average_heartrate": float(avg_hr) if avg_hr is not None else None,
+        "max_heartrate": float(max_hr) if max_hr is not None else None,
+        "has_heartrate": has_hr,
+        "average_watts": float(avg_watts) if avg_watts is not None else None,
+        "max_watts": float(max_watts) if max_watts is not None else None,
+        "average_speed": a.get("average_speed"),
+        "total_elevation_gain": a.get("total_elevation_gain"),
+        "kilojoules": a.get("kilojoules"),
+        "calories": a.get("calories") or a.get("icu_joules"),
+        "device_watts": device_watts,
+        "device_name": dev,
+        "gear_id": gear_id,
+        "gear_name": gear_name,
+        "weighted_average_watts": wavg,
+        "training_load": float(training_load) if training_load is not None else None,
+        "provider_updated_at": _provider_updated_at_from_payload(a),
+    }
+
+
+def _normalize_icu_streams(raw: dict) -> dict:
+    """Normalize intervals stream payload to {type: [samples...]}."""
+    stream_data: dict = {}
+    key_aliases = {
+        "heart_rate": "heartrate",
+        "heartrate": "heartrate",
+        "hr": "heartrate",
+        "watts": "watts",
+        "power": "watts",
+        "velocity_smooth": "velocity_smooth",
+        "speed": "velocity_smooth",
+        "latlng": "latlng",
+        "lat_lng": "latlng",
+        "altitude": "altitude",
+        "cadence": "cadence",
+        "distance": "distance",
+        "time": "time",
+        "temp": "temp",
+        "grade_smooth": "grade_smooth",
+    }
+
+    # Format A: { "time": [...], "watts": [...] }
+    # Format B: { "time": {"data": [...]}, ... }
+    # Format C: list already converted by client to {type: {data|...}}
+    for key, value in raw.items():
+        if key.startswith("_"):
+            continue
+        canon = key_aliases.get(key, key)
+        samples = None
+        if isinstance(value, list):
+            samples = value
+        elif isinstance(value, dict):
+            if "data" in value and isinstance(value["data"], list):
+                samples = value["data"]
+            elif "values" in value and isinstance(value["values"], list):
+                samples = value["values"]
+        if samples is not None:
+            stream_data[canon] = samples
+    return stream_data
+
+
+# ── Field mapping: Google Health ───────────────────────────────────
+
+
+def _exercise_payload(point: dict) -> dict:
+    if isinstance(point.get("exercise"), dict):
+        return point["exercise"]
+    data = point.get("data")
+    if isinstance(data, dict) and isinstance(data.get("exercise"), dict):
+        return data["exercise"]
+    return point
+
+
+def _google_health_sport_type(exercise_type: object) -> str:
+    if not exercise_type:
+        return "Workout"
+    s = str(exercise_type)
+    # Title-case enum: WEIGHTLIFTING → Weightlifting
+    return "".join(
+        w.capitalize() if i == 0 else w.lower()
+        for i, w in enumerate(s.replace("-", "_").split("_"))
+    ) or "Workout"
+
+
+def _activity_row_from_google_health(point: dict, athlete_id: int) -> dict | None:
+    """Map a Google Health exercise dataPoint to an Activity row dict, or None to skip."""
+    name = point.get("name") or ""
+    exercise = _exercise_payload(point)
+    if not isinstance(exercise, dict):
+        exercise = {}
+
+    exercise_type = exercise.get("exerciseType") or exercise.get("exercise_type") or ""
+    if str(exercise_type).upper() in _BIKE_EXERCISE_TYPES:
+        # Prefer intervals.icu for rides; skip bike-like Google Health sessions
+        logger.info("Skipping Google Health bike-like exercise %s (%s)", name, exercise_type)
         return None
-    return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+
+    interval = (
+        exercise.get("interval")
+        or point.get("interval")
+        or point.get("timeInterval")
+        or {}
+    )
+    start = _parse_dt(
+        interval.get("startTime")
+        or interval.get("start_time")
+        or point.get("startTime")
+    )
+    end = _parse_dt(
+        interval.get("endTime") or interval.get("end_time") or point.get("endTime")
+    )
+    if start is None:
+        logger.warning("Google Health exercise missing start time: %s", name)
+        return None
+
+    active = _parse_duration_seconds(
+        exercise.get("activeDuration") or exercise.get("active_duration")
+    )
+    if active <= 0 and end is not None:
+        active = max(0, int((end - start).total_seconds()))
+    elapsed = active
+    if end is not None:
+        elapsed = max(active, int((end - start).total_seconds()))
+
+    summary = exercise.get("metricsSummary") or exercise.get("metrics_summary") or {}
+    avg_hr = summary.get("averageHeartRate") or summary.get("average_heart_rate")
+    max_hr = summary.get("maxHeartRate") or summary.get("max_heart_rate")
+    calories = summary.get("calories") or summary.get("energyBurned")
+    distance = summary.get("distanceMeters") or summary.get("distance") or 0.0
+    if isinstance(calories, dict):
+        calories = calories.get("value") or calories.get("kcal")
+
+    display = exercise.get("displayName") or exercise.get("display_name") or ""
+    raw_id = name or point.get("id") or f"{start.isoformat()}"
+
+    updated = _parse_dt(
+        point.get("updateTime")
+        or point.get("update_time")
+        or exercise.get("updateTime")
+    )
+
+    has_hr = avg_hr is not None or max_hr is not None
+
+    return {
+        "id": _google_health_activity_id(raw_id),
+        "source": SOURCE_GOOGLE_HEALTH,
+        "athlete_id": athlete_id,
+        "name": display or _google_health_sport_type(exercise_type),
+        "description": exercise.get("notes"),
+        "private_note": None,
+        "sport_type": _google_health_sport_type(exercise_type),
+        "start_date": start,
+        "elapsed_time": elapsed,
+        "moving_time": active or elapsed,
+        "distance": float(distance or 0.0),
+        "average_heartrate": float(avg_hr) if avg_hr is not None else None,
+        "max_heartrate": float(max_hr) if max_hr is not None else None,
+        "has_heartrate": has_hr,
+        "average_watts": None,
+        "max_watts": None,
+        "average_speed": None,
+        "total_elevation_gain": None,
+        "kilojoules": None,
+        "calories": float(calories) if calories is not None else None,
+        "device_watts": False,
+        "device_name": "Google Health",
+        "gear_id": None,
+        "gear_name": None,
+        "weighted_average_watts": None,
+        "training_load": None,
+        "provider_updated_at": updated,
+        # Stash end time for stream fetch (not a DB column)
+        "_end_date": end or (start + timedelta(seconds=elapsed or 0)),
+        "_resource_name": name,
+    }
+
+
+def _hr_points_to_streams(
+    points: list[dict], start: datetime
+) -> dict:
+    """Convert Google Health heart-rate dataPoints to time/heartrate streams."""
+    samples: list[tuple[int, float]] = []
+    for p in points:
+        hr = p.get("heartRate") or p.get("heart_rate") or {}
+        if isinstance(hr, dict):
+            bpm = hr.get("beatsPerMinute") or hr.get("beats_per_minute")
+        else:
+            bpm = None
+        if bpm is None and "value" in p:
+            bpm = p["value"]
+        ts = _parse_dt(
+            (p.get("timeInterval") or p.get("interval") or {}).get("startTime")
+            or p.get("startTime")
+            or (p.get("instantaneousTime") if "instantaneousTime" in p else None)
+        )
+        if bpm is None or ts is None:
+            continue
+        offset = max(0, int((ts - start).total_seconds()))
+        samples.append((offset, float(bpm)))
+
+    samples.sort(key=lambda x: x[0])
+    if not samples:
+        return {}
+    return {
+        "time": [s[0] for s in samples],
+        "heartrate": [s[1] for s in samples],
+    }
+
+
+# ── Upsert / refresh helpers ────────────────────────────────────────
 
 
 def _activity_list_fields_differ(existing: Activity, row: dict) -> bool:
-    """True when summary/list fields from Strava differ from the stored activity.
-
-    Detail-only fields (description, private_note, calories, device_name, gear_name) are
-    intentionally excluded — they are not present on GET /athlete/activities.
-    """
-
     def _eq(field: str) -> bool:
         a = getattr(existing, field)
         b = row.get(field)
-        if field in ("distance", "average_heartrate", "max_heartrate", "average_watts", "max_watts", "kilojoules", "average_speed", "total_elevation_gain", "weighted_average_watts", "suffer_score"):
+        if field in (
+            "distance",
+            "average_heartrate",
+            "max_heartrate",
+            "average_watts",
+            "max_watts",
+            "kilojoules",
+            "average_speed",
+            "total_elevation_gain",
+            "weighted_average_watts",
+            "training_load",
+        ):
             if a is None and b is None:
                 return False
             if a is None or b is None:
@@ -278,6 +659,7 @@ def _activity_list_fields_differ(existing: Activity, row: dict) -> bool:
         "gear_id",
         "kilojoules",
         "device_watts",
+        "training_load",
     ):
         if _eq(field):
             return True
@@ -285,35 +667,32 @@ def _activity_list_fields_differ(existing: Activity, row: dict) -> bool:
 
 
 def _should_full_refresh_activity(existing: Activity, row: dict) -> bool:
-    """True when summary stats changed enough to re-fetch streams and metrics."""
-    strava_at = row.get("strava_updated_at")
-    if strava_at is not None and existing.strava_updated_at is not None:
-        if strava_at > existing.strava_updated_at:
+    provider_at = row.get("provider_updated_at")
+    if provider_at is not None and existing.provider_updated_at is not None:
+        if provider_at > existing.provider_updated_at:
             return True
     return _activity_list_fields_differ(existing, row)
 
 
 async def _mark_activity_for_detail_refresh(
-    session: AsyncSession, activity_id: int
+    session: AsyncSession, activity_id: str
 ) -> None:
-    """Re-merge GET /activities/{id} (notes, gear, calories, device) without streams."""
     await session.execute(
         update(Activity)
         .where(Activity.id == activity_id)
-        .values(strava_detail_synced=False)
+        .values(detail_synced=False)
     )
     await session.commit()
 
 
 async def _mark_activity_for_full_refresh(
-    session: AsyncSession, activity_id: int
+    session: AsyncSession, activity_id: str
 ) -> None:
-    """Queue detail + streams re-fetch and clear derived metrics for one activity."""
     await session.execute(
         update(Activity)
         .where(Activity.id == activity_id)
         .values(
-            strava_detail_synced=False,
+            detail_synced=False,
             synced_streams=False,
             trimp=None,
             hr_zone_seconds=None,
@@ -325,193 +704,246 @@ async def _mark_activity_for_full_refresh(
     await session.commit()
 
 
-async def _activity_row_from_strava(
-    a: dict, client: StravaClient, *, resolve_gear: bool = True
-) -> dict:
-    """Map a Strava activity JSON object (summary or detailed) to Activity row fields."""
-    gear = a.get("gear")
-    gear_name_from_payload: str | None = None
-    if isinstance(gear, dict):
-        gear_name_from_payload = (
-            (gear.get("nickname") or gear.get("name") or "").strip() or None
+_LIST_UPSERT_FIELDS = (
+    "name",
+    "source",
+    "athlete_id",
+    "sport_type",
+    "start_date",
+    "elapsed_time",
+    "moving_time",
+    "distance",
+    "average_heartrate",
+    "max_heartrate",
+    "has_heartrate",
+    "average_watts",
+    "max_watts",
+    "average_speed",
+    "total_elevation_gain",
+    "kilojoules",
+    "device_watts",
+    "gear_id",
+    "weighted_average_watts",
+    "training_load",
+    "provider_updated_at",
+)
+
+
+async def _upsert_activity_rows(session: AsyncSession, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    # Strip private keys
+    clean = []
+    for r in rows:
+        clean.append({k: v for k, v in r.items() if not k.startswith("_")})
+
+    stmt = pg_insert(Activity).values(clean)
+    upsert_set = {f: getattr(stmt.excluded, f) for f in _LIST_UPSERT_FIELDS}
+    stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=upsert_set)
+    await session.execute(stmt)
+    await session.commit()
+    return len(clean)
+
+
+# ── intervals.icu sync phases ───────────────────────────────────────
+
+
+async def _icu_upsert_from_list(
+    session: AsyncSession, activities: list[dict], athlete_id: int
+) -> int:
+    rows = []
+    for a in activities:
+        try:
+            rows.append(_activity_row_from_intervals(a, athlete_id))
+        except Exception as e:
+            logger.warning("Skip intervals activity: %s", e)
+    return await _upsert_activity_rows(session, rows)
+
+
+def _date_windows(
+    oldest: date, newest: date, window_days: int
+) -> list[tuple[date, date]]:
+    windows: list[tuple[date, date]] = []
+    cur = oldest
+    while cur <= newest:
+        end = min(cur + timedelta(days=window_days - 1), newest)
+        windows.append((cur, end))
+        cur = end + timedelta(days=1)
+    return windows
+
+
+async def _icu_backfill(
+    client: IntervalsClient, session: AsyncSession, athlete_id: int
+) -> None:
+    sync_state.phase = "backfilling"
+    sync_state.provider = SOURCE_ICU
+    newest = date.today()
+    oldest = newest - timedelta(days=365 * settings.SYNC_BACKFILL_YEARS)
+    windows = _date_windows(oldest, newest, settings.SYNC_ICU_WINDOW_DAYS)
+    total_stored = 0
+    logger.info(
+        "intervals.icu backfill: %s → %s (%d windows)",
+        oldest,
+        newest,
+        len(windows),
+    )
+    for w_oldest, w_newest in windows:
+        activities = await client.list_activities(
+            w_oldest.isoformat(), w_newest.isoformat()
         )
-    gid = _normal_gear_id(a.get("gear_id"))
-    if not gid and isinstance(gear, dict):
-        gid = _normal_gear_id(gear.get("id"))
+        _snapshot_rate_limits(client)
+        stored = await _icu_upsert_from_list(session, activities, athlete_id)
+        total_stored += stored
+        sync_state.total_activities = total_stored
+        sync_state.synced_activities = total_stored
+        logger.info(
+            "Backfill window %s..%s: %d activities (total %d)",
+            w_oldest,
+            w_newest,
+            len(activities),
+            total_stored,
+        )
+    logger.info("intervals.icu backfill complete: %d activities", total_stored)
 
-    resolved_gear_name = gear_name_from_payload
-    if resolve_gear and not resolved_gear_name and gid:
-        resolved_gear_name = await client.get_gear_display_name(gid)
 
-    wavg = a.get("weighted_average_watts")
-    if wavg is not None:
-        wavg = float(wavg)
-
-    dev = a.get("device_name")
-    if isinstance(dev, str):
-        dev = dev[:255] if len(dev) > 255 else dev
+async def _icu_incremental(
+    client: IntervalsClient, session: AsyncSession, athlete_id: int
+) -> None:
+    sync_state.phase = "incremental"
+    sync_state.provider = SOURCE_ICU
+    result = await session.execute(
+        select(func.max(Activity.start_date)).where(
+            Activity.athlete_id == athlete_id,
+            Activity.source == SOURCE_ICU,
+        )
+    )
+    latest = result.scalar_one_or_none()
+    newest = date.today() + timedelta(days=1)
+    if latest:
+        oldest = (latest - timedelta(days=1)).date()
     else:
-        dev = None
+        oldest = newest - timedelta(days=settings.SYNC_RECONCILE_DAYS or 90)
 
-    athlete = a.get("athlete")
-    if isinstance(athlete, dict):
-        athlete_id = athlete["id"]
-    else:
-        athlete_id = int(athlete)
-
-    return {
-        "id": a["id"],
-        "athlete_id": athlete_id,
-        "name": a.get("name", ""),
-        "description": a.get("description"),
-        "private_note": a.get("private_note"),
-        "sport_type": a.get("sport_type", a.get("type", "")),
-        "start_date": datetime.fromisoformat(a["start_date"].replace("Z", "+00:00")),
-        "elapsed_time": a.get("elapsed_time", 0),
-        "moving_time": a.get("moving_time", 0),
-        "distance": a.get("distance", 0.0),
-        "average_heartrate": a.get("average_heartrate"),
-        "max_heartrate": a.get("max_heartrate"),
-        "has_heartrate": a.get("has_heartrate", False),
-        "average_watts": a.get("average_watts"),
-        "max_watts": a.get("max_watts"),
-        "average_speed": a.get("average_speed"),
-        "total_elevation_gain": a.get("total_elevation_gain"),
-        "kilojoules": a.get("kilojoules"),
-        "calories": a.get("calories"),
-        "device_watts": bool(a.get("device_watts", False)),
-        "device_name": dev,
-        "gear_id": gid,
-        "gear_name": resolved_gear_name,
-        "weighted_average_watts": wavg,
-        "suffer_score": a.get("suffer_score"),
-        "strava_updated_at": _strava_updated_at_from_payload(a),
-    }
+    activities = await client.list_activities(
+        oldest.isoformat(), newest.isoformat()
+    )
+    _snapshot_rate_limits(client)
+    stored = await _icu_upsert_from_list(session, activities, athlete_id)
+    logger.info("intervals.icu incremental: %d activities", stored)
 
 
-async def _apply_one_strava_detail(
-    session: AsyncSession, client: StravaClient, activity_id: int
+async def _icu_reconcile(
+    client: IntervalsClient, session: AsyncSession, athlete_id: int
+) -> None:
+    if settings.SYNC_RECONCILE_DAYS <= 0:
+        return
+    sync_state.phase = "reconciling"
+    sync_state.provider = SOURCE_ICU
+    newest = date.today() + timedelta(days=1)
+    oldest = newest - timedelta(days=settings.SYNC_RECONCILE_DAYS)
+    activities = await client.list_activities(
+        oldest.isoformat(), newest.isoformat()
+    )
+    _snapshot_rate_limits(client)
+
+    ids = [_icu_activity_id(a["id"]) for a in activities if a.get("id") is not None]
+    existing_result = await session.execute(
+        select(Activity).where(
+            Activity.athlete_id == athlete_id,
+            Activity.id.in_(ids) if ids else False,
+        )
+    )
+    existing_by_id = {row.id: row for row in existing_result.scalars().all()}
+
+    full_refresh: list[str] = []
+    detail_refresh: list[str] = []
+    for a in activities:
+        try:
+            row = _activity_row_from_intervals(a, athlete_id)
+        except Exception:
+            continue
+        existing = existing_by_id.get(row["id"])
+        if existing is None:
+            continue
+        if _should_full_refresh_activity(existing, row):
+            full_refresh.append(row["id"])
+        else:
+            detail_refresh.append(row["id"])
+
+    for aid in full_refresh:
+        await _mark_activity_for_full_refresh(session, aid)
+    for aid in detail_refresh:
+        await _mark_activity_for_detail_refresh(session, aid)
+
+    await _icu_upsert_from_list(session, activities, athlete_id)
+    logger.info(
+        "intervals.icu reconcile: %d listed, %d full, %d detail",
+        len(activities),
+        len(full_refresh),
+        len(detail_refresh),
+    )
+
+
+async def _apply_one_icu_detail(
+    session: AsyncSession, client: IntervalsClient, activity_id: str
 ) -> bool:
-    """GET /activities/{id} and merge fields; set strava_detail_synced when done.
-
-    Returns True if the row was updated (including 404 tombstone). False on
-    transient errors so the caller can move on and retry on a later sync.
-    """
     try:
         detail = await client.get_activity(activity_id)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            logger.warning("GET /activities/%s returned 404", activity_id)
             await session.execute(
                 update(Activity)
                 .where(Activity.id == activity_id)
-                .values(strava_detail_synced=True)
+                .values(detail_synced=True)
             )
             await session.commit()
             _snapshot_rate_limits(client)
             return True
         raise
-    except RateLimitExceeded:
+    except IntervalsRateLimitExceeded:
         _snapshot_rate_limits(client)
         raise
     except Exception as e:
-        logger.warning("GET /activities/%s failed: %s", activity_id, e)
+        logger.warning("GET activity %s failed: %s", activity_id, e)
         return False
 
     _snapshot_rate_limits(client)
-    if not isinstance(detail, dict):
+    act = await session.get(Activity, activity_id)
+    if act is None:
         return False
-
-    row = await _activity_row_from_strava(detail, client)
+    row = _activity_row_from_intervals(detail, act.athlete_id)
     row_id = row.pop("id")
-    row["strava_detail_synced"] = True
+    row.pop("source", None)
+    row["detail_synced"] = True
+    # Also merge detail-only fields
+    for extra in ("description", "private_note", "calories", "device_name", "gear_name"):
+        if extra in row:
+            pass  # already in row
     await session.execute(update(Activity).where(Activity.id == row_id).values(**row))
     await session.commit()
     return True
 
 
-async def _upsert_activities_from_list(
-    session: AsyncSession, activities: list[dict], client: StravaClient
-) -> int:
-    """Upsert activities from GET /athlete/activities payloads only (no per-activity detail calls)."""
-    if not activities:
-        return 0
-
-    values = []
-    for a in activities:
-        row = await _activity_row_from_strava(a, client, resolve_gear=False)
-        values.append(row)
-
-    stmt = pg_insert(Activity).values(values)
-    list_upsert_set = {
-        "name": stmt.excluded.name,
-        "sport_type": stmt.excluded.sport_type,
-        "start_date": stmt.excluded.start_date,
-        "elapsed_time": stmt.excluded.elapsed_time,
-        "moving_time": stmt.excluded.moving_time,
-        "distance": stmt.excluded.distance,
-        "average_heartrate": stmt.excluded.average_heartrate,
-        "max_heartrate": stmt.excluded.max_heartrate,
-        "has_heartrate": stmt.excluded.has_heartrate,
-        "average_watts": stmt.excluded.average_watts,
-        "max_watts": stmt.excluded.max_watts,
-        "average_speed": stmt.excluded.average_speed,
-        "total_elevation_gain": stmt.excluded.total_elevation_gain,
-        "kilojoules": stmt.excluded.kilojoules,
-        "device_watts": stmt.excluded.device_watts,
-        "gear_id": stmt.excluded.gear_id,
-        "weighted_average_watts": stmt.excluded.weighted_average_watts,
-        "suffer_score": stmt.excluded.suffer_score,
-        "strava_updated_at": stmt.excluded.strava_updated_at,
-    }
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["id"],
-        set_=list_upsert_set,
-    )
-    await session.execute(stmt)
-    await session.commit()
-    return len(values)
-
-
-async def _drain_strava_detail_queue(
-    session: AsyncSession, client: StravaClient, athlete_id: int
+async def _drain_icu_detail_queue(
+    session: AsyncSession, client: IntervalsClient, athlete_id: int
 ) -> None:
-    """Merge GET /activities/{id} for rows with strava_detail_synced=False.
-
-    Runs with bounded concurrency (``settings.SYNC_DETAIL_CONCURRENCY``). The
-    run stops when the queue is empty, when the Strava rate limit is hit, or
-    when two consecutive batches make no progress. Remaining work resumes on
-    the next scheduled sync.
-    """
     sync_state.phase = "detailing"
-
+    sync_state.provider = SOURCE_ICU
     counts_row = (
         await session.execute(
             select(
                 func.count(Activity.id),
-                func.count(Activity.id).filter(
-                    Activity.strava_detail_synced == False  # noqa: E712
-                ),
-            ).where(Activity.athlete_id == athlete_id)
+                func.count(Activity.id).filter(Activity.detail_synced == False),  # noqa: E712
+            ).where(Activity.athlete_id == athlete_id, Activity.source == SOURCE_ICU)
         )
     ).one()
     total_activities, pending_initial = counts_row
-
-    # Cumulative counters: "fetched" is everything already merged across all
-    # previous sync runs, "pending" is what's left to do this run.
     sync_state.details_fetched = max(0, total_activities - pending_initial)
     sync_state.details_pending = pending_initial
-
     if pending_initial == 0:
         return
 
     concurrency = settings.SYNC_DETAIL_CONCURRENCY
-    logger.info(
-        "Merging Strava activity details (%d pending, concurrency %d)...",
-        pending_initial,
-        concurrency,
-    )
-
     counter_lock = asyncio.Lock()
     no_progress_batches = 0
 
@@ -520,7 +952,8 @@ async def _drain_strava_detail_queue(
             select(Activity.id)
             .where(
                 Activity.athlete_id == athlete_id,
-                Activity.strava_detail_synced == False,  # noqa: E712
+                Activity.source == SOURCE_ICU,
+                Activity.detail_synced == False,  # noqa: E712
             )
             .order_by(Activity.start_date.desc())
             .limit(max(100, concurrency * 20))
@@ -531,12 +964,12 @@ async def _drain_strava_detail_queue(
 
         batch_merged = 0
 
-        async def _worker(activity_id: int) -> None:
+        async def _worker(activity_id: str) -> None:
             nonlocal batch_merged
-            # Each worker uses its own session; the parent ``session`` is only
-            # read above for queue selection and below for final counts.
             async with async_session() as worker_session:
-                merged = await _apply_one_strava_detail(
+                # IntervalsClient is HTTP-stateless aside from rate counters;
+                # share the parent client for rate-limit tracking.
+                merged = await _apply_one_icu_detail(
                     worker_session, client, activity_id
                 )
             if merged:
@@ -549,67 +982,31 @@ async def _drain_strava_detail_queue(
         completed = await _run_with_concurrency(ids, _worker, concurrency)
         if not completed:
             sync_state.last_error = (
-                "Strava rate limit while merging activity details; "
-                "will resume on the next sync."
+                "intervals.icu rate limit while merging details; will resume next sync."
             )
-            logger.warning("Detail merge paused by rate limit; resuming on next sync")
             break
-
         if batch_merged == 0:
             no_progress_batches += 1
             if no_progress_batches >= 2:
-                logger.warning(
-                    "Detail merge: no successful merges in consecutive batches; "
-                    "will retry on the next sync"
-                )
                 break
         else:
             no_progress_batches = 0
 
-    final_counts = (
-        await session.execute(
-            select(
-                func.count(Activity.id),
-                func.count(Activity.id).filter(
-                    Activity.strava_detail_synced == False  # noqa: E712
-                ),
-            ).where(Activity.athlete_id == athlete_id)
-        )
-    ).one()
-    total_final, n_left = final_counts
-    sync_state.details_pending = n_left
-    sync_state.details_fetched = max(0, total_final - n_left)
-    if n_left > 0:
-        logger.info(
-            "%d activities still queued for Strava detail merge; next sync continues",
-            n_left,
-        )
 
-
-async def _process_activity_streams(
-    client: StravaClient,
+async def _process_icu_activity_streams(
+    client: IntervalsClient,
     session: AsyncSession,
     activity: Activity,
     hr_zone_boundaries: list[tuple[float, float]],
     power_zone_boundaries: list[tuple[float, float]],
-):
-    """Fetch Strava streams for every pending activity; persist raw data for maps; derive HR/power metrics only when applicable."""
+) -> None:
     needs_hr_power = _activity_needs_streams(activity)
-
     try:
-        streams = await client.get_activity_streams(activity.id)
+        raw = await client.get_activity_streams(activity.id)
         _snapshot_rate_limits(client)
-        if not isinstance(streams, dict):
-            streams = {}
-
-        stream_data: dict = {}
-        stream_types: list[str] = []
-        sample_count = 0
-        for key, value in streams.items():
-            if isinstance(value, dict) and "data" in value:
-                stream_data[key] = value["data"]
-                stream_types.append(key)
-                sample_count = max(sample_count, len(value["data"]))
+        stream_data = _normalize_icu_streams(raw if isinstance(raw, dict) else {})
+        stream_types = list(stream_data.keys())
+        sample_count = max((len(v) for v in stream_data.values()), default=0)
 
         if stream_data:
             stream_stmt = pg_insert(ActivityStream).values(
@@ -647,12 +1044,9 @@ async def _process_activity_streams(
             await session.commit()
             return
 
-        time_stream = streams.get("time", {}).get("data", [])
-        hr_stream = streams.get("heartrate", {}).get("data", [])
-        power_stream = streams.get("watts", {}).get("data", [])
-
-        trimp = activity.trimp
-        hr_zones = activity.hr_zone_seconds
+        time_stream = stream_data.get("time") or []
+        hr_stream = stream_data.get("heartrate") or []
+        power_stream = stream_data.get("watts") or []
 
         if activity.has_heartrate and time_stream and hr_stream and len(
             time_stream
@@ -669,11 +1063,9 @@ async def _process_activity_streams(
         best_20min = None
         power_curve = None
         power_zones = None
-
         if power_stream:
             best_20min = calculate_best_interval(power_stream, 1200)
             power_curve = calculate_power_curve(power_stream)
-
             if time_stream:
                 min_len = min(len(time_stream), len(power_stream))
                 if min_len > 0:
@@ -695,16 +1087,12 @@ async def _process_activity_streams(
                 synced_streams=True,
             )
         )
-
         await session.commit()
-
-    except RateLimitExceeded:
+    except IntervalsRateLimitExceeded:
         _snapshot_rate_limits(client)
         raise
     except Exception as e:
-        logger.warning(
-            "Failed to fetch streams for activity %d: %s", activity.id, e
-        )
+        logger.warning("Failed streams for %s: %s", activity.id, e)
         trimp = estimate_trimp_without_hr(activity.sport_type, activity.moving_time)
         await session.execute(
             update(Activity)
@@ -714,361 +1102,290 @@ async def _process_activity_streams(
         await session.commit()
 
 
-async def run_sync(session: AsyncSession, force_resync: bool = False):
-    """Main sync entry point. Handles both backfill and incremental sync."""
-    if sync_state.is_running:
-        logger.info("Sync already in progress, skipping")
-        return
-
-    sync_state.is_running = True
-    sync_state.last_error = None
-    # Note: details_* and streams_* counters are intentionally NOT reset here.
-    # They represent cumulative progress against the activity library, so each
-    # phase initializes them from current DB state (done = total - pending).
-    # Resetting them would make the UI flash 0/N on every "Sync Now" click.
-    sync_state.synced_activities = 0
-    sync_state.total_activities = 0
-
-    client = StravaClient(session)
-
-    try:
-        # Get athlete ID from token
-        token_result = await session.execute(select(StravaToken).limit(1))
-        token = token_result.scalar_one_or_none()
-        if token is None:
-            sync_state.phase = "idle"
-            sync_state.last_error = "Not authenticated. Link your Strava account from the home page."
-            return
-
-        athlete_id = token.athlete_id
-
-        if force_resync:
-            logger.info("Forcing full resync for athlete %d", athlete_id)
-            await force_full_resync(session, athlete_id)
-
-        # Fetch/update athlete settings (HR/Power zones)
-        athlete_settings = await fetch_and_store_athlete_settings(
-            client, session, athlete_id
-        )
-        hr_zone_boundaries = get_hr_zone_boundaries(
-            athlete_settings.max_hr,
-            athlete_settings.rest_hr,
-            athlete_settings.hr_zones,
-        )
-        power_zone_boundaries = get_power_zone_boundaries(athlete_settings.ftp)
-
-        # Check what we already have
-        count_result = await session.execute(
-            select(func.count(Activity.id)).where(
-                Activity.athlete_id == athlete_id
-            )
-        )
-        existing_count = count_result.scalar_one()
-
-        if existing_count == 0 or force_resync:
-            # Full backfill (list pages only; detail merge runs after)
-            await _backfill(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
-        else:
-            # Incremental sync (list pages only)
-            await _incremental_sync(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
-            await _reconcile_recent_activities(
-                client, session, athlete_id
-            )
-
-        await _drain_strava_detail_queue(session, client, athlete_id)
-        # Process any activities that don't have streams yet
-        await _process_pending_streams(client, session, athlete_id, hr_zone_boundaries, power_zone_boundaries)
-
-        # Recalculate estimated FTP
-        await _recalculate_estimated_ftp(session, token.athlete_id)
-
-        # Backfill power curves for activities that have streams but no curve
-        await _backfill_power_curves(session, athlete_id)
-
-        # Recalculate daily metrics
-        sync_state.phase = "calculating"
-        await recalculate_daily_metrics(session, athlete_id)
-
-        sync_state.phase = "idle"
-        sync_state.last_sync = datetime.now(timezone.utc)
-        logger.info("Sync completed successfully")
-
-    except RateLimitExceeded as e:
-        sync_state.last_error = str(e)
-        logger.warning("Sync paused due to rate limit: %s", e)
-    except Exception as e:
-        sync_state.last_error = str(e)
-        logger.exception("Sync failed: %s", e)
-    finally:
-        sync_state.is_running = False
-        await client.close()
-
-
-async def _backfill(
-    client: StravaClient,
+async def _process_pending_icu_streams(
+    client: IntervalsClient,
     session: AsyncSession,
     athlete_id: int,
     hr_zone_boundaries: list[tuple[float, float]],
     power_zone_boundaries: list[tuple[float, float]],
-):
-    """Fetch all historical activities from Strava."""
-    sync_state.phase = "backfilling"
-    logger.info("Starting full backfill of Strava activities...")
-
-    page = 1
-    total_stored = 0
-
-    while True:
-        activities = await client.get_activities(page=page, per_page=200)
-        _snapshot_rate_limits(client)
-        if not activities:
-            break
-
-        stored = await _upsert_activities_from_list(session, activities, client)
-        total_stored += stored
-        sync_state.total_activities = total_stored
-        sync_state.synced_activities = total_stored
-
-        logger.info(
-            "Backfill page %d: fetched %d activities (total: %d)",
-            page,
-            len(activities),
-            total_stored,
-        )
-
-        if len(activities) < 200:
-            break
-
-        page += 1
-
-    logger.info("Backfill complete: %d activities stored", total_stored)
-
-
-async def _incremental_sync(
-    client: StravaClient,
-    session: AsyncSession,
-    athlete_id: int,
-    hr_zone_boundaries: list[tuple[float, float]],
-    power_zone_boundaries: list[tuple[float, float]],
-):
-    """Fetch only new activities since the last sync."""
-    sync_state.phase = "incremental"
-
-    # Get the timestamp of the most recent activity
-    result = await session.execute(
-        select(func.max(Activity.start_date)).where(
-            Activity.athlete_id == athlete_id
-        )
-    )
-    latest = result.scalar_one_or_none()
-
-    after = None
-    if latest:
-        after = int(latest.timestamp())
-
-    logger.info("Incremental sync: fetching activities after %s", latest)
-
-    page = 1
-    total_new = 0
-
-    while True:
-        activities = await client.get_activities(
-            page=page, per_page=200, after=after
-        )
-        _snapshot_rate_limits(client)
-        if not activities:
-            break
-
-        stored = await _upsert_activities_from_list(session, activities, client)
-        total_new += stored
-
-        if len(activities) < 200:
-            break
-
-        page += 1
-
-    logger.info("Incremental sync: %d new activities", total_new)
-
-
-async def _reconcile_recent_activities(
-    client: StravaClient,
-    session: AsyncSession,
-    athlete_id: int,
 ) -> None:
-    """Re-list recent activities; refresh detail for the window, streams on summary change."""
-    if settings.SYNC_RECONCILE_DAYS <= 0:
-        return
-
-    sync_state.phase = "reconciling"
-    after = int(
-        (
-            datetime.now(timezone.utc)
-            - timedelta(days=settings.SYNC_RECONCILE_DAYS)
-        ).timestamp()
-    )
-    logger.info(
-        "Reconciling activities updated in the last %d days (after=%s)",
-        settings.SYNC_RECONCILE_DAYS,
-        after,
-    )
-
-    page = 1
-    total_checked = 0
-    total_full_refresh = 0
-    total_detail_refresh = 0
-
-    while True:
-        activities = await client.get_activities(
-            page=page, per_page=200, after=after
-        )
-        _snapshot_rate_limits(client)
-        if not activities:
-            break
-
-        ids = [int(a["id"]) for a in activities]
-        existing_result = await session.execute(
-            select(Activity).where(
-                Activity.athlete_id == athlete_id,
-                Activity.id.in_(ids),
-            )
-        )
-        existing_by_id = {row.id: row for row in existing_result.scalars().all()}
-
-        to_full_refresh: list[int] = []
-        to_detail_refresh: list[int] = []
-        for a in activities:
-            row = await _activity_row_from_strava(a, client, resolve_gear=False)
-            existing = existing_by_id.get(row["id"])
-            if existing is None:
-                continue
-            if _should_full_refresh_activity(existing, row):
-                to_full_refresh.append(row["id"])
-            else:
-                # Summary list cannot see notes/gear/calories/device; re-detail
-                # every activity in the window so late Strava edits are picked up.
-                to_detail_refresh.append(row["id"])
-
-        for activity_id in to_full_refresh:
-            await _mark_activity_for_full_refresh(session, activity_id)
-        for activity_id in to_detail_refresh:
-            await _mark_activity_for_detail_refresh(session, activity_id)
-
-        stored = await _upsert_activities_from_list(session, activities, client)
-        total_checked += stored
-        total_full_refresh += len(to_full_refresh)
-        total_detail_refresh += len(to_detail_refresh)
-
-        if len(activities) < 200:
-            break
-        page += 1
-
-    logger.info(
-        "Reconcile complete: %d activities in window, %d full refresh, %d detail refresh",
-        total_checked,
-        total_full_refresh,
-        total_detail_refresh,
-    )
-
-
-async def _process_pending_streams(
-    client: StravaClient,
-    session: AsyncSession,
-    athlete_id: int,
-    hr_zone_boundaries: list[tuple[float, float]],
-    power_zone_boundaries: list[tuple[float, float]],
-):
-    """Fetch and store Strava streams for activities not yet marked synced.
-
-    Runs with bounded concurrency (``settings.SYNC_STREAMS_CONCURRENCY``).
-    Stops on rate-limit; remaining work resumes on the next scheduled sync.
-    """
     sync_state.phase = "streaming"
-
+    sync_state.provider = SOURCE_ICU
     result = await session.execute(
         select(Activity.id)
         .where(
             Activity.athlete_id == athlete_id,
+            Activity.source == SOURCE_ICU,
             Activity.synced_streams == False,  # noqa: E712
         )
         .order_by(Activity.start_date)
     )
     pending_ids = [row[0] for row in result.all()]
-
     total_activities = (
         await session.execute(
-            select(func.count(Activity.id)).where(Activity.athlete_id == athlete_id)
+            select(func.count(Activity.id)).where(
+                Activity.athlete_id == athlete_id, Activity.source == SOURCE_ICU
+            )
         )
     ).scalar_one()
-
-    # Cumulative counters across all syncs: keep "fetched" pinned to the number
-    # of activities whose streams are already on disk so the UI doesn't snap
-    # back to 0 every time we click "Sync Now".
     sync_state.streams_pending = len(pending_ids)
     sync_state.streams_fetched = max(0, total_activities - len(pending_ids))
-
     if not pending_ids:
         return
 
-    total = len(pending_ids)
-
     concurrency = settings.SYNC_STREAMS_CONCURRENCY
-    logger.info(
-        "Processing streams for %d activities (concurrency %d)...",
-        total,
-        concurrency,
-    )
-
     counter_lock = asyncio.Lock()
-    done_count = 0
-    log_every = max(50, concurrency * 10)
 
-    async def _worker(activity_id: int) -> None:
-        nonlocal done_count
+    async def _worker(activity_id: str) -> None:
         async with async_session() as worker_session:
             row = await worker_session.get(Activity, activity_id)
             if row is None:
                 return
-            await _process_activity_streams(
-                client, worker_session, row, hr_zone_boundaries, power_zone_boundaries
+            await _process_icu_activity_streams(
+                client,
+                worker_session,
+                row,
+                hr_zone_boundaries,
+                power_zone_boundaries,
             )
         async with counter_lock:
             sync_state.streams_fetched += 1
             if sync_state.streams_pending > 0:
                 sync_state.streams_pending -= 1
-            done_count += 1
-            n = done_count
-        if n % log_every == 0:
-            logger.info("Processed streams: %d/%d", n, total)
 
     completed = await _run_with_concurrency(pending_ids, _worker, concurrency)
     if not completed:
-        logger.warning(
-            "Rate limit hit during stream processing at %d/%d. Will resume on next sync.",
-            sync_state.streams_fetched,
-            total,
+        raise IntervalsRateLimitExceeded(reset_after=900)
+
+
+# ── Google Health sync ─────────────────────────────────────────────
+
+
+async def _google_health_overlaps_icu(
+    session: AsyncSession, athlete_id: int, start: datetime, end: datetime
+) -> bool:
+    """True if an intervals.icu activity overlaps this window (skip Google Health duplicate)."""
+    window_start = start - timedelta(minutes=15)
+    window_end = end + timedelta(minutes=15)
+    result = await session.execute(
+        select(Activity).where(
+            Activity.athlete_id == athlete_id,
+            Activity.source == SOURCE_ICU,
+            Activity.start_date >= window_start,
+            Activity.start_date <= window_end,
         )
-        raise RateLimitExceeded(reset_after=900)
+    )
+    for act in result.scalars().all():
+        act_end = act.start_date + timedelta(seconds=act.elapsed_time or 0)
+        if act.start_date < end and act_end > start:
+            return True
+    return False
 
-    logger.info("All pending streams processed")
+
+async def _google_health_sync(
+    client: GoogleHealthClient,
+    session: AsyncSession,
+    athlete_id: int,
+    *,
+    force_resync: bool,
+    hr_zone_boundaries: list[tuple[float, float]],
+    power_zone_boundaries: list[tuple[float, float]],
+) -> None:
+    sync_state.phase = "incremental"
+    sync_state.provider = SOURCE_GOOGLE_HEALTH
+
+    newest = datetime.now(timezone.utc) + timedelta(days=1)
+    if force_resync:
+        oldest = newest - timedelta(days=365 * settings.SYNC_BACKFILL_YEARS)
+        sync_state.phase = "backfilling"
+    else:
+        result = await session.execute(
+            select(func.max(Activity.start_date)).where(
+                Activity.athlete_id == athlete_id,
+                Activity.source == SOURCE_GOOGLE_HEALTH,
+            )
+        )
+        latest = result.scalar_one_or_none()
+        if latest:
+            oldest = latest - timedelta(days=2)
+        else:
+            oldest = newest - timedelta(days=max(settings.SYNC_RECONCILE_DAYS, 90))
+
+    # Chunk by ~90 days to keep responses manageable
+    cursor = oldest
+    total = 0
+    while cursor < newest:
+        chunk_end = min(cursor + timedelta(days=settings.SYNC_ICU_WINDOW_DAYS), newest)
+        try:
+            points = await client.list_exercises(cursor, chunk_end)
+        except GoogleHealthRateLimitExceeded:
+            raise
+        except Exception as e:
+            logger.warning("Google Health list_exercises failed (%s..%s): %s", cursor, chunk_end, e)
+            points = []
+
+        rows: list[dict] = []
+        for point in points:
+            row = _activity_row_from_google_health(point, athlete_id)
+            if row is None:
+                continue
+            end = row.get("_end_date") or (
+                row["start_date"] + timedelta(seconds=row["elapsed_time"])
+            )
+            if await _google_health_overlaps_icu(
+                session, athlete_id, row["start_date"], end
+            ):
+                logger.info(
+                    "Skipping Google Health %s — overlaps intervals.icu activity", row["id"]
+                )
+                continue
+            rows.append(row)
+
+        # Mark new rows as needing streams; details come from list payload
+        stored_rows = []
+        for r in rows:
+            clean = {k: v for k, v in r.items() if not k.startswith("_")}
+            clean["detail_synced"] = True  # list/detail already in exercise payload
+            stored_rows.append(clean)
+
+        if stored_rows:
+            # Upsert then ensure new ones get streams
+            existing_ids = {
+                row.id
+                for row in (
+                    await session.execute(
+                        select(Activity).where(
+                            Activity.id.in_([r["id"] for r in stored_rows])
+                        )
+                    )
+                ).scalars().all()
+            }
+            await _upsert_activity_rows(session, stored_rows)
+            for r in stored_rows:
+                if r["id"] not in existing_ids:
+                    await session.execute(
+                        update(Activity)
+                        .where(Activity.id == r["id"])
+                        .values(synced_streams=False, detail_synced=True)
+                    )
+            await session.commit()
+            total += len(stored_rows)
+
+        # Process pending Google Health streams for this athlete
+        await _process_pending_google_health_streams(
+            client,
+            session,
+            athlete_id,
+            hr_zone_boundaries,
+            power_zone_boundaries,
+        )
+
+        sync_state.synced_activities = total
+        sync_state.total_activities = total
+        cursor = chunk_end
+
+    logger.info("Google Health sync stored/updated ~%d activities", total)
 
 
-async def _recalculate_estimated_ftp(session: AsyncSession, athlete_id: int):
-    """Estimate FTP based on 95% of the best 20-minute power across all activities."""
+async def _process_pending_google_health_streams(
+    client: GoogleHealthClient,
+    session: AsyncSession,
+    athlete_id: int,
+    hr_zone_boundaries: list[tuple[float, float]],
+    power_zone_boundaries: list[tuple[float, float]],
+) -> None:
+    sync_state.phase = "streaming"
+    sync_state.provider = SOURCE_GOOGLE_HEALTH
+    result = await session.execute(
+        select(Activity)
+        .where(
+            Activity.athlete_id == athlete_id,
+            Activity.source == SOURCE_GOOGLE_HEALTH,
+            Activity.synced_streams == False,  # noqa: E712
+        )
+        .order_by(Activity.start_date)
+        .limit(50)
+    )
+    pending = list(result.scalars().all())
+    for activity in pending:
+        end = activity.start_date + timedelta(seconds=activity.elapsed_time or 0)
+        try:
+            hr_points = await client.list_heart_rate(activity.start_date, end)
+            stream_data = _hr_points_to_streams(hr_points, activity.start_date)
+            if stream_data:
+                stream_stmt = pg_insert(ActivityStream).values(
+                    activity_id=activity.id,
+                    data=stream_data,
+                    stream_types=",".join(stream_data.keys()),
+                    sample_count=len(stream_data.get("time") or []),
+                )
+                stream_stmt = stream_stmt.on_conflict_do_update(
+                    index_elements=["activity_id"],
+                    set_={
+                        "data": stream_stmt.excluded.data,
+                        "stream_types": stream_stmt.excluded.stream_types,
+                        "sample_count": stream_stmt.excluded.sample_count,
+                    },
+                )
+                await session.execute(stream_stmt)
+                activity.has_heartrate = True
+
+            time_stream = stream_data.get("time") or []
+            hr_stream = stream_data.get("heartrate") or []
+            if time_stream and hr_stream and len(time_stream) == len(hr_stream):
+                trimp, hr_zones = calculate_trimp_from_streams(
+                    time_stream, hr_stream, hr_zone_boundaries
+                )
+            else:
+                hr_zones = None
+                trimp = estimate_trimp_without_hr(
+                    activity.sport_type, activity.moving_time
+                )
+
+            await session.execute(
+                update(Activity)
+                .where(Activity.id == activity.id)
+                .values(
+                    trimp=trimp,
+                    hr_zone_seconds=hr_zones,
+                    has_heartrate=bool(hr_stream) or activity.has_heartrate,
+                    synced_streams=True,
+                )
+            )
+            await session.commit()
+            sync_state.streams_fetched += 1
+        except GoogleHealthRateLimitExceeded:
+            raise
+        except Exception as e:
+            logger.warning("Google Health streams for %s failed: %s", activity.id, e)
+            trimp = estimate_trimp_without_hr(
+                activity.sport_type, activity.moving_time
+            )
+            await session.execute(
+                update(Activity)
+                .where(Activity.id == activity.id)
+                .values(trimp=trimp, synced_streams=True)
+            )
+            await session.commit()
+
+
+# ── Shared post-processing ──────────────────────────────────────────
+
+
+async def _recalculate_estimated_ftp(session: AsyncSession, athlete_id: int) -> None:
     result = await session.execute(
         select(func.max(Activity.best_20min_power)).where(
             Activity.athlete_id == athlete_id
         )
     )
     best_20min = result.scalar_one_or_none()
-
     if best_20min:
         estimated_ftp = int(best_20min * 0.95)
         logger.info(
-            "Recalculated estimated FTP: %d W (based on best 20min power of %.1f W)",
+            "Recalculated estimated FTP: %d W (best 20min %.1f W)",
             estimated_ftp,
             best_20min,
         )
-
         await session.execute(
             update(AthleteSettings)
             .where(AthleteSettings.athlete_id == athlete_id)
@@ -1077,9 +1394,7 @@ async def _recalculate_estimated_ftp(session: AsyncSession, athlete_id: int):
         await session.commit()
 
 
-async def _backfill_power_curves(session: AsyncSession, athlete_id: int):
-    """Calculate power curves for activities that have streams but are missing the curve data."""
-    # Find activities that have watts stream in ActivityStream but power_curve is null in Activity
+async def _backfill_power_curves(session: AsyncSession, athlete_id: int) -> None:
     result = await session.execute(
         select(Activity, ActivityStream.data)
         .join(ActivityStream, Activity.id == ActivityStream.activity_id)
@@ -1089,12 +1404,8 @@ async def _backfill_power_curves(session: AsyncSession, athlete_id: int):
         )
     )
     to_process = result.all()
-
     if not to_process:
         return
-
-    logger.info("Backfilling power curves for %d activities...", len(to_process))
-
     for activity, stream_data in to_process:
         power_stream = stream_data.get("watts")
         if power_stream:
@@ -1105,19 +1416,17 @@ async def _backfill_power_curves(session: AsyncSession, athlete_id: int):
                     .where(Activity.id == activity.id)
                     .values(power_curve=curve)
                 )
-
     await session.commit()
-    logger.info("Power curve backfill complete")
 
-async def force_full_resync(session: AsyncSession, athlete_id: int):
-    """Mark all activities for re-sync and clear calculated metrics."""
-    logger.info("Resetting sync state for all activities of athlete %d", athlete_id)
+
+async def force_full_resync(session: AsyncSession, athlete_id: int) -> None:
+    logger.info("Resetting sync state for athlete %d", athlete_id)
     await session.execute(
         update(Activity)
         .where(Activity.athlete_id == athlete_id)
         .values(
             synced_streams=False,
-            strava_detail_synced=False,
+            detail_synced=False,
             trimp=None,
             hr_zone_seconds=None,
             power_zone_seconds=None,
@@ -1126,3 +1435,135 @@ async def force_full_resync(session: AsyncSession, athlete_id: int):
         )
     )
     await session.commit()
+
+
+# ── Main entry ──────────────────────────────────────────────────────
+
+
+async def run_sync(session: AsyncSession, force_resync: bool = False) -> None:
+    """Sync all enabled providers, then recalculate daily metrics once."""
+    if sync_state.is_running:
+        logger.info("Sync already in progress, skipping")
+        return
+
+    sync_state.is_running = True
+    sync_state.last_error = None
+    sync_state.synced_activities = 0
+    sync_state.total_activities = 0
+    sync_state.provider = ""
+
+    icu_client: IntervalsClient | None = None
+    google_health_client: GoogleHealthClient | None = None
+
+    try:
+        icu_on = settings.icu_enabled()
+        google_health_on = settings.google_health_enabled()
+
+        if not icu_on and not google_health_on:
+            sync_state.phase = "idle"
+            sync_state.last_error = (
+                "No activity sources configured. Set INTERVALS_ICU_API_KEY and/or "
+                "connect Google Health OAuth."
+            )
+            return
+
+        if icu_on:
+            icu_client = IntervalsClient()
+            # Fail fast with a clear message if the API key is wrong
+            try:
+                await icu_client.get_athlete()
+                _snapshot_rate_limits(icu_client)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403):
+                    sync_state.phase = "idle"
+                    sync_state.last_error = (
+                        "intervals.icu rejected the API key (HTTP "
+                        f"{e.response.status_code}). Check INTERVALS_ICU_API_KEY."
+                    )
+                    logger.error(sync_state.last_error)
+                    return
+                raise
+        if google_health_on:
+            google_health_client = GoogleHealthClient(session)
+            if not await google_health_client.is_connected():
+                google_health_client = None
+                if not icu_on:
+                    sync_state.last_error = (
+                        "Google Health is enabled but not connected. Authorize from the home page."
+                    )
+                    return
+
+        athlete_id = await resolve_athlete_id(session, icu_client=icu_client)
+
+        if force_resync:
+            await force_full_resync(session, athlete_id)
+
+        athlete_settings = await fetch_and_store_athlete_settings(
+            session, athlete_id, icu_client=icu_client
+        )
+        hr_zone_boundaries = get_hr_zone_boundaries(
+            athlete_settings.max_hr,
+            athlete_settings.rest_hr,
+            athlete_settings.hr_zones,
+        )
+        power_zone_boundaries = get_power_zone_boundaries(athlete_settings.ftp)
+
+        # ── intervals.icu ──
+        if icu_client is not None:
+            count_result = await session.execute(
+                select(func.count(Activity.id)).where(
+                    Activity.athlete_id == athlete_id,
+                    Activity.source == SOURCE_ICU,
+                )
+            )
+            existing_icu = count_result.scalar_one()
+            if existing_icu == 0 or force_resync:
+                await _icu_backfill(icu_client, session, athlete_id)
+            else:
+                await _icu_incremental(icu_client, session, athlete_id)
+                await _icu_reconcile(icu_client, session, athlete_id)
+
+            await _drain_icu_detail_queue(session, icu_client, athlete_id)
+            await _process_pending_icu_streams(
+                icu_client,
+                session,
+                athlete_id,
+                hr_zone_boundaries,
+                power_zone_boundaries,
+            )
+
+        # ── Google Health ──
+        if google_health_client is not None:
+            await _google_health_sync(
+                google_health_client,
+                session,
+                athlete_id,
+                force_resync=force_resync,
+                hr_zone_boundaries=hr_zone_boundaries,
+                power_zone_boundaries=power_zone_boundaries,
+            )
+
+        await _recalculate_estimated_ftp(session, athlete_id)
+        await _backfill_power_curves(session, athlete_id)
+
+        sync_state.phase = "calculating"
+        sync_state.provider = ""
+        await recalculate_daily_metrics(session, athlete_id)
+
+        sync_state.phase = "idle"
+        sync_state.last_sync = datetime.now(timezone.utc)
+        logger.info("Sync completed successfully")
+
+    except (IntervalsRateLimitExceeded, GoogleHealthRateLimitExceeded) as e:
+        sync_state.last_error = str(e)
+        logger.warning("Sync paused due to rate limit: %s", e)
+    except Exception as e:
+        sync_state.last_error = str(e)
+        logger.exception("Sync failed: %s", e)
+    finally:
+        sync_state.is_running = False
+        sync_state.provider = ""
+        if icu_client is not None:
+            await icu_client.close()
+        if google_health_client is not None:
+            await google_health_client.close()

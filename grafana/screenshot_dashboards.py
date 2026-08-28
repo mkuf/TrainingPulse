@@ -1,7 +1,7 @@
 """Capture full-page screenshots of the bundled Grafana dashboards.
 
 Intended to run inside `mcr.microsoft.com/playwright/python:v1.49.1-jammy`,
-joined to the `strava-sync_default` docker network so it can reach Grafana
+joined to the `trainingpulse_default` docker network so it can reach Grafana
 at `http://grafana:3000`. Driven by [grafana/take_screenshots.sh](take_screenshots.sh).
 
 Environment variables (with defaults):
@@ -11,7 +11,8 @@ Environment variables (with defaults):
     HEIGHT             1080            # initial viewport; full_page=True grows it
     WAIT_MS            15000           # tail wait after networkidle for paint to settle
     TIMERANGE          from=now-30d&to=now (fitness, account_overview, addon dashboards)
-    ACTIVITY_ID        (required) numeric id used for the activity-detail dashboard
+    ACTIVITY_ID        (required) activity id string used for the activity-detail dashboard
+                       (e.g. icu_i55610271)
     ACTIVITY_FROM_MS   (required) epoch-ms start for the activity-detail time range
     ACTIVITY_TO_MS     (required) epoch-ms end for the activity-detail time range
 """

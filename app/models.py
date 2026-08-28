@@ -21,16 +21,18 @@ class Base(DeclarativeBase):
     pass
 
 
-class StravaToken(Base):
-    """Stores Strava OAuth tokens. Only one row per athlete."""
+class OAuthToken(Base):
+    """OAuth tokens for providers that need them (e.g. Google Health)."""
 
-    __tablename__ = "strava_tokens"
+    __tablename__ = "oauth_tokens"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    athlete_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     access_token: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Optional opaque subject / athlete id from the provider
+    external_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -54,11 +56,13 @@ class AthleteSettings(Base):
 
 
 class Activity(Base):
-    """A single Strava activity."""
+    """A single activity from intervals.icu, Google Health, or another provider."""
 
     __tablename__ = "activities"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    # Prefixed provider ids, e.g. "icu_i55610271" or "ghealth_<datapointId>"
+    id: Mapped[str] = mapped_column(String(128), primary_key=True, autoincrement=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     athlete_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -84,8 +88,8 @@ class Activity(Base):
     gear_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gear_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     weighted_average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
-    suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    strava_detail_synced: Mapped[bool] = mapped_column(
+    training_load: Mapped[float | None] = mapped_column(Float, nullable=True)
+    detail_synced: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
     trimp: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -96,7 +100,7 @@ class Activity(Base):
     synced_streams: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
-    strava_updated_at: Mapped[datetime | None] = mapped_column(
+    provider_updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -123,8 +127,8 @@ class ActivityStream(Base):
 
     __tablename__ = "activity_streams"
 
-    activity_id: Mapped[int] = mapped_column(
-        BigInteger, primary_key=True, autoincrement=False
+    activity_id: Mapped[str] = mapped_column(
+        String(128), primary_key=True, autoincrement=False
     )
     data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     stream_types: Mapped[str] = mapped_column(

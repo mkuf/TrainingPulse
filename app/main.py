@@ -1,8 +1,8 @@
 """TrainingPulse — FastAPI application.
 
 Provides:
-- OAuth2 login flow with Strava
-- Status page showing sync progress and current metrics (TRIMP, CTL, ATL, TSB, and related training-load metrics)
+- intervals.icu API-key connection + Google Health OAuth
+- Status page showing sync progress and current metrics
 - Background scheduler for periodic syncing
 """
 
@@ -11,25 +11,25 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from config import settings
 from database import async_session, engine
-from models import Activity, ActivityStream, Base, DailyMetrics, StravaToken
-from strava_client import StravaClient
+from google_health_client import GoogleHealthClient
+from intervals_client import IntervalsClient
+from models import Activity, AthleteSettings, DailyMetrics, OAuthToken
 from plugins.registry import dispose_plugins, enabled_plugin_names, load_plugins, setup_plugins
+from schema_migrate import ensure_schema
+from sync import _snapshot_rate_limits, run_sync, sync_state
 
 _PLUGIN_LINKS: dict[str, tuple[str, str]] = {
     "withings": ("Withings (body weight)", "/plugins/withings/"),
     "fddb": ("FDDB (nutrition)", "/plugins/fddb/"),
 }
-from sync import _snapshot_rate_limits, run_sync, sync_state
 
 APP_DISPLAY_NAME = "TrainingPulse"
 
@@ -43,16 +43,16 @@ scheduler = AsyncIOScheduler()
 
 
 async def trigger_sync_task(force_resync: bool = False):
-    """Background task: sync activities from Strava."""
+    """Background task: sync activities from enabled providers."""
     async with async_session() as session:
         await run_sync(session, force_resync=force_resync)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: create tables, start scheduler, load plugins."""
+    """Application lifespan: migrate schema, start scheduler, load plugins."""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await ensure_schema(conn)
     logger.info("Database tables created/verified")
 
     app.state.scheduler = scheduler
@@ -80,105 +80,70 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=APP_DISPLAY_NAME, lifespan=lifespan)
-
-# Mount static files for assets and favicon
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-# ── OAuth endpoints ─────────────────────────────────────────────────
+# ── Google Health OAuth ─────────────────────────────────────────────
 
 
-@app.get("/auth/strava")
-async def auth_strava():
-    """Redirect to Strava's OAuth authorization page."""
-    params = {
-        "client_id": settings.STRAVA_CLIENT_ID,
-        "response_type": "code",
-        "redirect_uri": settings.oauth_callback_url,
-        "approval_prompt": "auto",
-        "scope": settings.STRAVA_SCOPES,
-    }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return RedirectResponse(f"{settings.STRAVA_AUTH_URL}?{query}")
+@app.get("/auth/google")
+async def auth_google():
+    """Redirect to Google OAuth for Google Health."""
+    if not settings.google_health_configured():
+        return HTMLResponse(
+            _page(
+                "Google Health Not Configured",
+                "<p class='error'>Set GOOGLE_HEALTH_CLIENT_ID and "
+                "GOOGLE_HEALTH_CLIENT_SECRET in .env.</p>",
+            ),
+            status_code=400,
+        )
+    return RedirectResponse(GoogleHealthClient.authorization_url())
 
 
-@app.get("/auth/callback")
-async def auth_callback(code: str | None = None, error: str | None = None):
-    """Handle the OAuth callback from Strava."""
+@app.get("/auth/google/callback")
+async def auth_google_callback(code: str | None = None, error: str | None = None):
+    """Handle Google OAuth callback."""
     if error:
         return HTMLResponse(
             _page("Authorization Failed", f"<p class='error'>Error: {error}</p>"),
             status_code=400,
         )
-
     if not code:
-        return HTMLResponse(
-            _page("Authorization Failed", "<p class='error'>No authorization code received.</p>"),
-            status_code=400,
-        )
-
-    # Exchange code for tokens
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            settings.STRAVA_TOKEN_URL,
-            data={
-                "client_id": settings.STRAVA_CLIENT_ID,
-                "client_secret": settings.STRAVA_CLIENT_SECRET,
-                "code": code,
-                "grant_type": "authorization_code",
-            },
-        )
-
-    if response.status_code != 200:
         return HTMLResponse(
             _page(
                 "Authorization Failed",
-                f"<p class='error'>Token exchange failed: {response.text}</p>",
+                "<p class='error'>No authorization code received.</p>",
             ),
             status_code=400,
         )
 
-    data = response.json()
-    athlete = data.get("athlete", {})
-    athlete_id = athlete.get("id")
+    try:
+        payload = await GoogleHealthClient.exchange_code(code)
+    except Exception as e:
+        return HTMLResponse(
+            _page(
+                "Authorization Failed",
+                f"<p class='error'>Token exchange failed: {e}</p>",
+            ),
+            status_code=400,
+        )
 
-    # Store token in database
     async with async_session() as session:
-        stmt = pg_insert(StravaToken).values(
-            athlete_id=athlete_id,
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
-            expires_at=data["expires_at"],
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["athlete_id"],
-            set_={
-                "access_token": stmt.excluded.access_token,
-                "refresh_token": stmt.excluded.refresh_token,
-                "expires_at": stmt.excluded.expires_at,
-            },
-        )
-        await session.execute(stmt)
-        await session.commit()
+        client = GoogleHealthClient(session)
+        await client.store_tokens(payload)
+        await client.close()
 
-    logger.info(
-        "Authenticated athlete: %s %s (ID: %d)",
-        athlete.get("firstname", ""),
-        athlete.get("lastname", ""),
-        athlete_id,
-    )
-
-    # Trigger an immediate sync
+    logger.info("Google Health connected")
     asyncio.create_task(trigger_sync_task())
 
     return HTMLResponse(
         _page(
             "Connected!",
-            f"""
+            """
             <div class="card success">
-                <h2>✅ Strava account linked</h2>
-                <p>Welcome, <strong>{athlete.get('firstname', '')} {athlete.get('lastname', '')}</strong>!</p>
-                <p>Your activities are now being synced. This may take a while for the initial backfill.</p>
+                <h2>Google Health linked</h2>
+                <p>Your Google account is linked. Activities will sync on the next run.</p>
                 <p><a href="/" class="btn btn-neutral">View Status →</a></p>
             </div>
             """,
@@ -186,34 +151,35 @@ async def auth_callback(code: str | None = None, error: str | None = None):
     )
 
 
-# ── Status / Home page ──────────────────────────────────────────────
+@app.post("/auth/google/disconnect")
+async def auth_google_disconnect():
+    async with async_session() as session:
+        client = GoogleHealthClient(session)
+        await client.disconnect()
+        await client.close()
+    return RedirectResponse("/", status_code=303)
 
 
-def _seconds_until_next_quarter_hour() -> int:
-    """Seconds until the next :00 / :15 / :30 / :45 UTC mark.
-
-    Strava resets the 15-min read budget on these boundaries. Pure wall-clock
-    math; does not hit the API.
-    """
-    now = datetime.now(timezone.utc)
-    minutes_into_window = now.minute % 15
-    seconds_into_window = minutes_into_window * 60 + now.second
-    return max(0, 15 * 60 - seconds_into_window)
+# ── Status helpers ───────────────────────────────────────────────────
 
 
-async def _progress_counts(session, athlete_id: int) -> dict:
-    """One-shot DB query that returns cumulative sync progress for an athlete.
-
-    Returns ``{total, details_done, details_pending, streams_done, streams_pending}``.
-    Authoritative for the UI: ``sync_state`` in-memory counters are only used
-    for ticking phase/rate-limit info.
-    """
+async def _progress_counts(session, athlete_id: int | None) -> dict:
+    empty = {
+        "total": 0,
+        "details_done": 0,
+        "details_pending": 0,
+        "streams_done": 0,
+        "streams_pending": 0,
+        "by_source": {"icu": 0, "google_health": 0},
+    }
+    if athlete_id is None:
+        return empty
     row = (
         await session.execute(
             select(
                 func.count(Activity.id),
                 func.count(Activity.id).filter(
-                    Activity.strava_detail_synced == False  # noqa: E712
+                    Activity.detail_synced == False  # noqa: E712
                 ),
                 func.count(Activity.id).filter(
                     Activity.synced_streams == False  # noqa: E712
@@ -222,13 +188,36 @@ async def _progress_counts(session, athlete_id: int) -> dict:
         )
     ).one()
     total, details_pending, streams_pending = row
+    by_source = {"icu": 0, "google_health": 0}
+    source_rows = (
+        await session.execute(
+            select(Activity.source, func.count(Activity.id))
+            .where(Activity.athlete_id == athlete_id)
+            .group_by(Activity.source)
+        )
+    ).all()
+    for source, count in source_rows:
+        if source in ("google_health", "fitbit"):
+            by_source["google_health"] += count
+        elif source == "icu":
+            by_source["icu"] += count
     return {
         "total": total,
         "details_done": max(0, total - details_pending),
         "details_pending": details_pending,
         "streams_done": max(0, total - streams_pending),
         "streams_pending": streams_pending,
+        "by_source": by_source,
     }
+
+
+async def _primary_athlete_id(session) -> int | None:
+    result = await session.execute(select(AthleteSettings.athlete_id).limit(1))
+    aid = result.scalar_one_or_none()
+    if aid is not None:
+        return aid
+    result = await session.execute(select(Activity.athlete_id).limit(1))
+    return result.scalar_one_or_none()
 
 
 def _plugin_links_html(active_names: set[str]) -> str:
@@ -246,10 +235,45 @@ def _plugin_links_html(active_names: set[str]) -> str:
             )
     return f"""
     <div class="card">
-        <h3>🔌 Plugins</h3>
-        <ul style="margin: 0.5rem 0 0 1.25rem; padding: 0;">
+        <h3>Plugins</h3>
+        <ul style="margin: 0.35rem 0 0 1.15rem; padding: 0;">
             {"".join(items)}
         </ul>
+    </div>
+    """
+
+
+def _sources_card_html(*, icu_ok: bool, google_health_connected: bool) -> str:
+    icu_status = (
+        '<span class="ok">Configured</span>'
+        if icu_ok
+        else '<span class="error">Missing API key</span>'
+    )
+    if not settings.google_health_enabled():
+        gh_status = '<span class="fine-print">Disabled</span>'
+        gh_action = ""
+    elif google_health_connected:
+        gh_status = '<span class="ok">Connected</span>'
+        gh_action = """
+        <form action="/auth/google/disconnect" method="post" class="inline-form">
+            <button type="submit" class="btn btn-neutral btn-sm">Disconnect</button>
+        </form>
+        """
+    else:
+        gh_status = '<span class="warn">Not connected</span>'
+        gh_action = '<a href="/auth/google" class="btn btn-neutral btn-sm">Connect</a>'
+
+    return f"""
+    <div class="card sources-card">
+        <h3>Sources</h3>
+        <div class="source-row">
+            <span class="source-name">intervals.icu</span>
+            <span class="source-meta">{icu_status}</span>
+        </div>
+        <div class="source-row">
+            <span class="source-name">Google Health</span>
+            <span class="source-meta">{gh_status}{gh_action}</span>
+        </div>
     </div>
     """
 
@@ -259,119 +283,120 @@ async def home(request: Request):
     """Status page showing sync state and current metrics."""
     active_plugins = {p.name for p in getattr(request.app.state, "plugins", [])}
     async with async_session() as session:
-        # Check if authenticated
-        token_result = await session.execute(select(StravaToken).limit(1))
-        token = token_result.scalar_one_or_none()
+        icu_ok = settings.icu_enabled()
+        google_health_connected = False
+        if settings.google_health_enabled():
+            token = (
+                await session.execute(
+                    select(OAuthToken).where(OAuthToken.provider == "google_health").limit(1)
+                )
+            ).scalar_one_or_none()
+            google_health_connected = token is not None
 
-        if token is None:
+        any_source = icu_ok or google_health_connected
+        athlete_id = await _primary_athlete_id(session)
+
+        if not any_source:
             return HTMLResponse(
                 _page(
                     "Setup Required",
                     f"""
-                    <div class="card">
-                        <h2>🚴 {APP_DISPLAY_NAME}</h2>
-                        <p>Connect your Strava account using the button below (opens Strava’s authorization page).</p>
-                        <p>Make sure you have set the <strong>Authorization Callback Domain</strong>
-                           in your <a href="https://www.strava.com/settings/api" target="_blank">
-                           Strava API settings</a> to match your server hostname.</p>
-                        <p class="fine-print">Compatible with Strava. Not affiliated with or endorsed by Strava.</p>
-                        <a href="/auth/strava" class="connect-with-strava">
-                            <img src="/static/assets/btn_strava_connect_with_orange.png" height="48" alt="Connect with Strava">
-                        </a>
+                    <div class="page-header">
+                        <img src="/static/assets/favicon.svg" width="40" height="40" alt="{APP_DISPLAY_NAME}" class="logo">
+                        <div>
+                            <h2>{APP_DISPLAY_NAME}</h2>
+                        </div>
                     </div>
+                    {_sources_card_html(icu_ok=icu_ok, google_health_connected=google_health_connected)}
                     """,
                 )
             )
 
-        counts = await _progress_counts(session, token.athlete_id)
+        counts = await _progress_counts(session, athlete_id)
         activity_count = counts["total"]
-        processed_count = counts["streams_done"]
+        by_source = counts["by_source"]
 
-        # Get latest daily metrics
-        latest_result = await session.execute(
-            select(DailyMetrics)
-            .where(DailyMetrics.athlete_id == token.athlete_id)
-            .order_by(DailyMetrics.date.desc())
-            .limit(1)
-        )
-        latest_metrics = latest_result.scalar_one_or_none()
+        latest_metrics = None
+        if athlete_id is not None:
+            latest_result = await session.execute(
+                select(DailyMetrics)
+                .where(DailyMetrics.athlete_id == athlete_id)
+                .order_by(DailyMetrics.date.desc())
+                .limit(1)
+            )
+            latest_metrics = latest_result.scalar_one_or_none()
 
-    # Initial values for the progress rows; the JS poller refreshes these every
-    # few seconds. We render cumulative values from the DB so the bars don't
-    # snap back to 0 between sync runs.
-    list_synced_initial = activity_count
-    list_total_initial = max(sync_state.total_activities, activity_count)
     details_done_initial = counts["details_done"]
     details_total_initial = counts["total"]
+    details_pending_initial = counts["details_pending"]
     streams_done_initial = counts["streams_done"]
     streams_total_initial = counts["total"]
+    streams_pending_initial = counts["streams_pending"]
     last_sync_initial = (
         sync_state.last_sync.strftime("%Y-%m-%d %H:%M UTC")
         if sync_state.last_sync
         else "Never"
     )
-    running_label_initial = "🟢 Yes" if sync_state.is_running else "⚪ No"
     error_row_initial = (
         f"<tr id='sync-error-row'><td>Error</td><td class='error' id='sync-error'>{sync_state.last_error}</td></tr>"
         if sync_state.last_error
         else "<tr id='sync-error-row' style='display:none;'><td>Error</td><td class='error' id='sync-error'></td></tr>"
     )
+    if sync_state.is_running and sync_state.phase != "idle":
+        status_label = sync_state.phase
+        provider_label = f"({sync_state.provider})" if sync_state.provider else ""
+    else:
+        status_label = "Idle"
+        provider_label = ""
+
+    details_row_style = "" if details_pending_initial else "display:none;"
+    streams_row_style = "" if streams_pending_initial else "display:none;"
+
+    rate_limit_rows = ""
+    if icu_ok:
+        rate_limit_rows = f"""
+            <tr>
+                <td>intervals.icu (15-min)</td>
+                <td id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</td>
+            </tr>
+            <tr>
+                <td>intervals.icu (daily)</td>
+                <td id="sync-rl-daily">{sync_state.rate_limit_daily_usage}/{sync_state.rate_limit_daily_limit}</td>
+            </tr>
+            <tr>
+                <td>Quota checked</td>
+                <td>
+                    <span id="sync-rl-checked">Never</span>
+                    <button type="button" id="sync-rl-refresh" class="btn btn-neutral btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
+                </td>
+            </tr>
+        """
 
     sync_info = f"""
     <div class="card">
-        <h3>🔄 Sync Status</h3>
+        <h3>Sync</h3>
         <table>
-            <tr><td>Phase</td><td><strong id="sync-phase">{sync_state.phase}</strong></td></tr>
-            <tr><td>Running</td><td id="sync-running">{running_label_initial}</td></tr>
-            <tr><td>Last sync</td><td id="sync-last">{last_sync_initial}</td></tr>
-            <tr><td>Activities in DB</td><td id="sync-db-count">{activity_count}</td></tr>
-            <tr>
-                <td>List backfill</td>
-                <td>
-                    <span id="sync-list-text">{list_synced_initial}/{list_total_initial}</span>
-                    <progress id="sync-list-bar" value="{list_synced_initial}" max="{max(list_total_initial, 1)}"></progress>
-                </td>
-            </tr>
-            <tr>
+            <tr><td>Status</td><td><strong id="sync-phase">{status_label}</strong>
+                <span class="rl-meta" id="sync-provider">{provider_label}</span></td></tr>
+            <tr><td>Activities</td><td id="sync-db-count">
+                {activity_count} total
+                <span class="rl-meta" id="sync-by-source">(icu {by_source["icu"]} · google {by_source["google_health"]})</span>
+            </td></tr>
+            <tr id="sync-details-row" style="{details_row_style}">
                 <td>Activity details</td>
                 <td>
                     <span id="sync-details-text">{details_done_initial}/{details_total_initial}</span>
                     <progress id="sync-details-bar" value="{details_done_initial}" max="{max(details_total_initial, 1)}"></progress>
                 </td>
             </tr>
-            <tr>
-                <td>Streams processed</td>
+            <tr id="sync-streams-row" style="{streams_row_style}">
+                <td>Streams</td>
                 <td>
                     <span id="sync-streams-text">{streams_done_initial}/{streams_total_initial}</span>
                     <progress id="sync-streams-bar" value="{streams_done_initial}" max="{max(streams_total_initial, 1)}"></progress>
                 </td>
             </tr>
-            <tr>
-                <td>Reads (15-min)</td>
-                <td>
-                    <span id="sync-rl-read-15min">{sync_state.read_rate_limit_15min_usage}/{sync_state.read_rate_limit_15min_limit}</span>
-                    <span class="rl-meta" id="sync-rl-resets"></span>
-                </td>
-            </tr>
-            <tr>
-                <td>Reads (daily)</td>
-                <td id="sync-rl-read-daily">{sync_state.read_rate_limit_daily_usage}/{sync_state.read_rate_limit_daily_limit}</td>
-            </tr>
-            <tr>
-                <td>Overall (15-min)</td>
-                <td id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</td>
-            </tr>
-            <tr>
-                <td>Overall (daily)</td>
-                <td id="sync-rl-daily">{sync_state.rate_limit_daily_usage}/{sync_state.rate_limit_daily_limit}</td>
-            </tr>
-            <tr>
-                <td>Last checked</td>
-                <td>
-                    <span id="sync-rl-checked">Never</span>
-                    <button type="button" id="sync-rl-refresh" class="btn btn-neutral btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
-                </td>
-            </tr>
+            {rate_limit_rows}
             {error_row_initial}
         </table>
         <div class="sync-actions">
@@ -395,6 +420,11 @@ async def home(request: Request):
                 bar.value = fetched;
             }}
         }}
+        function setPendingRow(rowId, textId, barId, fetched, pending, total) {{
+            const row = document.getElementById(rowId);
+            if (row) row.style.display = pending > 0 ? "" : "none";
+            if (pending > 0) setProgress(textId, barId, fetched, total);
+        }}
         function fmtLast(iso) {{
             if (!iso) return "Never";
             const d = new Date(iso);
@@ -413,43 +443,43 @@ async def home(request: Request):
             if (hours < 24) return hours + "h " + (mins % 60) + "m ago";
             return Math.floor(hours / 24) + "d ago";
         }}
-        function fmtResetsIn(secs) {{
-            if (secs == null) return "";
-            const s = Math.max(0, Math.floor(secs));
-            const m = Math.floor(s / 60);
-            const r = s % 60;
-            return "resets in " + m + "m " + (r < 10 ? "0" : "") + r + "s";
-        }}
         async function tick() {{
             try {{
                 const res = await fetch("/sync/status", {{ cache: "no-store" }});
                 if (!res.ok) return;
                 const s = await res.json();
                 const phaseEl = document.getElementById("sync-phase");
-                if (phaseEl) phaseEl.textContent = s.phase;
-                const runEl = document.getElementById("sync-running");
-                if (runEl) runEl.textContent = s.is_running ? "🟢 Yes" : "⚪ No";
+                if (phaseEl) {{
+                    phaseEl.textContent = (s.is_running && s.phase !== "idle") ? s.phase : "Idle";
+                }}
+                const provEl = document.getElementById("sync-provider");
+                if (provEl) {{
+                    provEl.textContent = (s.is_running && s.provider) ? "(" + s.provider + ")" : "";
+                }}
                 const lastEl = document.getElementById("sync-last");
-                if (lastEl) lastEl.textContent = fmtLast(s.last_sync);
-                setProgress("sync-list-text", "sync-list-bar", s.list.synced, s.list.total);
-                setProgress("sync-details-text", "sync-details-bar", s.details.fetched, s.details.total);
-                setProgress("sync-streams-text", "sync-streams-bar", s.streams.fetched, s.streams.total);
-                const rlR15 = document.getElementById("sync-rl-read-15min");
-                if (rlR15 && s.rate_limit.read_fifteen_min) {{
-                    rlR15.textContent = s.rate_limit.read_fifteen_min.used + "/" + s.rate_limit.read_fifteen_min.limit;
+                if (lastEl) lastEl.textContent = "Last sync " + fmtLast(s.last_sync);
+                const by = s.activities_by_source || {{}};
+                const dbEl = document.getElementById("sync-db-count");
+                if (dbEl) {{
+                    const total = (by.icu || 0) + (by.google_health || 0);
+                    dbEl.innerHTML = total + " total"
+                        + ' <span class="rl-meta" id="sync-by-source">(icu ' + (by.icu || 0)
+                        + " · google " + (by.google_health || 0) + ")</span>";
                 }}
-                const rlRD = document.getElementById("sync-rl-read-daily");
-                if (rlRD && s.rate_limit.read_daily) {{
-                    rlRD.textContent = s.rate_limit.read_daily.used + "/" + s.rate_limit.read_daily.limit;
-                }}
+                setPendingRow("sync-details-row", "sync-details-text", "sync-details-bar",
+                    s.details.fetched, s.details.pending, s.details.total);
+                setPendingRow("sync-streams-row", "sync-streams-text", "sync-streams-bar",
+                    s.streams.fetched, s.streams.pending, s.streams.total);
                 const rl15 = document.getElementById("sync-rl-15min");
-                if (rl15) rl15.textContent = s.rate_limit.fifteen_min.used + "/" + s.rate_limit.fifteen_min.limit;
+                if (rl15 && s.rate_limit && s.rate_limit.fifteen_min) {{
+                    rl15.textContent = s.rate_limit.fifteen_min.used + "/" + s.rate_limit.fifteen_min.limit;
+                }}
                 const rlD = document.getElementById("sync-rl-daily");
-                if (rlD) rlD.textContent = s.rate_limit.daily.used + "/" + s.rate_limit.daily.limit;
-                const rlResets = document.getElementById("sync-rl-resets");
-                if (rlResets) rlResets.textContent = fmtResetsIn(s.rate_limit.fifteen_min_resets_in_seconds);
+                if (rlD && s.rate_limit && s.rate_limit.daily) {{
+                    rlD.textContent = s.rate_limit.daily.used + "/" + s.rate_limit.daily.limit;
+                }}
                 const rlChecked = document.getElementById("sync-rl-checked");
-                if (rlChecked) rlChecked.textContent = fmtAgo(s.rate_limit.last_checked_at);
+                if (rlChecked && s.rate_limit) rlChecked.textContent = fmtAgo(s.rate_limit.last_checked_at);
                 const rlBtn = document.getElementById("sync-rl-refresh");
                 if (rlBtn) rlBtn.disabled = !!s.is_running;
                 const errRow = document.getElementById("sync-error-row");
@@ -463,7 +493,6 @@ async def home(request: Request):
                         errRow.style.display = "none";
                     }}
                 }}
-                // Reload once after a sync finishes so the metrics card refreshes too.
                 if (window.__wasRunning && !s.is_running) {{
                     window.location.reload();
                     return;
@@ -493,37 +522,36 @@ async def home(request: Request):
 
     metrics_info = ""
     if latest_metrics:
-        # Determine form status
         tsb = latest_metrics.tsb
         if tsb > 15:
-            form_label = "🟢 Fresh / Race Ready"
+            form_label = "Fresh / Race Ready"
         elif tsb > 5:
-            form_label = "🔵 Rested"
+            form_label = "Rested"
         elif tsb > -10:
-            form_label = "🟡 Neutral"
+            form_label = "Neutral"
         elif tsb > -25:
-            form_label = "🟠 Training Hard"
+            form_label = "Training Hard"
         else:
-            form_label = "🔴 Overreaching"
+            form_label = "Overreaching"
 
         metrics_info = f"""
         <div class="card">
-            <h3>📊 Current Metrics ({latest_metrics.date})</h3>
+            <h3>Fitness</h3>
             <div class="metrics-grid">
                 <div class="metric">
                     <span class="metric-value">{latest_metrics.ctl:.1f}</span>
-                    <span class="metric-label">Fitness (CTL)</span>
+                    <span class="metric-label">CTL</span>
                 </div>
                 <div class="metric">
                     <span class="metric-value">{latest_metrics.atl:.1f}</span>
-                    <span class="metric-label">Fatigue (ATL)</span>
+                    <span class="metric-label">ATL</span>
                 </div>
                 <div class="metric">
                     <span class="metric-value">{latest_metrics.tsb:.1f}</span>
-                    <span class="metric-label">Form (TSB)</span>
+                    <span class="metric-label">TSB</span>
                 </div>
             </div>
-            <p class="form-status">{form_label}</p>
+            <p class="form-status">{form_label} · {latest_metrics.date}</p>
         </div>
         """
 
@@ -531,12 +559,16 @@ async def home(request: Request):
         _page(
             APP_DISPLAY_NAME,
             f"""
-            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem;">
-                <img src="/static/assets/favicon.svg" width="48" height="48" alt="{APP_DISPLAY_NAME}" style="border-radius: 8px;">
-                <h2 style="margin: 0;">{APP_DISPLAY_NAME}</h2>
+            <div class="page-header">
+                <img src="/static/assets/favicon.svg" width="40" height="40" alt="{APP_DISPLAY_NAME}" class="logo">
+                <div>
+                    <h2>{APP_DISPLAY_NAME}</h2>
+                    <p class="header-meta" id="sync-last">Last sync {last_sync_initial}</p>
+                </div>
             </div>
-            {sync_info}
             {metrics_info}
+            {_sources_card_html(icu_ok=icu_ok, google_health_connected=google_health_connected)}
+            {sync_info}
             {_plugin_links_html(active_plugins)}
             """,
         )
@@ -544,33 +576,16 @@ async def home(request: Request):
 
 
 async def _build_status_payload() -> dict:
-    """Compose the JSON used by both ``/sync/status`` and the refresh endpoint."""
     async with async_session() as session:
-        token = (await session.execute(select(StravaToken).limit(1))).scalar_one_or_none()
-        if token is None:
-            counts = {
-                "total": 0,
-                "details_done": 0,
-                "details_pending": 0,
-                "streams_done": 0,
-                "streams_pending": 0,
-            }
-        else:
-            counts = await _progress_counts(session, token.athlete_id)
-
-    # List backfill: cumulative "synced" is the DB count; "total" is the DB
-    # count except during an active backfill where the in-memory total may be
-    # transiently larger as pages are fetched.
-    list_total = max(counts["total"], sync_state.total_activities)
+        athlete_id = await _primary_athlete_id(session)
+        counts = await _progress_counts(session, athlete_id)
 
     rl_last = sync_state.rate_limit_last_checked_at
-    return {
+    payload = {
         "is_running": sync_state.is_running,
         "phase": sync_state.phase,
-        "list": {
-            "synced": counts["total"],
-            "total": list_total,
-        },
+        "provider": sync_state.provider,
+        "activities_by_source": counts["by_source"],
         "details": {
             "fetched": counts["details_done"],
             "pending": counts["details_pending"],
@@ -581,7 +596,11 @@ async def _build_status_payload() -> dict:
             "pending": counts["streams_pending"],
             "total": counts["total"],
         },
-        "rate_limit": {
+        "last_error": sync_state.last_error,
+        "last_sync": sync_state.last_sync.isoformat() if sync_state.last_sync else None,
+    }
+    if settings.icu_enabled():
+        payload["rate_limit"] = {
             "fifteen_min": {
                 "used": sync_state.rate_limit_15min_usage,
                 "limit": sync_state.rate_limit_15min_limit,
@@ -590,67 +609,45 @@ async def _build_status_payload() -> dict:
                 "used": sync_state.rate_limit_daily_usage,
                 "limit": sync_state.rate_limit_daily_limit,
             },
-            "read_fifteen_min": {
-                "used": sync_state.read_rate_limit_15min_usage,
-                "limit": sync_state.read_rate_limit_15min_limit,
-            },
-            "read_daily": {
-                "used": sync_state.read_rate_limit_daily_usage,
-                "limit": sync_state.read_rate_limit_daily_limit,
-            },
             "last_checked_at": rl_last.isoformat() if rl_last else None,
-            "fifteen_min_resets_in_seconds": _seconds_until_next_quarter_hour(),
-        },
-        "last_error": sync_state.last_error,
-        "last_sync": sync_state.last_sync.isoformat() if sync_state.last_sync else None,
-    }
+        }
+    else:
+        payload["rate_limit"] = None
+    return payload
 
 
 @app.get("/sync/status")
 async def sync_status():
-    """JSON endpoint for sync status (consumed by the home-page poller).
-
-    Progress counts come from the DB so they reflect cumulative state across
-    sync runs (e.g. clicking "Sync Now" doesn't reset the bars to 0). Phase,
-    running flag, rate-limit usage, and last error come from ``sync_state``.
-    """
     return await _build_status_payload()
 
 
 @app.post("/sync/refresh-rate-limit")
 async def refresh_rate_limit():
-    """Make exactly one lightweight Strava call to refresh rate-limit headers.
-
-    Costs 1 read against the user's quota. Returns 409 if a sync is already
-    in progress (since that sync is updating the numbers anyway).
-    """
+    """Probe intervals.icu athlete endpoint to refresh rate-limit headers."""
     if sync_state.is_running:
         return JSONResponse(
             status_code=409,
             content={"error": "A sync is already running; rate limits will update from that."},
         )
-    async with async_session() as session:
-        token = (await session.execute(select(StravaToken).limit(1))).scalar_one_or_none()
-        if token is None:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Not authenticated. Link your Strava account from the home page first."},
-            )
-        client = StravaClient(session)
-        try:
-            await client.get_athlete()
-            _snapshot_rate_limits(client)
-        except Exception as e:
-            logger.warning("Rate-limit refresh failed: %s", e)
-            return JSONResponse(status_code=502, content={"error": str(e)})
-        finally:
-            await client.close()
+    if not settings.icu_enabled():
+        return JSONResponse(
+            status_code=400,
+            content={"error": "intervals.icu is not configured."},
+        )
+    client = IntervalsClient()
+    try:
+        await client.get_athlete()
+        _snapshot_rate_limits(client)
+    except Exception as e:
+        logger.warning("Rate-limit refresh failed: %s", e)
+        return JSONResponse(status_code=502, content={"error": str(e)})
+    finally:
+        await client.close()
     return await _build_status_payload()
 
 
 @app.post("/sync/trigger")
 async def trigger_sync():
-    """Manually trigger a sync."""
     if sync_state.is_running:
         return RedirectResponse("/", status_code=303)
     asyncio.create_task(trigger_sync_task())
@@ -659,18 +656,13 @@ async def trigger_sync():
 
 @app.post("/sync/full")
 async def full_resync():
-    """Manually trigger a full historical resync."""
     if sync_state.is_running:
         return RedirectResponse("/", status_code=303)
     asyncio.create_task(trigger_sync_task(force_resync=True))
     return RedirectResponse("/", status_code=303)
 
 
-# ── HTML template ───────────────────────────────────────────────────
-
-
 def _page(title: str, body: str) -> str:
-    """Minimal HTML page wrapper with inline CSS."""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -682,7 +674,6 @@ def _page(title: str, body: str) -> str:
         :root {{
             --accent: #22d3ee;
             --accent-hover: #06b6d4;
-            --accent-muted: #a5f3fc;
             --bg-page: #0f0f0f;
             --bg-card: #1a1a1a;
             --bg-elevated: #222;
@@ -695,32 +686,62 @@ def _page(title: str, body: str) -> str:
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg-page);
             color: var(--text);
-            padding: 2rem;
-            max-width: 800px;
+            padding: 1.5rem;
+            max-width: 720px;
             margin: 0 auto;
-            line-height: 1.6;
+            line-height: 1.5;
         }}
-        h2 {{ color: var(--accent); margin-bottom: 1.5rem; }}
-        h3 {{ color: var(--accent); margin-bottom: 1rem; }}
+        h2 {{ color: var(--accent); margin: 0; font-size: 1.35rem; }}
+        h3 {{ color: var(--accent); margin-bottom: 0.75rem; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; }}
+        .page-header {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            margin-bottom: 1.25rem;
+        }}
+        .page-header .logo {{ border-radius: 8px; flex-shrink: 0; }}
+        .header-meta {{
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-top: 0.15rem;
+        }}
         .card {{
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+            border-radius: 10px;
+            padding: 1.15rem 1.25rem;
+            margin-bottom: 1rem;
         }}
-        .card.success {{ border-color: #4caf50; }}
         .fine-print {{
             color: var(--text-muted);
             font-size: 0.85rem;
-            margin: 0.75rem 0 0.5rem;
         }}
-        table {{ width: 100%; border-collapse: collapse; }}
-        td {{
-            padding: 0.5rem 0;
+        .sources-card .source-row {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.55rem 0;
             border-bottom: 1px solid #222;
         }}
-        td:first-child {{ color: var(--text-muted); width: 40%; }}
+        .sources-card .source-row:last-child {{ border-bottom: none; padding-bottom: 0; }}
+        .sources-card .source-row:first-of-type {{ padding-top: 0; }}
+        .source-name {{ font-weight: 500; }}
+        .source-meta {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }}
+        .inline-form {{ display: inline; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        td {{
+            padding: 0.45rem 0;
+            border-bottom: 1px solid #222;
+            vertical-align: middle;
+        }}
+        td:first-child {{ color: var(--text-muted); width: 42%; }}
         code {{
             background: #2a2a2a;
             padding: 0.15rem 0.4rem;
@@ -729,11 +750,11 @@ def _page(title: str, body: str) -> str:
         }}
         .btn {{
             display: inline-block;
-            padding: 0.75rem 1.5rem;
+            padding: 0.65rem 1.25rem;
             border-radius: 8px;
             text-decoration: none;
             font-weight: 600;
-            margin-top: 1rem;
+            margin-top: 0;
             border: none;
             cursor: pointer;
             font: inherit;
@@ -744,16 +765,6 @@ def _page(title: str, body: str) -> str:
             color: #fff;
         }}
         .btn-neutral:hover {{ background: #444; }}
-        .connect-with-strava {{
-            display: inline-block;
-            margin-top: 1rem;
-            line-height: 0;
-        }}
-        .connect-with-strava img {{
-            height: 48px;
-            width: auto;
-            vertical-align: middle;
-        }}
         .btn-caution {{
             background: #ca8a04;
             color: #111;
@@ -761,47 +772,48 @@ def _page(title: str, body: str) -> str:
         .btn-caution:hover {{ background: #a16207; color: #111; }}
         .btn[disabled] {{ opacity: 0.5; cursor: not-allowed; }}
         .btn-sm {{
-            padding: 0.25rem 0.75rem;
+            padding: 0.2rem 0.65rem;
             font-size: 0.8rem;
-            margin-top: 0;
-            margin-left: 0.5rem;
             font-weight: 500;
         }}
         .rl-meta {{
             color: var(--text-muted);
             font-size: 0.85rem;
-            margin-left: 0.5rem;
+            margin-left: 0.35rem;
         }}
-        .sync-actions {{ margin-top: 1.5rem; display: flex; gap: 0.5rem; }}
+        .sync-actions {{ margin-top: 1.15rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }}
         .error {{ color: #ef5350; }}
+        .ok {{ color: #66bb6a; }}
+        .warn {{ color: #ffa726; }}
         .metrics-grid {{
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 1rem;
-            margin: 1rem 0;
+            gap: 0.75rem;
+            margin: 0.25rem 0 0.5rem;
         }}
         .metric {{
             text-align: center;
-            padding: 1rem;
+            padding: 0.85rem 0.5rem;
             background: var(--bg-elevated);
             border-radius: 8px;
         }}
         .metric-value {{
             display: block;
-            font-size: 2rem;
+            font-size: 1.75rem;
             font-weight: 700;
             color: var(--accent);
         }}
         .metric-label {{
             display: block;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
-            margin-top: 0.25rem;
+            margin-top: 0.2rem;
         }}
         .form-status {{
             text-align: center;
-            font-size: 1.1rem;
-            margin-top: 0.5rem;
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
         }}
         a {{ color: var(--accent); }}
         a:hover {{ color: var(--accent-hover); }}

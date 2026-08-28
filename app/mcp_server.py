@@ -288,7 +288,8 @@ async def list_activities(
                 "gear_name": activity.gear_name,
                 "has_heart_rate": activity.has_heartrate,
                 "has_power": activity.average_watts is not None,
-                "detail_synced": activity.strava_detail_synced,
+                "source": activity.source,
+                "detail_synced": activity.detail_synced,
                 "streams_synced": activity.synced_streams,
             }
             for activity in activities
@@ -297,8 +298,12 @@ async def list_activities(
 
 
 @mcp.tool()
-async def get_activity_detail(activity_id: int) -> dict[str, Any]:
-    """Get a single activity summary, zones, and stream availability."""
+async def get_activity_detail(activity_id: str) -> dict[str, Any]:
+    """Get a single activity summary, zones, and stream availability.
+
+    Activity ids are provider-prefixed strings, e.g. ``icu:i55610271`` or
+    ``ghealth_<datapointId>``.
+    """
     stmt = (
         select(Activity, ActivityStream)
         .outerjoin(ActivityStream, ActivityStream.activity_id == Activity.id)
@@ -368,7 +373,8 @@ async def get_activity_detail(activity_id: int) -> dict[str, Any]:
         "device_name": activity.device_name,
         "hr_zone_seconds": _zone_seconds(activity.hr_zone_seconds),
         "power_zone_seconds": _zone_seconds(activity.power_zone_seconds),
-        "detail_synced": activity.strava_detail_synced,
+        "source": activity.source,
+        "detail_synced": activity.detail_synced,
         "streams_synced": activity.synced_streams,
         "stream_types": stream_types,
         "stream_sample_count": stream.sample_count if stream is not None else 0,
@@ -407,7 +413,7 @@ def _downsample(data: list, max_points: int) -> list:
 
 @mcp.tool()
 async def get_activity_streams(
-    activity_id: int,
+    activity_id: str,
     stream_types: str | None = None,
     max_points: int | None = None,
 ) -> dict[str, Any]:
@@ -513,7 +519,7 @@ async def get_sync_health() -> dict[str, Any]:
     activity_count = func.count(Activity.id)
     stmt = select(
         activity_count.label("activity_count"),
-        activity_count.filter(Activity.strava_detail_synced == False).label(  # noqa: E712
+        activity_count.filter(Activity.detail_synced == False).label(  # noqa: E712
             "missing_details"
         ),
         activity_count.filter(Activity.synced_streams == False).label(  # noqa: E712

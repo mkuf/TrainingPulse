@@ -1,4 +1,4 @@
-"""Populate the database with fully synthetic Strava-style demo data.
+"""Populate the database with fully synthetic multi-source demo data.
 
 Designed for screenshotting the Grafana dashboards without leaking real
 training data. Generates ~12 months of varied activities (rides, runs, MTB,
@@ -13,11 +13,11 @@ Run inside the app container:
 
     docker compose exec app python seed_demo_data.py --force
 
-All seeded rows belong to athlete id 99_999_999 with activity ids starting
-at 9_000_000_000, so they are easy to delete later:
+All seeded rows belong to athlete id 99_999_999 with activity ids like
+``icu_demo9000000000`` / ``ghealth_demo…``, so they are easy to delete later:
 
     DELETE FROM activities       WHERE athlete_id = 99999999;
-    DELETE FROM activity_streams WHERE activity_id >= 9000000000;
+    DELETE FROM activity_streams WHERE activity_id LIKE '%demo9%';
     DELETE FROM daily_metrics    WHERE athlete_id = 99999999;
     DELETE FROM athlete_settings WHERE athlete_id = 99999999;
 
@@ -389,12 +389,23 @@ def build_activity(
     else:
         calories = round(duration_s / 60.0 * 5.0, 0)
 
-    suffer = round((trimp_value or 0.0) * 0.8, 0)
+    training_load = round((trimp_value or 0.0) * 0.8, 0)
 
     name = _pick_name(random.Random(activity_id), sport, intensity)
 
+    # Alternate sources: rides → icu, other sports → google_health
+    if sport in {"Ride", "VirtualRide", "MountainBikeRide"}:
+        source = "icu"
+        row_id = f"icu_demo{activity_id}"
+        device_name = "Demo Bike Computer"
+    else:
+        source = "google_health"
+        row_id = f"ghealth_demo{activity_id}"
+        device_name = "Demo Google Health"
+
     activity = Activity(
-        id=activity_id,
+        id=row_id,
+        source=source,
         athlete_id=profile.athlete_id,
         name=name,
         description=f"Demo {sport.lower()} ({intensity}).",
@@ -414,15 +425,15 @@ def build_activity(
         kilojoules=round(kj, 1) if kj is not None else None,
         calories=calories,
         device_watts=device_watts,
-        device_name="Demo Bike Computer" if device_watts else "Demo Watch",
+        device_name=device_name,
         gear_id=("demo-bike" if sport in {"Ride", "VirtualRide", "MountainBikeRide"} else "demo-shoes"),
         gear_name=("Demo Road Bike" if sport == "Ride"
                    else "Demo MTB" if sport == "MountainBikeRide"
                    else "Demo Trainer" if sport == "VirtualRide"
                    else "Demo Running Shoes"),
         weighted_average_watts=round(np, 1) if np is not None else None,
-        suffer_score=float(suffer),
-        strava_detail_synced=True,
+        training_load=float(training_load),
+        detail_synced=True,
         trimp=round(trimp_value, 1) if trimp_value is not None else None,
         hr_zone_seconds=hr_zone_seconds,
         power_zone_seconds=power_zone_seconds,
@@ -433,7 +444,7 @@ def build_activity(
 
     stream_types = ",".join(k for k in data.keys() if k != "time")
     stream_row = ActivityStream(
-        activity_id=activity_id,
+        activity_id=row_id,
         data=data,
         stream_types=stream_types,
         sample_count=len(time_stream),

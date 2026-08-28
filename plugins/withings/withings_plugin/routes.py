@@ -34,6 +34,11 @@ def _page(title: str, body: str) -> str:
     .success {{ border-color: #6a6; }}
     a.btn {{ display: inline-block; margin-top: 1rem; padding: 0.5rem 1rem;
              background: #0b57d0; color: #fff; text-decoration: none; border-radius: 4px; }}
+    button.btn-reveal {{
+      padding: 0.2rem 0.65rem; font: inherit; font-size: 0.9rem;
+      border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; cursor: pointer;
+    }}
+    button.btn-reveal:hover {{ background: #eee; }}
     .fine-print {{ color: #666; font-size: 0.9rem; }}
   </style>
 </head>
@@ -43,6 +48,30 @@ def _page(title: str, body: str) -> str:
   {body}
 </body>
 </html>"""
+
+
+def _latest_weight_html(weight_kg: float | None) -> str:
+    """Render latest weight hidden until the user clicks Show."""
+    if weight_kg is None:
+        return "<p><strong>Latest weight:</strong> —</p>"
+    return f"""
+                  <p>
+                    <strong>Latest weight:</strong>
+                    <button type="button" class="btn-reveal" id="reveal-weight">Show</button>
+                    <span id="weight-value" hidden>{weight_kg} kg</span>
+                  </p>
+                  <script>
+                  (function() {{
+                    const btn = document.getElementById("reveal-weight");
+                    const val = document.getElementById("weight-value");
+                    if (!btn || !val) return;
+                    btn.addEventListener("click", function() {{
+                      val.hidden = false;
+                      btn.remove();
+                    }});
+                  }})();
+                  </script>
+    """
 
 
 def _authorize_url(redirect_uri: str | None = None) -> str:
@@ -171,7 +200,7 @@ def create_router(
                 f"""
                 <div class="card">
                   <p><strong>Measurements stored:</strong> {status['measurement_count']}</p>
-                  <p><strong>Latest weight:</strong> {status['latest_weight_kg'] or '—'} kg</p>
+                  {_latest_weight_html(status['latest_weight_kg'])}
                   <p><strong>Sync running:</strong> {sync.get('running')}</p>
                   {err}
                   <form method="post" action="{settings.PLUGIN_PREFIX}/sync/trigger">

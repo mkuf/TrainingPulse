@@ -8,7 +8,7 @@
 #
 # Environment overrides:
 #   PLAYWRIGHT_IMAGE  default: mcr.microsoft.com/playwright/python:v1.49.1-jammy
-#   COMPOSE_NETWORK   default: strava-sync_default (compose project name + _default)
+#   COMPOSE_NETWORK   default: trainingpulse_default (compose project name + _default)
 #   GRAFANA_HOST      default: grafana (the in-network compose service name)
 #   OUT_DIR           default: <repo>/screenshots
 #   WIDTH             default: 1920
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 PLAYWRIGHT_IMAGE="${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright/python:v1.49.1-jammy}"
-COMPOSE_NETWORK="${COMPOSE_NETWORK:-strava-sync_default}"
+COMPOSE_NETWORK="${COMPOSE_NETWORK:-trainingpulse_default}"
 GRAFANA_HOST="${GRAFANA_HOST:-grafana}"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT/screenshots}"
 WIDTH="${WIDTH:-1920}"
@@ -60,7 +60,7 @@ fi
 ACTIVITY_RANGE=$(
   docker compose -f "$REPO_ROOT/docker-compose.yml" exec -T db \
     psql -U trainingpulse -d trainingpulse -t -A -F'|' -c \
-    "SELECT EXTRACT(EPOCH FROM (start_date - interval '5 minutes'))::bigint * 1000, EXTRACT(EPOCH FROM (start_date + (moving_time + 300) * interval '1 second'))::bigint * 1000 FROM activities WHERE id = $ACTIVITY_ID;"
+    "SELECT EXTRACT(EPOCH FROM (start_date - interval '5 minutes'))::bigint * 1000, EXTRACT(EPOCH FROM (start_date + (moving_time + 300) * interval '1 second'))::bigint * 1000 FROM activities WHERE id = '$ACTIVITY_ID';"
 )
 ACTIVITY_FROM_MS="${ACTIVITY_RANGE%%|*}"
 ACTIVITY_TO_MS="${ACTIVITY_RANGE##*|}"
