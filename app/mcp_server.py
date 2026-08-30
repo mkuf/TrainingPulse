@@ -534,6 +534,7 @@ async def get_sync_health() -> dict[str, Any]:
             "ctl": _round(latest_metrics.ctl, 1) if latest_metrics else None,
             "atl": _round(latest_metrics.atl, 1) if latest_metrics else None,
             "tsb": _round(latest_metrics.tsb, 1) if latest_metrics else None,
+            "_note": "Coggan PMC model: CTL/ATL reflect training through this date; TSB is start-of-day form (prior day's CTL minus ATL), so TSB != CTL - ATL.",
         },
     }
 

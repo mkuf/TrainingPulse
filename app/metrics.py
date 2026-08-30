@@ -270,12 +270,13 @@ async def recalculate_daily_metrics(
     while current_date <= today:
         trimp_today, count_today = daily_trimp_map.get(current_date, (0.0, 0))
 
-        # Update CTL and ATL
+        # TSB = start-of-day form (Coggan PMC model):
+        # yesterday's fitness minus yesterday's fatigue
+        tsb = ctl - atl
+
+        # Update CTL and ATL with today's training load
         ctl = ctl + (trimp_today - ctl) / 42.0
         atl = atl + (trimp_today - atl) / 7.0
-
-        # TSB reflects today's state: fitness minus fatigue
-        tsb = ctl - atl
 
         batch.append(
             {
