@@ -5,7 +5,7 @@ Exposes read-only, training-aware tools over MCP for local/network clients.
 
 import os
 from contextlib import asynccontextmanager
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
@@ -316,6 +316,35 @@ async def get_activity_detail(activity_id: int) -> dict[str, Any]:
     if stream is not None and stream.stream_types:
         stream_types = [item for item in stream.stream_types.split(",") if item]
 
+    # Fetch daily metrics for load impact
+    activity_date = activity.start_date.date()
+    prior_date = activity_date - timedelta(days=1)
+    
+    metrics_stmt = select(DailyMetrics).where(
+        DailyMetrics.athlete_id == activity.athlete_id,
+        DailyMetrics.date.in_([prior_date, activity_date])
+    )
+    
+    async with _readonly_session() as session:
+        metrics_rows = (await session.execute(metrics_stmt)).scalars().all()
+        
+    metrics_by_date = {m.date: m for m in metrics_rows}
+    prior_metrics = metrics_by_date.get(prior_date)
+    after_metrics = metrics_by_date.get(activity_date)
+
+    load_impact = None
+    if after_metrics is not None:
+        load_impact = {
+            "activity_trimp": _round(activity.trimp, 1),
+            "day_trimp": _round(after_metrics.daily_trimp, 1),
+            "ctl_before": _round(prior_metrics.ctl, 1) if prior_metrics else None,
+            "ctl_after": _round(after_metrics.ctl, 1),
+            "atl_before": _round(prior_metrics.atl, 1) if prior_metrics else None,
+            "atl_after": _round(after_metrics.atl, 1),
+            "tsb_before": _round(prior_metrics.tsb, 1) if prior_metrics else None,
+            "tsb_after": _round(after_metrics.ctl - after_metrics.atl, 1),
+        }
+
     return {
         "found": True,
         "id": activity.id,
@@ -343,6 +372,7 @@ async def get_activity_detail(activity_id: int) -> dict[str, Any]:
         "streams_synced": activity.synced_streams,
         "stream_types": stream_types,
         "stream_sample_count": stream.sample_count if stream is not None else 0,
+        "load_impact": load_impact,
     }
 
 
@@ -479,7 +509,7 @@ async def get_gear_usage(
 
 @mcp.tool()
 async def get_sync_health() -> dict[str, Any]:
-    """Report sync completeness and common activity-data gaps."""
+    """Report sync completeness, training load, and common activity-data gaps."""
     activity_count = func.count(Activity.id)
     stmt = select(
         activity_count.label("activity_count"),
@@ -505,6 +535,11 @@ async def get_sync_health() -> dict[str, Any]:
         athlete_settings = (await session.scalars(settings_stmt)).first()
         latest_metrics = (await session.scalars(metrics_stmt)).first()
 
+    # Derive tsb_current (post-training form) from stored CTL/ATL
+    tsb_current = None
+    if latest_metrics is not None:
+        tsb_current = _round(latest_metrics.ctl - latest_metrics.atl, 1)
+
     return {
         "activity_count": int(row.activity_count or 0),
         "missing_detail_sync": int(row.missing_details or 0),
@@ -525,16 +560,21 @@ async def get_sync_health() -> dict[str, Any]:
                 athlete_settings.updated_at if athlete_settings else None
             ),
         },
-        "latest_daily_metrics": {
+        "training_load": {
             "available": latest_metrics is not None,
             "date": _date(latest_metrics.date if latest_metrics else None),
+            "metrics_as_of": _date(
+                latest_metrics.updated_at if latest_metrics else None
+            ),
             "daily_trimp": _round(latest_metrics.daily_trimp, 1)
             if latest_metrics
             else None,
             "ctl": _round(latest_metrics.ctl, 1) if latest_metrics else None,
             "atl": _round(latest_metrics.atl, 1) if latest_metrics else None,
-            "tsb": _round(latest_metrics.tsb, 1) if latest_metrics else None,
-            "_note": "Coggan PMC model: CTL/ATL reflect training through this date; TSB is start-of-day form (prior day's CTL minus ATL), so TSB != CTL - ATL.",
+            "tsb_start_of_day": _round(latest_metrics.tsb, 1)
+            if latest_metrics
+            else None,
+            "tsb_current": tsb_current,
         },
     }
 
