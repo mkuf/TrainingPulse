@@ -341,7 +341,7 @@ async def get_activity_detail(activity_id: int) -> dict[str, Any]:
             "ctl_after": _round(after_metrics.ctl, 1),
             "atl_before": _round(prior_metrics.atl, 1) if prior_metrics else None,
             "atl_after": _round(after_metrics.atl, 1),
-            "tsb_before": _round(prior_metrics.tsb, 1) if prior_metrics else None,
+            "tsb_before": _round(prior_metrics.ctl - prior_metrics.atl, 1) if prior_metrics else None,
             "tsb_after": _round(after_metrics.ctl - after_metrics.atl, 1),
         }
 
