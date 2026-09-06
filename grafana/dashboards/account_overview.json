@@ -67,7 +67,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "time_series",
-          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS time,\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  COUNT(*)::int AS \"Activities\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS time,\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  COUNT(*)::int AS \"Activities\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ]
@@ -117,7 +117,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "time_series",
-          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND((SUM(moving_time) / 3600.0)::numeric, 1) AS \"Moving time (h)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND((SUM(moving_time) / 3600.0)::numeric, 1) AS \"Moving time (h)\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ]
@@ -142,7 +142,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS \"Month\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\",\n  ROUND(SUM(COALESCE(calories, 0))::numeric, 0) AS \"Calories (kcal)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
+          "rawSql": "SELECT\n  date_trunc('month', start_date)::date AS \"Month\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\",\n  ROUND(SUM(COALESCE(calories, 0))::numeric, 0) AS \"Calories (kcal)\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
           "refId": "A"
         }
       ]
@@ -196,7 +196,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "time_series",
-          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS time,\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  COUNT(*)::int AS \"Activities\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS time,\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  COUNT(*)::int AS \"Activities\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ]
@@ -246,7 +246,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "time_series",
-          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND((SUM(moving_time) / 3600.0)::numeric, 1) AS \"Moving time (h)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND((SUM(moving_time) / 3600.0)::numeric, 1) AS \"Moving time (h)\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ]
@@ -271,7 +271,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS \"Year\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\",\n  ROUND(SUM(COALESCE(calories, 0))::numeric, 0) AS \"Calories (kcal)\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
+          "rawSql": "SELECT\n  date_trunc('year', start_date)::date AS \"Year\",\n  COUNT(*)::int AS \"Activities\",\n  ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"Distance (km)\",\n  SUM(moving_time)::bigint AS \"Moving time (s)\",\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\",\n  ROUND(SUM(COALESCE(total_elevation_gain, 0))::numeric, 0) AS \"Elevation (m)\",\n  ROUND(SUM(COALESCE(calories, 0))::numeric, 0) AS \"Calories (kcal)\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1 DESC",
           "refId": "A"
         }
       ]
@@ -309,7 +309,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= NOW() - INTERVAL '28 days' AND start_date < NOW()",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM active_activities WHERE start_date >= NOW() - INTERVAL '28 days' AND start_date < NOW()",
           "refId": "A"
         }
       ]
@@ -339,7 +339,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= NOW() - INTERVAL '56 days' AND start_date < NOW() - INTERVAL '28 days'",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM active_activities WHERE start_date >= NOW() - INTERVAL '56 days' AND start_date < NOW() - INTERVAL '28 days'",
           "refId": "A"
         }
       ]
@@ -368,7 +368,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"km\" FROM activities WHERE start_date >= NOW() - INTERVAL '28 days' AND start_date < NOW()",
+          "rawSql": "SELECT ROUND((SUM(distance) / 1000.0)::numeric, 1) AS \"km\" FROM active_activities WHERE start_date >= NOW() - INTERVAL '28 days' AND start_date < NOW()",
           "refId": "A"
         }
       ]
@@ -398,7 +398,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW()) AND start_date < NOW()",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM active_activities WHERE start_date >= date_trunc('month', NOW()) AND start_date < NOW()",
           "refId": "A"
         }
       ]
@@ -427,7 +427,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '1 year') AND start_date < date_trunc('month', NOW() - INTERVAL '1 year') + INTERVAL '1 month'",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM active_activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '1 year') AND start_date < date_trunc('month', NOW() - INTERVAL '1 year') + INTERVAL '1 month'",
           "refId": "A"
         }
       ]
@@ -456,7 +456,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '1 month') AND start_date < date_trunc('month', NOW())",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM active_activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '1 month') AND start_date < date_trunc('month', NOW())",
           "refId": "A"
         }
       ]
@@ -485,7 +485,7 @@
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
           "format": "table",
-          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '2 month') AND start_date < date_trunc('month', NOW() - INTERVAL '1 month')",
+          "rawSql": "SELECT ROUND(COALESCE(SUM(trimp), 0)::numeric, 0) AS \"TRIMP\" FROM active_activities WHERE start_date >= date_trunc('month', NOW() - INTERVAL '2 month') AND start_date < date_trunc('month', NOW() - INTERVAL '1 month')",
           "refId": "A"
         }
       ]

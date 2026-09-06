@@ -9,7 +9,7 @@
         "enable": false,
         "iconColor": "#FC4C02",
         "name": "Activities",
-        "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date",
+        "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM active_activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date",
         "target": {
           "refId": "Anno"
         }
@@ -382,7 +382,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', current_date) AS max_date\n  FROM activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
+          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', current_date) AS max_date\n  FROM active_activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
           "format": "time_series",
           "refId": "B"
         },
@@ -391,7 +391,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  date_trunc('week', start_date)::date AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('week', start_date)::date AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1, 2\nORDER BY 1",
           "format": "time_series",
           "refId": "A"
         }
@@ -469,7 +469,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', CURRENT_DATE) AS max_date\n  FROM activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n),\ncorridor AS (\n  SELECT\n    time,\n    total_load,\n    AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS prior_four_avg\n  FROM weekly_load\n)\nSELECT\n  ROUND((prior_four_avg * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((prior_four_avg * 1.25)::numeric, 0) AS \"Ceiling\",\n  ROUND(total_load::numeric, 0) AS \"Week total\",\n  CASE\n    WHEN prior_four_avg IS NULL THEN '#B4B4B6'\n    WHEN total_load < prior_four_avg * 0.8 THEN '#8e8e90'\n    WHEN total_load <= prior_four_avg * 1.25 THEN '#56A64B'\n    ELSE '#FF9830'\n  END AS \"Week total color\"\nFROM corridor\nWHERE time = date_trunc('week', CURRENT_DATE)::date",
+          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', CURRENT_DATE) AS max_date\n  FROM active_activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n),\ncorridor AS (\n  SELECT\n    time,\n    total_load,\n    AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS prior_four_avg\n  FROM weekly_load\n)\nSELECT\n  ROUND((prior_four_avg * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((prior_four_avg * 1.25)::numeric, 0) AS \"Ceiling\",\n  ROUND(total_load::numeric, 0) AS \"Week total\",\n  CASE\n    WHEN prior_four_avg IS NULL THEN '#B4B4B6'\n    WHEN total_load < prior_four_avg * 0.8 THEN '#8e8e90'\n    WHEN total_load <= prior_four_avg * 1.25 THEN '#56A64B'\n    ELSE '#FF9830'\n  END AS \"Week total color\"\nFROM corridor\nWHERE time = date_trunc('week', CURRENT_DATE)::date",
           "format": "table",
           "refId": "A"
         }
@@ -570,7 +570,7 @@
       "targets": [
         {
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-          "rawSql": "WITH curve AS (\n  SELECT\n    duration::int as duration_sec,\n    MAX(power::float) as max_watts\n  FROM activities,\n  LATERAL jsonb_each_text(power_curve) AS pc(duration, power)\n  WHERE power_curve IS NOT NULL AND jsonb_typeof(power_curve) = 'object'\n  GROUP BY duration_sec\n)\nSELECT duration_sec, max_watts FROM curve\nUNION ALL\nSELECT 1 as duration_sec, 0::float as max_watts WHERE NOT EXISTS (SELECT 1 FROM curve)\nORDER BY duration_sec",
+          "rawSql": "WITH curve AS (\n  SELECT\n    duration::int as duration_sec,\n    MAX(power::float) as max_watts\n  FROM active_activities,\n  LATERAL jsonb_each_text(power_curve) AS pc(duration, power)\n  WHERE power_curve IS NOT NULL AND jsonb_typeof(power_curve) = 'object'\n  GROUP BY duration_sec\n)\nSELECT duration_sec, max_watts FROM curve\nUNION ALL\nSELECT 1 as duration_sec, 0::float as max_watts WHERE NOT EXISTS (SELECT 1 FROM curve)\nORDER BY duration_sec",
           "format": "table",
           "refId": "A"
         }
@@ -630,7 +630,7 @@
             "uid": "${DS_POSTGRESQL}"
           },
           "format": "table",
-          "rawSql": "SELECT\n  date_trunc('day', start_date) AS time,\n  1 AS \"Activity\"\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('day', start_date) AS time,\n  1 AS \"Activity\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ]
@@ -696,7 +696,7 @@
             "uid": "${DS_POSTGRESQL}"
           },
           "format": "table",
-          "rawSql": "WITH cw AS (\n  SELECT date_trunc('week', CURRENT_DATE)::date AS ws\n),\nflags AS (\n  SELECT\n    cw.ws,\n    EXISTS (\n      SELECT 1 FROM activities a\n      WHERE date_trunc('week', a.start_date)::date = cw.ws\n    ) AS has_current\n  FROM cw cw\n),\nanchor AS (\n  SELECT\n    CASE WHEN has_current THEN ws ELSE ws - 7 END AS anchor_week,\n    has_current\n  FROM flags\n)\nSELECT\n  CASE\n    WHEN NOT EXISTS (\n      SELECT 1 FROM activities a, anchor an\n      WHERE date_trunc('week', a.start_date)::date = an.anchor_week\n    ) THEN 0\n    ELSE COALESCE(\n      (\n        SELECT MIN(n)\n        FROM generate_series(0, 500) AS n\n        CROSS JOIN anchor an\n        WHERE NOT EXISTS (\n          SELECT 1 FROM activities a\n          WHERE date_trunc('week', a.start_date)::date = an.anchor_week - (n::integer * 7)\n        )\n      ),\n      500\n    )\n  END AS \"Weekly streak\",\n  CASE WHEN (SELECT has_current FROM anchor) THEN '#FC4C02' ELSE '#B4B4B6' END AS \"Streak color\"",
+          "rawSql": "WITH cw AS (\n  SELECT date_trunc('week', CURRENT_DATE)::date AS ws\n),\nflags AS (\n  SELECT\n    cw.ws,\n    EXISTS (\n      SELECT 1 FROM active_activities a\n      WHERE date_trunc('week', a.start_date)::date = cw.ws\n    ) AS has_current\n  FROM cw cw\n),\nanchor AS (\n  SELECT\n    CASE WHEN has_current THEN ws ELSE ws - 7 END AS anchor_week,\n    has_current\n  FROM flags\n)\nSELECT\n  CASE\n    WHEN NOT EXISTS (\n      SELECT 1 FROM active_activities a, anchor an\n      WHERE date_trunc('week', a.start_date)::date = an.anchor_week\n    ) THEN 0\n    ELSE COALESCE(\n      (\n        SELECT MIN(n)\n        FROM generate_series(0, 500) AS n\n        CROSS JOIN anchor an\n        WHERE NOT EXISTS (\n          SELECT 1 FROM active_activities a\n          WHERE date_trunc('week', a.start_date)::date = an.anchor_week - (n::integer * 7)\n        )\n      ),\n      500\n    )\n  END AS \"Weekly streak\",\n  CASE WHEN (SELECT has_current FROM anchor) THEN '#FC4C02' ELSE '#B4B4B6' END AS \"Streak color\"",
           "refId": "A"
         }
       ]
@@ -720,7 +720,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  id AS \"ID\",\n  source AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  training_load AS \"Load\"\nFROM activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  id AS \"ID\",\n  source AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  training_load AS \"Load\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }
@@ -814,7 +814,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
+          "rawSql": "SELECT\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
           "format": "table",
           "refId": "A"
         }
@@ -854,7 +854,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  sport_type AS metric,\n  COUNT(*) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
+          "rawSql": "SELECT\n  sport_type AS metric,\n  COUNT(*) AS value\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
           "format": "table",
           "refId": "A"
         }

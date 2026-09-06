@@ -2268,13 +2268,13 @@
           "type": "grafana-postgresql-datasource",
           "uid": "${DS_POSTGRESQL}"
         },
-        "definition": "SELECT id AS __value, start_date::date || ' \u2014 ' || name || ' (' || sport_type || ')' AS __text FROM activities ORDER BY start_date DESC LIMIT 200",
+        "definition": "SELECT id AS __value, start_date::date || ' \u2014 ' || name || ' (' || sport_type || ')' AS __text FROM active_activities ORDER BY start_date DESC LIMIT 200",
         "hide": 0,
         "includeAll": false,
         "label": "Activity",
         "multi": false,
         "name": "activity_id",
-        "query": "SELECT id AS __value, start_date::date || ' \u2014 ' || name || ' (' || sport_type || ')' AS __text FROM activities ORDER BY start_date DESC LIMIT 200",
+        "query": "SELECT id AS __value, start_date::date || ' \u2014 ' || name || ' (' || sport_type || ')' AS __text FROM active_activities ORDER BY start_date DESC LIMIT 200",
         "refresh": 1,
         "sort": 0,
         "type": "query"

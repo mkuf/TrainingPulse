@@ -233,7 +233,7 @@ async def recalculate_daily_metrics(
 
     today = date.today()
 
-    # Get all activities grouped by date
+    # Get all activities grouped by date (exclude superseded)
     result = await session.execute(
         select(
             func.date(Activity.start_date).label("activity_date"),
@@ -242,6 +242,7 @@ async def recalculate_daily_metrics(
         )
         .where(Activity.athlete_id == athlete_id)
         .where(Activity.start_date >= from_date)
+        .where(Activity.superseded_by == None)  # noqa: E711
         .group_by(func.date(Activity.start_date))
     )
     daily_trimp_map: dict[date, tuple[float, int]] = {}

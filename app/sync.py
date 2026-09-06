@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 RateLimitExceeded = IntervalsRateLimitExceeded  # default alias for shared helpers
 
+SOURCE_STRAVA = "strava"
 SOURCE_ICU = "icu"
 SOURCE_GOOGLE_HEALTH = "google_health"
 
@@ -745,6 +746,75 @@ async def _upsert_activity_rows(session: AsyncSession, rows: list[dict]) -> int:
     return len(clean)
 
 
+async def _mark_strava_superseded_by_icu(
+    session: AsyncSession, athlete_id: int, icu_rows: list[dict]
+) -> int:
+    """Mark Strava activities as superseded when an ICU activity overlaps in time.
+
+    Uses a ±15 minute start-time window to match activities. Only marks Strava
+    activities that haven't already been superseded.
+    """
+    if not icu_rows:
+        return 0
+
+    # Only check ICU rows that have a start_date
+    candidates = [
+        r for r in icu_rows
+        if r.get("start_date") is not None and r.get("id")
+    ]
+    if not candidates:
+        return 0
+
+    # Find Strava activities that might overlap
+    earliest = min(r["start_date"] for r in candidates) - timedelta(minutes=15)
+    latest = max(r["start_date"] for r in candidates) + timedelta(minutes=15)
+
+    result = await session.execute(
+        select(Activity).where(
+            Activity.athlete_id == athlete_id,
+            Activity.source == SOURCE_STRAVA,
+            Activity.superseded_by == None,  # noqa: E711
+            Activity.start_date >= earliest,
+            Activity.start_date <= latest,
+        )
+    )
+    strava_activities = list(result.scalars().all())
+    if not strava_activities:
+        return 0
+
+    marked = 0
+    for strava_act in strava_activities:
+        strava_end = strava_act.start_date + timedelta(
+            seconds=strava_act.elapsed_time or 0
+        )
+        for icu_row in candidates:
+            icu_start = icu_row["start_date"]
+            icu_elapsed = icu_row.get("elapsed_time") or 0
+            icu_end = icu_start + timedelta(seconds=icu_elapsed)
+            # Check time overlap with ±15 min tolerance on start
+            start_diff = abs(
+                (strava_act.start_date - icu_start).total_seconds()
+            )
+            if start_diff <= 900:  # 15 minutes
+                # Verify actual time overlap
+                if strava_act.start_date < icu_end and strava_end > icu_start:
+                    await session.execute(
+                        update(Activity)
+                        .where(Activity.id == strava_act.id)
+                        .values(superseded_by=icu_row["id"])
+                    )
+                    marked += 1
+                    logger.info(
+                        "Strava activity %s superseded by ICU activity %s",
+                        strava_act.id,
+                        icu_row["id"],
+                    )
+                    break  # One match per Strava activity
+    if marked:
+        await session.commit()
+    return marked
+
+
 # ── intervals.icu sync phases ───────────────────────────────────────
 
 
@@ -1161,16 +1231,16 @@ async def _process_pending_icu_streams(
 # ── Google Health sync ─────────────────────────────────────────────
 
 
-async def _google_health_overlaps_icu(
+async def _google_health_overlaps_existing(
     session: AsyncSession, athlete_id: int, start: datetime, end: datetime
 ) -> bool:
-    """True if an intervals.icu activity overlaps this window (skip Google Health duplicate)."""
+    """True if an ICU or Strava activity overlaps this window (skip Google Health duplicate)."""
     window_start = start - timedelta(minutes=15)
     window_end = end + timedelta(minutes=15)
     result = await session.execute(
         select(Activity).where(
             Activity.athlete_id == athlete_id,
-            Activity.source == SOURCE_ICU,
+            Activity.source.in_([SOURCE_ICU, SOURCE_STRAVA]),
             Activity.start_date >= window_start,
             Activity.start_date <= window_end,
         )
@@ -1232,7 +1302,7 @@ async def _google_health_sync(
             end = row.get("_end_date") or (
                 row["start_date"] + timedelta(seconds=row["elapsed_time"])
             )
-            if await _google_health_overlaps_icu(
+            if await _google_health_overlaps_existing(
                 session, athlete_id, row["start_date"], end
             ):
                 logger.info(
@@ -1420,10 +1490,18 @@ async def _backfill_power_curves(session: AsyncSession, athlete_id: int) -> None
 
 
 async def force_full_resync(session: AsyncSession, athlete_id: int) -> None:
-    logger.info("Resetting sync state for athlete %d", athlete_id)
+    """Reset sync flags for ICU and Google Health activities only.
+
+    Legacy Strava activities are left untouched — they cannot be re-fetched
+    since the Strava client has been removed.
+    """
+    logger.info("Resetting sync state for athlete %d (excluding strava)", athlete_id)
     await session.execute(
         update(Activity)
-        .where(Activity.athlete_id == athlete_id)
+        .where(
+            Activity.athlete_id == athlete_id,
+            Activity.source != SOURCE_STRAVA,
+        )
         .values(
             synced_streams=False,
             detail_synced=False,
@@ -1531,6 +1609,29 @@ async def run_sync(session: AsyncSession, force_resync: bool = False) -> None:
                 hr_zone_boundaries,
                 power_zone_boundaries,
             )
+
+            # Mark overlapping Strava activities as superseded by ICU
+            icu_result = await session.execute(
+                select(Activity).where(
+                    Activity.athlete_id == athlete_id,
+                    Activity.source == SOURCE_ICU,
+                )
+            )
+            icu_rows = [
+                {
+                    "id": a.id,
+                    "start_date": a.start_date,
+                    "elapsed_time": a.elapsed_time,
+                }
+                for a in icu_result.scalars().all()
+            ]
+            superseded = await _mark_strava_superseded_by_icu(
+                session, athlete_id, icu_rows
+            )
+            if superseded:
+                logger.info(
+                    "Marked %d Strava activities as superseded by ICU", superseded
+                )
 
         # ── Google Health ──
         if google_health_client is not None:

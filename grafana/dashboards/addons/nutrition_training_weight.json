@@ -9,7 +9,7 @@
         "enable": false,
         "iconColor": "#FC4C02",
         "name": "Activities",
-        "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nORDER BY start_date",
+        "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM active_activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nORDER BY start_date",
         "target": { "refId": "Anno" }
       }
     ]
@@ -132,7 +132,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -249,7 +249,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -285,7 +285,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_trunc('week', start_date)::date::timestamp AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('week', start_date)::date::timestamp AS time,\n  sport_type AS metric,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS value\nFROM active_activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -440,7 +440,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM activities\nWHERE start_date >= $__timeFrom() AND start_date <= $__timeTo()\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM active_activities\nWHERE start_date >= $__timeFrom() AND start_date <= $__timeTo()\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
           "refId": "TRIMP"
         }
       ],
@@ -493,7 +493,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM activities\nWHERE start_date >= $__timeFrom() AND start_date <= $__timeTo()\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  date_trunc('day', start_date)::date::timestamp AS time,\n  ROUND(SUM(COALESCE(trimp, 0))::numeric, 0) AS \"TRIMP\"\nFROM active_activities\nWHERE start_date >= $__timeFrom() AND start_date <= $__timeTo()\n  AND sport_type ~ '${sport_type:regex}'\nGROUP BY 1\nORDER BY 1",
           "refId": "TRIMP"
         }
       ],
@@ -518,13 +518,13 @@
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
         "datasource": { "type": "grafana-postgresql-datasource", "uid": "${DS_POSTGRESQL}" },
-        "definition": "SELECT DISTINCT sport_type AS __text, sport_type AS __value FROM activities WHERE sport_type IS NOT NULL AND sport_type <> '' ORDER BY 1",
+        "definition": "SELECT DISTINCT sport_type AS __text, sport_type AS __value FROM active_activities WHERE sport_type IS NOT NULL AND sport_type <> '' ORDER BY 1",
         "hide": 0,
         "includeAll": true,
         "label": "Sport",
         "multi": true,
         "name": "sport_type",
-        "query": "SELECT DISTINCT sport_type AS __text, sport_type AS __value FROM activities WHERE sport_type IS NOT NULL AND sport_type <> '' ORDER BY 1",
+        "query": "SELECT DISTINCT sport_type AS __text, sport_type AS __value FROM active_activities WHERE sport_type IS NOT NULL AND sport_type <> '' ORDER BY 1",
         "refresh": 1,
         "regex": "",
         "sort": 1,

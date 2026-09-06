@@ -188,7 +188,7 @@ async def _progress_counts(session, athlete_id: int | None) -> dict:
         )
     ).one()
     total, details_pending, streams_pending = row
-    by_source = {"icu": 0, "google_health": 0}
+    by_source = {"icu": 0, "google_health": 0, "strava": 0}
     source_rows = (
         await session.execute(
             select(Activity.source, func.count(Activity.id))
@@ -201,6 +201,8 @@ async def _progress_counts(session, athlete_id: int | None) -> dict:
             by_source["google_health"] += count
         elif source == "icu":
             by_source["icu"] += count
+        elif source == "strava":
+            by_source["strava"] += count
     return {
         "total": total,
         "details_done": max(0, total - details_pending),
@@ -380,7 +382,7 @@ async def home(request: Request):
                 <span class="rl-meta" id="sync-provider">{provider_label}</span></td></tr>
             <tr><td>Activities</td><td id="sync-db-count">
                 {activity_count} total
-                <span class="rl-meta" id="sync-by-source">(icu {by_source["icu"]} · google {by_source["google_health"]})</span>
+                <span class="rl-meta" id="sync-by-source">(icu {by_source["icu"]} · google {by_source["google_health"]} · legacy strava {by_source.get("strava", 0)})</span>
             </td></tr>
             <tr id="sync-details-row" style="{details_row_style}">
                 <td>Activity details</td>
@@ -461,10 +463,10 @@ async def home(request: Request):
                 const by = s.activities_by_source || {{}};
                 const dbEl = document.getElementById("sync-db-count");
                 if (dbEl) {{
-                    const total = (by.icu || 0) + (by.google_health || 0);
+                    const total = (by.icu || 0) + (by.google_health || 0) + (by.strava || 0);
                     dbEl.innerHTML = total + " total"
                         + ' <span class="rl-meta" id="sync-by-source">(icu ' + (by.icu || 0)
-                        + " · google " + (by.google_health || 0) + ")</span>";
+                        + " · google " + (by.google_health || 0) + " · legacy strava " + (by.strava || 0) + ")</span>";
                 }}
                 setPendingRow("sync-details-row", "sync-details-text", "sync-details-bar",
                     s.details.fetched, s.details.pending, s.details.total);
