@@ -1,0 +1,904 @@
+"""Generic sync engine.
+
+Every source goes through the same phases here — backfill or incremental,
+reconcile, detail drain, stream drain — so a new provider only has to implement
+the :class:`~sources.base.ActivitySource` protocol.
+
+The run is deliberately two-pass (see :func:`sync_sources` callers):
+
+1. every source lists its window and stores summary rows;
+2. supersession is recomputed across all stored rows;
+3. only the winners get their detail and stream calls.
+
+That ordering is what lets a tight-budget provider like Strava avoid spending
+requests on activities that are hidden behind a higher-precedence source.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Awaitable, Callable, Iterable, Sequence, TypeVar
+
+from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from metrics import (
+    calculate_best_interval,
+    calculate_power_curve,
+    calculate_power_zones,
+    calculate_trimp_from_streams,
+    estimate_trimp_without_hr,
+)
+from models import Activity, ActivityStream
+from sources.base import ActivitySource, SourceRateLimitExceeded, external_id
+from sources.state import SyncState
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+#: Two activities can only supersede one another when their start times are
+#: within this many seconds *and* their time ranges genuinely overlap.
+START_TOLERANCE_SECONDS = 900
+
+#: Columns refreshed from a list payload on every upsert. Deliberately excludes
+#: detail-only and derived columns so re-listing never destroys enriched data.
+LIST_UPSERT_FIELDS = (
+    "name",
+    "source",
+    "athlete_id",
+    "sport_type",
+    "start_date",
+    "elapsed_time",
+    "moving_time",
+    "distance",
+    "average_heartrate",
+    "max_heartrate",
+    "has_heartrate",
+    "average_watts",
+    "max_watts",
+    "average_speed",
+    "total_elevation_gain",
+    "kilojoules",
+    "device_watts",
+    "gear_id",
+    "weighted_average_watts",
+    "suffer_score",
+    "training_load",
+    "provider_updated_at",
+)
+
+#: Columns compared to decide whether a re-listed activity was edited upstream.
+_DIFF_FIELDS = (
+    "name",
+    "sport_type",
+    "start_date",
+    "elapsed_time",
+    "moving_time",
+    "distance",
+    "average_heartrate",
+    "max_heartrate",
+    "has_heartrate",
+    "average_watts",
+    "max_watts",
+    "gear_id",
+    "kilojoules",
+    "device_watts",
+    "training_load",
+)
+
+_FLOAT_FIELDS = {
+    "distance",
+    "average_heartrate",
+    "max_heartrate",
+    "average_watts",
+    "max_watts",
+    "kilojoules",
+    "average_speed",
+    "total_elevation_gain",
+    "weighted_average_watts",
+    "training_load",
+}
+
+#: Detail-only columns merged from a detail payload.
+_DETAIL_ONLY_FIELDS = (
+    "description",
+    "private_note",
+    "calories",
+    "device_name",
+    "gear_name",
+)
+
+
+@dataclass
+class EngineContext:
+    """Everything the engine needs that is not source-specific."""
+
+    session_factory: async_sessionmaker
+    athlete_id: int
+    state: SyncState
+    backfill_years: int
+    window_days: int
+    reconcile_days: int
+    detail_concurrency: int
+    streams_concurrency: int
+    hr_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
+    power_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
+
+
+# ── Concurrency ─────────────────────────────────────────────────────
+
+
+async def run_with_concurrency(
+    items: Iterable[T],
+    worker: Callable[[T], Awaitable[None]],
+    concurrency: int,
+) -> bool:
+    """Run ``worker`` over ``items``; return False if a rate limit stopped us.
+
+    A rate limit is a pause, not a failure: remaining items are abandoned so the
+    next scheduled sync can resume them.
+    """
+    items = list(items)
+    if not items:
+        return True
+
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    rate_limited = asyncio.Event()
+
+    async def _runner(item: T) -> None:
+        if rate_limited.is_set():
+            return
+        async with semaphore:
+            if rate_limited.is_set():
+                return
+            try:
+                await worker(item)
+            except SourceRateLimitExceeded:
+                rate_limited.set()
+                raise
+
+    tasks = [asyncio.create_task(_runner(item)) for item in items]
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+    for result in results:
+        if isinstance(result, SourceRateLimitExceeded):
+            return False
+        if isinstance(result, BaseException) and not isinstance(
+            result, asyncio.CancelledError
+        ):
+            raise result
+    return not rate_limited.is_set()
+
+
+# ── Windows ─────────────────────────────────────────────────────────
+
+
+def date_windows(
+    oldest: date, newest: date, window_days: int
+) -> list[tuple[date, date]]:
+    """Split an inclusive date range into chunks of at most ``window_days``."""
+    windows: list[tuple[date, date]] = []
+    span = max(1, window_days)
+    cursor = oldest
+    while cursor <= newest:
+        end = min(cursor + timedelta(days=span - 1), newest)
+        windows.append((cursor, end))
+        cursor = end + timedelta(days=1)
+    return windows
+
+
+def _as_window(oldest: date, newest: date) -> tuple[datetime, datetime]:
+    """Convert an inclusive date range to a half-open UTC datetime range."""
+    start = datetime.combine(oldest, time.min, tzinfo=timezone.utc)
+    end = datetime.combine(newest, time.min, tzinfo=timezone.utc) + timedelta(days=1)
+    return start, end
+
+
+# ── Upserting ───────────────────────────────────────────────────────
+
+
+def map_rows(
+    source: ActivitySource, payloads: Sequence[dict], athlete_id: int
+) -> list[dict]:
+    """Map provider payloads to column dicts, skipping the unusable ones."""
+    rows: list[dict] = []
+    for payload in payloads:
+        try:
+            row = source.map_row(payload, athlete_id)
+        except Exception as exc:  # noqa: BLE001 - one bad payload must not stop a sync
+            logger.warning("Skipping %s payload: %s", source.name, exc)
+            continue
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
+async def upsert_rows(
+    session: AsyncSession, source: ActivitySource, rows: list[dict]
+) -> int:
+    """Insert or refresh summary rows for one source."""
+    if not rows:
+        return 0
+
+    values = [dict(row) for row in rows]
+    fields = list(LIST_UPSERT_FIELDS)
+    if not source.supports_detail:
+        # The list payload is all there is, so the row is complete on arrival.
+        for row in values:
+            row["detail_synced"] = True
+        fields.append("detail_synced")
+
+    stmt = pg_insert(Activity).values(values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["id"],
+        set_={name: getattr(stmt.excluded, name) for name in fields},
+    )
+    await session.execute(stmt)
+    await session.commit()
+    return len(values)
+
+
+def _values_differ(existing: Activity, row: dict) -> bool:
+    for name in _DIFF_FIELDS:
+        current = getattr(existing, name, None)
+        incoming = row.get(name)
+        if name in _FLOAT_FIELDS:
+            if current is None and incoming is None:
+                continue
+            if current is None or incoming is None:
+                return True
+            if float(current) != float(incoming):
+                return True
+            continue
+        if current != incoming:
+            return True
+    return False
+
+
+def needs_full_refresh(existing: Activity, row: dict) -> bool:
+    """True when an upstream edit invalidates derived metrics, not just detail."""
+    incoming = row.get("provider_updated_at")
+    if incoming is not None and existing.provider_updated_at is not None:
+        if incoming > existing.provider_updated_at:
+            return True
+    return _values_differ(existing, row)
+
+
+async def _mark_for_detail_refresh(session: AsyncSession, ids: Sequence[str]) -> None:
+    if not ids:
+        return
+    await session.execute(
+        update(Activity).where(Activity.id.in_(ids)).values(detail_synced=False)
+    )
+    await session.commit()
+
+
+async def _mark_for_full_refresh(session: AsyncSession, ids: Sequence[str]) -> None:
+    if not ids:
+        return
+    await session.execute(
+        update(Activity)
+        .where(Activity.id.in_(ids))
+        .values(
+            detail_synced=False,
+            synced_streams=False,
+            trimp=None,
+            hr_zone_seconds=None,
+            power_zone_seconds=None,
+            best_20min_power=None,
+            power_curve=None,
+        )
+    )
+    await session.commit()
+
+
+# ── Phase 1: listing ────────────────────────────────────────────────
+
+
+async def _stored_count(
+    session: AsyncSession, source: ActivitySource, athlete_id: int
+) -> int:
+    result = await session.execute(
+        select(func.count(Activity.id)).where(
+            Activity.athlete_id == athlete_id, Activity.source == source.name
+        )
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def _latest_start(
+    session: AsyncSession, source: ActivitySource, athlete_id: int
+) -> datetime | None:
+    result = await session.execute(
+        select(func.max(Activity.start_date)).where(
+            Activity.athlete_id == athlete_id, Activity.source == source.name
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def backfill(
+    source: ActivitySource, session: AsyncSession, ctx: EngineContext
+) -> int:
+    """Walk the full configured history in ``window_days`` chunks."""
+    ctx.state.begin("backfilling", source.name)
+    newest = date.today()
+    oldest = newest - timedelta(days=365 * ctx.backfill_years)
+    windows = date_windows(oldest, newest, ctx.window_days)
+    logger.info(
+        "%s backfill: %s → %s (%d windows)", source.name, oldest, newest, len(windows)
+    )
+
+    stored = 0
+    for window_oldest, window_newest in windows:
+        start, end = _as_window(window_oldest, window_newest)
+        payloads = await source.list_activities(start, end)
+        ctx.state.snapshot_rate_limits(source)
+        stored += await upsert_rows(
+            session, source, map_rows(source, payloads, ctx.athlete_id)
+        )
+        ctx.state.synced_activities = stored
+        logger.info(
+            "%s backfill %s..%s: %d listed (total stored %d)",
+            source.name,
+            window_oldest,
+            window_newest,
+            len(payloads),
+            stored,
+        )
+    logger.info("%s backfill complete: %d activities", source.name, stored)
+    return stored
+
+
+async def incremental(
+    source: ActivitySource, session: AsyncSession, ctx: EngineContext
+) -> int:
+    """List everything since the newest stored activity, minus a safety margin."""
+    ctx.state.begin("incremental", source.name)
+    latest = await _latest_start(session, source, ctx.athlete_id)
+    newest = date.today() + timedelta(days=1)
+    if latest is not None:
+        oldest = (latest - timedelta(days=1)).date()
+    else:
+        oldest = newest - timedelta(days=ctx.reconcile_days or 90)
+
+    start, end = _as_window(oldest, newest)
+    payloads = await source.list_activities(start, end)
+    ctx.state.snapshot_rate_limits(source)
+    stored = await upsert_rows(
+        session, source, map_rows(source, payloads, ctx.athlete_id)
+    )
+    logger.info("%s incremental: %d activities", source.name, stored)
+    return stored
+
+
+async def reconcile(
+    source: ActivitySource, session: AsyncSession, ctx: EngineContext
+) -> int:
+    """Re-list a recent window and re-queue anything edited upstream."""
+    if not source.supports_reconcile or ctx.reconcile_days <= 0:
+        return 0
+
+    ctx.state.begin("reconciling", source.name)
+    newest = date.today() + timedelta(days=1)
+    oldest = newest - timedelta(days=ctx.reconcile_days)
+    start, end = _as_window(oldest, newest)
+    payloads = await source.list_activities(start, end)
+    ctx.state.snapshot_rate_limits(source)
+
+    rows = map_rows(source, payloads, ctx.athlete_id)
+    ids = [row["id"] for row in rows]
+    if not ids:
+        return 0
+
+    result = await session.execute(
+        select(Activity).where(
+            Activity.athlete_id == ctx.athlete_id, Activity.id.in_(ids)
+        )
+    )
+    existing_by_id = {row.id: row for row in result.scalars().all()}
+
+    full_refresh: list[str] = []
+    detail_refresh: list[str] = []
+    for row in rows:
+        existing = existing_by_id.get(row["id"])
+        if existing is None:
+            continue
+        if needs_full_refresh(existing, row):
+            full_refresh.append(row["id"])
+        elif source.supports_detail and not existing.detail_synced:
+            detail_refresh.append(row["id"])
+
+    await _mark_for_full_refresh(session, full_refresh)
+    await _mark_for_detail_refresh(session, detail_refresh)
+    stored = await upsert_rows(session, source, rows)
+    logger.info(
+        "%s reconcile: %d listed, %d full refresh, %d detail refresh",
+        source.name,
+        len(rows),
+        len(full_refresh),
+        len(detail_refresh),
+    )
+    return stored
+
+
+async def run_list_phase(
+    source: ActivitySource,
+    session: AsyncSession,
+    ctx: EngineContext,
+    *,
+    force_resync: bool = False,
+) -> int:
+    """Backfill or incrementally list, then reconcile."""
+    stored_before = await _stored_count(session, source, ctx.athlete_id)
+    if force_resync or stored_before == 0:
+        stored = await backfill(source, session, ctx)
+    else:
+        stored = await incremental(source, session, ctx)
+        stored += await reconcile(source, session, ctx)
+    return stored
+
+
+# ── Phase 2: supersession ───────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ActivityKey:
+    """The minimum needed to decide which of two activities wins."""
+
+    id: str
+    source: str
+    start: datetime
+    elapsed: int = 0
+
+    @property
+    def end(self) -> datetime:
+        # A minimum of one second so two zero-duration rows that start at the
+        # same instant still register as the same workout.
+        return self.start + timedelta(seconds=max(self.elapsed or 0, 1))
+
+
+def _overlaps(left: ActivityKey, right: ActivityKey) -> bool:
+    if abs((left.start - right.start).total_seconds()) > START_TOLERANCE_SECONDS:
+        return False
+    return left.start < right.end and left.end > right.start
+
+
+def choose_winners(
+    rows: Sequence[ActivityKey], precedence: Sequence[str]
+) -> dict[str, str | None]:
+    """Decide, for each activity, which activity supersedes it.
+
+    Returns ``{activity_id: winner_id or None}``. ``None`` means the activity is
+    visible. Pure and total: every input id appears in the result.
+
+    Comparison is pairwise rather than transitive, so a chain of near-misses
+    cannot collapse two activities that do not actually overlap. Chains of
+    winners are then resolved to their root so ``superseded_by`` always points at
+    a visible activity.
+
+    Sources absent from ``precedence`` rank last. Precedence is positional and
+    ignores whether a source is currently enabled: a disabled source's rows must
+    keep the standing they had, or reordering the list would silently rewrite
+    history.
+    """
+    rank = {name: index for index, name in enumerate(precedence)}
+    unranked = len(rank)
+
+    def sort_key(row: ActivityKey) -> tuple:
+        # Best first: higher precedence, then longer, then earlier, then stable.
+        return (rank.get(row.source, unranked), -(row.elapsed or 0), row.start, row.id)
+
+    ordered = sorted(rows, key=lambda row: (row.start, row.id))
+    direct: dict[str, str | None] = {}
+
+    for index, row in enumerate(ordered):
+        best = row
+        # Only rows whose start is within the tolerance can compete, and the
+        # list is sorted by start, so a short scan either side is enough.
+        for neighbour_index in range(index - 1, -1, -1):
+            neighbour = ordered[neighbour_index]
+            if (row.start - neighbour.start).total_seconds() > START_TOLERANCE_SECONDS:
+                break
+            if _overlaps(row, neighbour) and sort_key(neighbour) < sort_key(best):
+                best = neighbour
+        for neighbour in ordered[index + 1 :]:
+            if (neighbour.start - row.start).total_seconds() > START_TOLERANCE_SECONDS:
+                break
+            if _overlaps(row, neighbour) and sort_key(neighbour) < sort_key(best):
+                best = neighbour
+        direct[row.id] = None if best.id == row.id else best.id
+
+    resolved: dict[str, str | None] = {}
+    for activity_id in direct:
+        winner = direct[activity_id]
+        seen = {activity_id}
+        while winner is not None and direct.get(winner) is not None:
+            if winner in seen:
+                # Defensive: a cycle would mean two rows each outrank the other.
+                break
+            seen.add(winner)
+            winner = direct[winner]
+        resolved[activity_id] = winner
+    return resolved
+
+
+async def recompute_supersessions(
+    session: AsyncSession, athlete_id: int, precedence: Sequence[str]
+) -> int:
+    """Recompute ``superseded_by`` for every stored activity.
+
+    Idempotent and complete, so it copes with a precedence change, a newly
+    connected source, or an activity disappearing upstream without any special
+    cases. Only differences are written.
+    """
+    result = await session.execute(
+        select(
+            Activity.id,
+            Activity.source,
+            Activity.start_date,
+            Activity.elapsed_time,
+            Activity.superseded_by,
+        ).where(Activity.athlete_id == athlete_id)
+    )
+    records = result.all()
+    if not records:
+        return 0
+
+    keys = [
+        ActivityKey(
+            id=record.id,
+            source=record.source or "",
+            start=record.start_date,
+            elapsed=record.elapsed_time or 0,
+        )
+        for record in records
+        if record.start_date is not None
+    ]
+    current = {record.id: record.superseded_by for record in records}
+    winners = choose_winners(keys, precedence)
+
+    changed = 0
+    for activity_id, winner in winners.items():
+        if current.get(activity_id) == winner:
+            continue
+        await session.execute(
+            update(Activity)
+            .where(Activity.id == activity_id)
+            .values(superseded_by=winner)
+        )
+        changed += 1
+        logger.info(
+            "%s is now %s",
+            activity_id,
+            f"superseded by {winner}" if winner else "visible",
+        )
+
+    if changed:
+        await session.commit()
+    return changed
+
+
+# ── Phase 3: enrichment ─────────────────────────────────────────────
+
+
+def activity_needs_streams(activity: Activity) -> bool:
+    """Streams are only worth fetching when they can produce HR or power."""
+    return bool(activity.has_heartrate or activity.device_watts)
+
+
+async def refresh_progress(
+    session: AsyncSession, athlete_id: int, state: SyncState
+) -> None:
+    """Recompute the global detail/stream progress counters for the UI."""
+    row = (
+        await session.execute(
+            select(
+                func.count(Activity.id),
+                func.count(Activity.id).filter(
+                    Activity.detail_synced == False  # noqa: E712
+                ),
+                func.count(Activity.id).filter(
+                    Activity.synced_streams == False  # noqa: E712
+                ),
+            ).where(
+                Activity.athlete_id == athlete_id,
+                Activity.superseded_by == None,  # noqa: E711
+            )
+        )
+    ).one()
+    total, details_pending, streams_pending = (int(value or 0) for value in row)
+    state.total_activities = total
+    state.details_pending = details_pending
+    state.details_fetched = max(0, total - details_pending)
+    state.streams_pending = streams_pending
+    state.streams_fetched = max(0, total - streams_pending)
+
+
+async def _apply_detail(
+    session: AsyncSession, source: ActivitySource, activity_id: str
+) -> bool:
+    """Fetch and merge one activity's detail. Returns True when it progressed."""
+    try:
+        payload = await source.fetch_detail(external_id(source.id_prefix, activity_id))
+    except SourceRateLimitExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 - transient; retried next sync
+        logger.warning("%s detail for %s failed: %s", source.name, activity_id, exc)
+        return False
+
+    if payload is None:
+        # Gone upstream: stop asking, but keep the row and its history.
+        await session.execute(
+            update(Activity)
+            .where(Activity.id == activity_id)
+            .values(detail_synced=True)
+        )
+        await session.commit()
+        return True
+
+    activity = await session.get(Activity, activity_id)
+    if activity is None:
+        return False
+
+    row = source.map_row(payload, activity.athlete_id)
+    if row is None:
+        await session.execute(
+            update(Activity)
+            .where(Activity.id == activity_id)
+            .values(detail_synced=True)
+        )
+        await session.commit()
+        return True
+
+    # Never let a detail payload rewrite identity or supersession.
+    row.pop("id", None)
+    row.pop("source", None)
+    row.pop("athlete_id", None)
+    row["detail_synced"] = True
+    await session.execute(
+        update(Activity).where(Activity.id == activity_id).values(**row)
+    )
+    await session.commit()
+    return True
+
+
+async def drain_detail_queue(
+    source: ActivitySource, session: AsyncSession, ctx: EngineContext
+) -> None:
+    """Fetch detail for this source's activities that are not superseded.
+
+    Superseded activities are skipped on purpose: their data is never shown, so
+    spending a request on them wastes budget that a visible activity needs.
+    """
+    if not source.supports_detail:
+        return
+
+    ctx.state.begin("detailing", source.name)
+    await refresh_progress(session, ctx.athlete_id, ctx.state)
+
+    concurrency = ctx.detail_concurrency
+    counter_lock = asyncio.Lock()
+    idle_batches = 0
+
+    while True:
+        result = await session.execute(
+            select(Activity.id)
+            .where(
+                Activity.athlete_id == ctx.athlete_id,
+                Activity.source == source.name,
+                Activity.detail_synced == False,  # noqa: E712
+                Activity.superseded_by == None,  # noqa: E711
+            )
+            .order_by(Activity.start_date.desc())
+            .limit(max(100, concurrency * 20))
+        )
+        ids = [row[0] for row in result.all()]
+        if not ids:
+            break
+
+        merged = 0
+
+        async def _worker(activity_id: str) -> None:
+            nonlocal merged
+            async with ctx.session_factory() as worker_session:
+                progressed = await _apply_detail(worker_session, source, activity_id)
+            if progressed:
+                async with counter_lock:
+                    merged += 1
+                    ctx.state.details_fetched += 1
+                    if ctx.state.details_pending > 0:
+                        ctx.state.details_pending -= 1
+
+        completed = await run_with_concurrency(ids, _worker, concurrency)
+        ctx.state.snapshot_rate_limits(source)
+        if not completed:
+            ctx.state.last_error = (
+                f"{source.name} rate limit while merging details; "
+                "will resume next sync."
+            )
+            break
+        if merged == 0:
+            idle_batches += 1
+            if idle_batches >= 2:
+                break
+        else:
+            idle_batches = 0
+
+
+async def _apply_streams(
+    session: AsyncSession,
+    source: ActivitySource,
+    activity: Activity,
+    ctx: EngineContext,
+) -> None:
+    """Fetch streams for one activity and derive its training metrics."""
+    wants_hr_power = activity_needs_streams(activity)
+    try:
+        streams = await source.fetch_streams(activity)
+        stream_types = list(streams.keys())
+        sample_count = max((len(value) for value in streams.values()), default=0)
+
+        if streams:
+            stmt = pg_insert(ActivityStream).values(
+                activity_id=activity.id,
+                data=streams,
+                stream_types=",".join(stream_types),
+                sample_count=sample_count,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["activity_id"],
+                set_={
+                    "data": stmt.excluded.data,
+                    "stream_types": stmt.excluded.stream_types,
+                    "sample_count": stmt.excluded.sample_count,
+                },
+            )
+            await session.execute(stmt)
+
+        if not wants_hr_power:
+            await session.execute(
+                update(Activity)
+                .where(Activity.id == activity.id)
+                .values(
+                    trimp=estimate_trimp_without_hr(
+                        activity.sport_type, activity.moving_time
+                    ),
+                    hr_zone_seconds=None,
+                    power_zone_seconds=None,
+                    best_20min_power=None,
+                    power_curve=None,
+                    synced_streams=True,
+                )
+            )
+            await session.commit()
+            return
+
+        time_stream = streams.get("time") or []
+        hr_stream = streams.get("heartrate") or []
+        power_stream = streams.get("watts") or []
+
+        if (
+            activity.has_heartrate
+            and time_stream
+            and hr_stream
+            and len(time_stream) == len(hr_stream)
+        ):
+            trimp, hr_zones = calculate_trimp_from_streams(
+                time_stream, hr_stream, ctx.hr_zone_boundaries
+            )
+        else:
+            hr_zones = None
+            trimp = estimate_trimp_without_hr(
+                activity.sport_type, activity.moving_time
+            )
+
+        best_20min = None
+        power_curve = None
+        power_zones = None
+        if power_stream:
+            best_20min = calculate_best_interval(power_stream, 1200)
+            power_curve = calculate_power_curve(power_stream)
+            if time_stream:
+                usable = min(len(time_stream), len(power_stream))
+                if usable > 0:
+                    power_zones = calculate_power_zones(
+                        time_stream[:usable],
+                        power_stream[:usable],
+                        ctx.power_zone_boundaries,
+                    )
+
+        await session.execute(
+            update(Activity)
+            .where(Activity.id == activity.id)
+            .values(
+                trimp=trimp,
+                hr_zone_seconds=hr_zones,
+                power_zone_seconds=power_zones,
+                best_20min_power=best_20min,
+                power_curve=power_curve,
+                synced_streams=True,
+            )
+        )
+        await session.commit()
+    except SourceRateLimitExceeded:
+        raise
+    except Exception as exc:  # noqa: BLE001 - fall back to an estimate
+        logger.warning("%s streams for %s failed: %s", source.name, activity.id, exc)
+        await session.execute(
+            update(Activity)
+            .where(Activity.id == activity.id)
+            .values(
+                trimp=estimate_trimp_without_hr(
+                    activity.sport_type, activity.moving_time
+                ),
+                synced_streams=True,
+            )
+        )
+        await session.commit()
+
+
+async def drain_stream_queue(
+    source: ActivitySource, session: AsyncSession, ctx: EngineContext
+) -> None:
+    """Fetch streams for this source's visible, un-streamed activities."""
+    if not source.supports_streams:
+        return
+
+    ctx.state.begin("streaming", source.name)
+    await refresh_progress(session, ctx.athlete_id, ctx.state)
+
+    result = await session.execute(
+        select(Activity.id)
+        .where(
+            Activity.athlete_id == ctx.athlete_id,
+            Activity.source == source.name,
+            Activity.synced_streams == False,  # noqa: E712
+            Activity.superseded_by == None,  # noqa: E711
+        )
+        .order_by(Activity.start_date.desc())
+    )
+    pending_ids = [row[0] for row in result.all()]
+    if not pending_ids:
+        return
+
+    counter_lock = asyncio.Lock()
+
+    async def _worker(activity_id: str) -> None:
+        async with ctx.session_factory() as worker_session:
+            activity = await worker_session.get(Activity, activity_id)
+            if activity is None:
+                return
+            await _apply_streams(worker_session, source, activity, ctx)
+        async with counter_lock:
+            ctx.state.streams_fetched += 1
+            if ctx.state.streams_pending > 0:
+                ctx.state.streams_pending -= 1
+
+    completed = await run_with_concurrency(
+        pending_ids, _worker, ctx.streams_concurrency
+    )
+    ctx.state.snapshot_rate_limits(source)
+    if not completed:
+        ctx.state.last_error = (
+            f"{source.name} rate limit while fetching streams; "
+            "will resume next sync."
+        )
+
+
+async def run_enrich_phase(
+    source: ActivitySource, session: AsyncSession, ctx: EngineContext
+) -> None:
+    """Detail then streams, for the activities this source actually shows."""
+    await drain_detail_queue(source, session, ctx)
+    await drain_stream_queue(source, session, ctx)

@@ -10,15 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trainingpulse_common import SimpleSyncState
 
 from withings_plugin.client import WithingsClient, parse_measure_groups
-from withings_plugin.config import settings
 from withings_plugin.models import WeightMeasurement, WithingsToken
+from withings_plugin.options import WithingsOptions
 
 logger = logging.getLogger(__name__)
 
 sync_state = SimpleSyncState()
 
 
-async def run_sync(session: AsyncSession) -> int:
+async def run_sync(session: AsyncSession, options: WithingsOptions) -> int:
     token = (await session.execute(select(WithingsToken).limit(1))).scalar_one_or_none()
     if token is None:
         logger.warning("Withings sync skipped: no token")
@@ -26,9 +26,9 @@ async def run_sync(session: AsyncSession) -> int:
 
     sync_state.mark_running()
     try:
-        client = WithingsClient(session)
+        client = WithingsClient(session, options)
         end_ts = int(time.time())
-        start_ts = end_ts - settings.SYNC_LOOKBACK_DAYS * 86400
+        start_ts = end_ts - options.sync_lookback_days * 86400
         body = await client.get_measurements(startdate=start_ts, enddate=end_ts)
         rows = parse_measure_groups(body)
 

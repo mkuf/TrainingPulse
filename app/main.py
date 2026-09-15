@@ -1,7 +1,7 @@
 """TrainingPulse — FastAPI application.
 
 Provides:
-- intervals.icu API-key connection + Google Health OAuth
+- One connection flow per activity source (API key or OAuth)
 - Status page showing sync progress and current metrics
 - Background scheduler for periodic syncing
 """
@@ -16,30 +16,40 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from trainingpulse_common.config import redacted_dump
 
-from config import settings
+from config import config
 from database import async_session, engine
-from google_health_client import GoogleHealthClient
-from intervals_client import IntervalsClient
-from models import Activity, AthleteSettings, DailyMetrics, OAuthToken
+from models import Activity, AthleteSettings, DailyMetrics
 from plugins.registry import dispose_plugins, enabled_plugin_names, load_plugins, setup_plugins
 from schema_migrate import ensure_schema
-from sync import _snapshot_rate_limits, run_sync, sync_state
+from sources.registry import build_all_sources
+from sync import refresh_rate_limits, run_sync, sync_state
 
 _PLUGIN_LINKS: dict[str, tuple[str, str]] = {
     "withings": ("Withings (body weight)", "/plugins/withings/"),
     "fddb": ("FDDB (nutrition)", "/plugins/fddb/"),
 }
 
+SOURCE_LABELS: dict[str, str] = {
+    "icu": "intervals.icu",
+    "strava": "Strava",
+    "google_health": "Google Health",
+}
+
 APP_DISPLAY_NAME = "TrainingPulse"
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, config.app.log_level, logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler()
+
+#: Built once at import so OAuth routes can be registered before startup.
+#: Includes disabled sources so the status page can explain why they are off.
+SOURCES = build_all_sources(config, async_session)
 
 
 async def trigger_sync_task(force_resync: bool = False):
@@ -51,126 +61,61 @@ async def trigger_sync_task(force_resync: bool = False):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: migrate schema, start scheduler, load plugins."""
+    logger.info("Effective configuration:\n%s", redacted_dump(config))
+
     async with engine.begin() as conn:
         await ensure_schema(conn)
     logger.info("Database tables created/verified")
 
     app.state.scheduler = scheduler
-    plugins = load_plugins()
+    plugins = load_plugins(config)
     app.state.plugins = await setup_plugins(app, scheduler, plugins)
 
     scheduler.add_job(
         trigger_sync_task,
         "interval",
-        minutes=settings.SYNC_INTERVAL_MINUTES,
+        minutes=config.sync.interval_minutes,
         id="trainingpulse_sync",
         replace_existing=True,
         next_run_time=datetime.now(timezone.utc),
     )
     scheduler.start()
     logger.info(
-        "Scheduler started: syncing every %d minutes", settings.SYNC_INTERVAL_MINUTES
+        "Scheduler started: syncing every %d minutes", config.sync.interval_minutes
     )
 
     yield
 
     scheduler.shutdown(wait=False)
     await dispose_plugins(app.state.plugins)
+    for source in SOURCES:
+        await source.close()
     await engine.dispose()
 
 
 app = FastAPI(title=APP_DISPLAY_NAME, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-# ── Google Health OAuth ─────────────────────────────────────────────
-
-
-@app.get("/auth/google")
-async def auth_google():
-    """Redirect to Google OAuth for Google Health."""
-    if not settings.google_health_configured():
-        return HTMLResponse(
-            _page(
-                "Google Health Not Configured",
-                "<p class='error'>Set GOOGLE_HEALTH_CLIENT_ID and "
-                "GOOGLE_HEALTH_CLIENT_SECRET in .env.</p>",
-            ),
-            status_code=400,
-        )
-    return RedirectResponse(GoogleHealthClient.authorization_url())
-
-
-@app.get("/auth/google/callback")
-async def auth_google_callback(code: str | None = None, error: str | None = None):
-    """Handle Google OAuth callback."""
-    if error:
-        return HTMLResponse(
-            _page("Authorization Failed", f"<p class='error'>Error: {error}</p>"),
-            status_code=400,
-        )
-    if not code:
-        return HTMLResponse(
-            _page(
-                "Authorization Failed",
-                "<p class='error'>No authorization code received.</p>",
-            ),
-            status_code=400,
-        )
-
-    try:
-        payload = await GoogleHealthClient.exchange_code(code)
-    except Exception as e:
-        return HTMLResponse(
-            _page(
-                "Authorization Failed",
-                f"<p class='error'>Token exchange failed: {e}</p>",
-            ),
-            status_code=400,
-        )
-
-    async with async_session() as session:
-        client = GoogleHealthClient(session)
-        await client.store_tokens(payload)
-        await client.close()
-
-    logger.info("Google Health connected")
-    asyncio.create_task(trigger_sync_task())
-
-    return HTMLResponse(
-        _page(
-            "Connected!",
-            """
-            <div class="card success">
-                <h2>Google Health linked</h2>
-                <p>Your Google account is linked. Activities will sync on the next run.</p>
-                <p><a href="/" class="btn btn-neutral">View Status →</a></p>
-            </div>
-            """,
-        )
-    )
-
-
-@app.post("/auth/google/disconnect")
-async def auth_google_disconnect():
-    async with async_session() as session:
-        client = GoogleHealthClient(session)
-        await client.disconnect()
-        await client.close()
-    return RedirectResponse("/", status_code=303)
+# Each source mounts its own authorization routes. API-key sources are no-ops.
+# Paths are owned by the source so already-registered OAuth redirect URIs (in
+# particular Google's /auth/google/callback) keep working unchanged.
+for _source in SOURCES:
+    _source.register_auth_routes(app)
 
 
 # ── Status helpers ───────────────────────────────────────────────────
 
 
 async def _progress_counts(session, athlete_id: int | None) -> dict:
+    """Counts for the status page, over visible (non-superseded) activities."""
     empty = {
         "total": 0,
         "details_done": 0,
         "details_pending": 0,
         "streams_done": 0,
         "streams_pending": 0,
-        "by_source": {"icu": 0, "google_health": 0},
+        "superseded": 0,
+        "by_source": {},
     }
     if athlete_id is None:
         return empty
@@ -184,31 +129,46 @@ async def _progress_counts(session, athlete_id: int | None) -> dict:
                 func.count(Activity.id).filter(
                     Activity.synced_streams == False  # noqa: E712
                 ),
-            ).where(Activity.athlete_id == athlete_id)
+            ).where(
+                Activity.athlete_id == athlete_id,
+                Activity.superseded_by == None,  # noqa: E711
+            )
         )
     ).one()
     total, details_pending, streams_pending = row
-    by_source = {"icu": 0, "google_health": 0, "strava": 0}
+
+    superseded = (
+        await session.execute(
+            select(func.count(Activity.id)).where(
+                Activity.athlete_id == athlete_id,
+                Activity.superseded_by != None,  # noqa: E711
+            )
+        )
+    ).scalar_one()
+
+    by_source: dict[str, int] = {}
     source_rows = (
         await session.execute(
             select(Activity.source, func.count(Activity.id))
-            .where(Activity.athlete_id == athlete_id)
+            .where(
+                Activity.athlete_id == athlete_id,
+                Activity.superseded_by == None,  # noqa: E711
+            )
             .group_by(Activity.source)
         )
     ).all()
     for source, count in source_rows:
-        if source in ("google_health", "fitbit"):
-            by_source["google_health"] += count
-        elif source == "icu":
-            by_source["icu"] += count
-        elif source == "strava":
-            by_source["strava"] += count
+        # Old rows may still carry the short-lived "fitbit" label.
+        key = "google_health" if source == "fitbit" else (source or "unknown")
+        by_source[key] = by_source.get(key, 0) + count
+
     return {
         "total": total,
         "details_done": max(0, total - details_pending),
         "details_pending": details_pending,
         "streams_done": max(0, total - streams_pending),
         "streams_pending": streams_pending,
+        "superseded": int(superseded or 0),
         "by_source": by_source,
     }
 
@@ -223,7 +183,7 @@ async def _primary_athlete_id(session) -> int | None:
 
 
 def _plugin_links_html(active_names: set[str]) -> str:
-    enabled = enabled_plugin_names()
+    enabled = enabled_plugin_names(config)
     if not enabled:
         return ""
     items: list[str] = []
@@ -233,7 +193,8 @@ def _plugin_links_html(active_names: set[str]) -> str:
             items.append(f'<li><a href="{path}">{label}</a></li>')
         else:
             items.append(
-                f'<li>{label} <span class="fine-print">(not configured — see .env)</span></li>'
+                f'<li>{label} <span class="fine-print">(not configured — see '
+                "config.yaml)</span></li>"
             )
     return f"""
     <div class="card">
@@ -245,39 +206,129 @@ def _plugin_links_html(active_names: set[str]) -> str:
     """
 
 
-def _sources_card_html(*, icu_ok: bool, google_health_connected: bool) -> str:
-    icu_status = (
-        '<span class="ok">Configured</span>'
-        if icu_ok
-        else '<span class="error">Missing API key</span>'
-    )
-    if not settings.google_health_enabled():
-        gh_status = '<span class="fine-print">Disabled</span>'
-        gh_action = ""
-    elif google_health_connected:
-        gh_status = '<span class="ok">Connected</span>'
-        gh_action = """
-        <form action="/auth/google/disconnect" method="post" class="inline-form">
+async def _source_states(session) -> list[dict]:
+    """Enabled/configured/connected state for every known source."""
+    states: list[dict] = []
+    for source in SOURCES:
+        section = config.sources.section(source.name)
+        connected = False
+        if section.enabled and source.is_configured():
+            try:
+                connected = await source.is_connected()
+            except Exception as exc:  # noqa: BLE001 - status page must render
+                logger.warning("%s connection check failed: %s", source.name, exc)
+        states.append(
+            {
+                "name": source.name,
+                "label": SOURCE_LABELS.get(source.name, source.name),
+                "enabled": section.enabled,
+                "configured": source.is_configured(),
+                "connected": connected,
+                "requires_authorization": source.requires_authorization,
+                "connect_path": source.connect_path,
+                "disconnect_path": source.disconnect_path,
+            }
+        )
+    return states
+
+
+def _sources_card_html(states: list[dict]) -> str:
+    """One row per source, in precedence order."""
+    rows: list[str] = []
+    for state in states:
+        action = ""
+        if not state["enabled"]:
+            status = '<span class="fine-print">Disabled</span>'
+        elif not state["configured"]:
+            status = '<span class="error">Missing credentials</span>'
+        elif not state["requires_authorization"]:
+            status = '<span class="ok">Configured</span>'
+        elif state["connected"]:
+            status = '<span class="ok">Connected</span>'
+            action = f"""
+        <form action="{state['disconnect_path']}" method="post" class="inline-form">
             <button type="submit" class="btn btn-neutral btn-sm">Disconnect</button>
         </form>
         """
-    else:
-        gh_status = '<span class="warn">Not connected</span>'
-        gh_action = '<a href="/auth/google" class="btn btn-neutral btn-sm">Connect</a>'
-
+        else:
+            status = '<span class="warn">Not connected</span>'
+            action = (
+                f'<a href="{state["connect_path"]}" '
+                'class="btn btn-neutral btn-sm">Connect</a>'
+            )
+        rows.append(
+            f"""
+        <div class="source-row">
+            <span class="source-name">{state['label']}</span>
+            <span class="source-meta">{status}{action}</span>
+        </div>
+        """
+        )
     return f"""
     <div class="card sources-card">
         <h3>Sources</h3>
-        <div class="source-row">
-            <span class="source-name">intervals.icu</span>
-            <span class="source-meta">{icu_status}</span>
-        </div>
-        <div class="source-row">
-            <span class="source-name">Google Health</span>
-            <span class="source-meta">{gh_status}{gh_action}</span>
-        </div>
+        <p class="fine-print">Listed highest precedence first. When two sources
+        report the same workout, the higher one wins.</p>
+        {"".join(rows)}
     </div>
     """
+
+
+def _by_source_label(by_source: dict[str, int], superseded: int = 0) -> str:
+    """Render per-source counts, e.g. "icu 812 · strava 40 · 37 hidden"."""
+    if not by_source:
+        return ""
+    parts = [
+        f"{SOURCE_LABELS.get(name, name)} {count}"
+        for name, count in sorted(by_source.items(), key=lambda item: -item[1])
+    ]
+    if superseded:
+        parts.append(f"{superseded} hidden duplicate{'s' if superseded != 1 else ''}")
+    return f"({' · '.join(parts)})"
+
+
+def _rate_limit_rows_html(states: list[dict]) -> str:
+    """One quota row per usable source that reports a budget."""
+    rows: list[str] = []
+    for state in states:
+        snapshot = sync_state.rate_limits.get(state["name"])
+        label = state["label"]
+        if snapshot is None or not snapshot.known:
+            rows.append(
+                f"""
+            <tr>
+                <td>{label} quota</td>
+                <td class="fine-print" id="sync-rl-{state['name']}">not reported yet</td>
+            </tr>
+            """
+            )
+            continue
+        rows.append(
+            f"""
+            <tr>
+                <td>{label} (15-min)</td>
+                <td id="sync-rl-{state['name']}-15min">{snapshot.used_15min}/{snapshot.limit_15min}</td>
+            </tr>
+            <tr>
+                <td>{label} (daily)</td>
+                <td id="sync-rl-{state['name']}-daily">{snapshot.used_daily}/{snapshot.limit_daily}</td>
+            </tr>
+            """
+        )
+    if not rows:
+        return ""
+    rows.append(
+        f"""
+            <tr>
+                <td>Quota checked</td>
+                <td>
+                    <span id="sync-rl-checked">Never</span>
+                    <button type="button" id="sync-rl-refresh" class="btn btn-neutral btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
+                </td>
+            </tr>
+        """
+    )
+    return "".join(rows)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -285,20 +336,19 @@ async def home(request: Request):
     """Status page showing sync state and current metrics."""
     active_plugins = {p.name for p in getattr(request.app.state, "plugins", [])}
     async with async_session() as session:
-        icu_ok = settings.icu_enabled()
-        google_health_connected = False
-        if settings.google_health_enabled():
-            token = (
-                await session.execute(
-                    select(OAuthToken).where(OAuthToken.provider == "google_health").limit(1)
-                )
-            ).scalar_one_or_none()
-            google_health_connected = token is not None
-
-        any_source = icu_ok or google_health_connected
+        states = await _source_states(session)
+        # A source is usable when it is enabled, configured, and (for OAuth)
+        # authorized. API-key sources need no authorization step.
+        usable = [
+            state
+            for state in states
+            if state["enabled"]
+            and state["configured"]
+            and (state["connected"] or not state["requires_authorization"])
+        ]
         athlete_id = await _primary_athlete_id(session)
 
-        if not any_source:
+        if not usable:
             return HTMLResponse(
                 _page(
                     "Setup Required",
@@ -309,14 +359,13 @@ async def home(request: Request):
                             <h2>{APP_DISPLAY_NAME}</h2>
                         </div>
                     </div>
-                    {_sources_card_html(icu_ok=icu_ok, google_health_connected=google_health_connected)}
+                    {_sources_card_html(states)}
                     """,
                 )
             )
 
         counts = await _progress_counts(session, athlete_id)
         activity_count = counts["total"]
-        by_source = counts["by_source"]
 
         latest_metrics = None
         if athlete_id is not None:
@@ -346,7 +395,9 @@ async def home(request: Request):
     )
     if sync_state.is_running and sync_state.phase != "idle":
         status_label = sync_state.phase
-        provider_label = f"({sync_state.provider})" if sync_state.provider else ""
+        provider_label = (
+            f"({sync_state.active_source})" if sync_state.active_source else ""
+        )
     else:
         status_label = "Idle"
         provider_label = ""
@@ -354,25 +405,8 @@ async def home(request: Request):
     details_row_style = "" if details_pending_initial else "display:none;"
     streams_row_style = "" if streams_pending_initial else "display:none;"
 
-    rate_limit_rows = ""
-    if icu_ok:
-        rate_limit_rows = f"""
-            <tr>
-                <td>intervals.icu (15-min)</td>
-                <td id="sync-rl-15min">{sync_state.rate_limit_15min_usage}/{sync_state.rate_limit_15min_limit}</td>
-            </tr>
-            <tr>
-                <td>intervals.icu (daily)</td>
-                <td id="sync-rl-daily">{sync_state.rate_limit_daily_usage}/{sync_state.rate_limit_daily_limit}</td>
-            </tr>
-            <tr>
-                <td>Quota checked</td>
-                <td>
-                    <span id="sync-rl-checked">Never</span>
-                    <button type="button" id="sync-rl-refresh" class="btn btn-neutral btn-sm" {"disabled" if sync_state.is_running else ""}>Refresh</button>
-                </td>
-            </tr>
-        """
+    by_source_initial = _by_source_label(counts["by_source"], counts["superseded"])
+    rate_limit_rows = _rate_limit_rows_html(usable)
 
     sync_info = f"""
     <div class="card">
@@ -382,7 +416,7 @@ async def home(request: Request):
                 <span class="rl-meta" id="sync-provider">{provider_label}</span></td></tr>
             <tr><td>Activities</td><td id="sync-db-count">
                 {activity_count} total
-                <span class="rl-meta" id="sync-by-source">(icu {by_source["icu"]} · google {by_source["google_health"]} · legacy strava {by_source.get("strava", 0)})</span>
+                <span class="rl-meta" id="sync-by-source">{by_source_initial}</span>
             </td></tr>
             <tr id="sync-details-row" style="{details_row_style}">
                 <td>Activity details</td>
@@ -456,32 +490,43 @@ async def home(request: Request):
                 }}
                 const provEl = document.getElementById("sync-provider");
                 if (provEl) {{
-                    provEl.textContent = (s.is_running && s.provider) ? "(" + s.provider + ")" : "";
+                    provEl.textContent = (s.is_running && s.active_source) ? "(" + s.active_source + ")" : "";
                 }}
                 const lastEl = document.getElementById("sync-last");
                 if (lastEl) lastEl.textContent = "Last sync " + fmtLast(s.last_sync);
                 const by = s.activities_by_source || {{}};
                 const dbEl = document.getElementById("sync-db-count");
                 if (dbEl) {{
-                    const total = (by.icu || 0) + (by.google_health || 0) + (by.strava || 0);
-                    dbEl.innerHTML = total + " total"
-                        + ' <span class="rl-meta" id="sync-by-source">(icu ' + (by.icu || 0)
-                        + " · google " + (by.google_health || 0) + " · legacy strava " + (by.strava || 0) + ")</span>";
+                    let total = 0;
+                    const parts = [];
+                    Object.keys(by).sort(function(a, b) {{ return by[b] - by[a]; }}).forEach(function(name) {{
+                        total += by[name];
+                        parts.push((s.source_labels && s.source_labels[name] ? s.source_labels[name] : name) + " " + by[name]);
+                    }});
+                    if (s.superseded) {{
+                        parts.push(s.superseded + " hidden duplicate" + (s.superseded === 1 ? "" : "s"));
+                    }}
+                    const suffix = parts.length ? ' <span class="rl-meta" id="sync-by-source">(' + parts.join(" · ") + ")</span>" : "";
+                    dbEl.innerHTML = total + " total" + suffix;
                 }}
                 setPendingRow("sync-details-row", "sync-details-text", "sync-details-bar",
                     s.details.fetched, s.details.pending, s.details.total);
                 setPendingRow("sync-streams-row", "sync-streams-text", "sync-streams-bar",
                     s.streams.fetched, s.streams.pending, s.streams.total);
-                const rl15 = document.getElementById("sync-rl-15min");
-                if (rl15 && s.rate_limit && s.rate_limit.fifteen_min) {{
-                    rl15.textContent = s.rate_limit.fifteen_min.used + "/" + s.rate_limit.fifteen_min.limit;
-                }}
-                const rlD = document.getElementById("sync-rl-daily");
-                if (rlD && s.rate_limit && s.rate_limit.daily) {{
-                    rlD.textContent = s.rate_limit.daily.used + "/" + s.rate_limit.daily.limit;
-                }}
-                const rlChecked = document.getElementById("sync-rl-checked");
-                if (rlChecked && s.rate_limit) rlChecked.textContent = fmtAgo(s.rate_limit.last_checked_at);
+                let rlChecked = null;
+                Object.keys(s.rate_limits || {{}}).forEach(function(name) {{
+                    const rl = s.rate_limits[name];
+                    if (!rl || !rl.known) return;
+                    const el15 = document.getElementById("sync-rl-" + name + "-15min");
+                    if (el15 && rl.fifteen_min) el15.textContent = rl.fifteen_min.used + "/" + rl.fifteen_min.limit;
+                    const elD = document.getElementById("sync-rl-" + name + "-daily");
+                    if (elD && rl.daily) elD.textContent = rl.daily.used + "/" + rl.daily.limit;
+                    if (rl.last_checked_at && (!rlChecked || rl.last_checked_at > rlChecked)) {{
+                        rlChecked = rl.last_checked_at;
+                    }}
+                }});
+                const rlCheckedEl = document.getElementById("sync-rl-checked");
+                if (rlCheckedEl) rlCheckedEl.textContent = fmtAgo(rlChecked);
                 const rlBtn = document.getElementById("sync-rl-refresh");
                 if (rlBtn) rlBtn.disabled = !!s.is_running;
                 const errRow = document.getElementById("sync-error-row");
@@ -569,7 +614,7 @@ async def home(request: Request):
                 </div>
             </div>
             {metrics_info}
-            {_sources_card_html(icu_ok=icu_ok, google_health_connected=google_health_connected)}
+            {_sources_card_html(states)}
             {sync_info}
             {_plugin_links_html(active_plugins)}
             """,
@@ -582,12 +627,13 @@ async def _build_status_payload() -> dict:
         athlete_id = await _primary_athlete_id(session)
         counts = await _progress_counts(session, athlete_id)
 
-    rl_last = sync_state.rate_limit_last_checked_at
-    payload = {
+    return {
         "is_running": sync_state.is_running,
         "phase": sync_state.phase,
-        "provider": sync_state.provider,
+        "active_source": sync_state.active_source,
         "activities_by_source": counts["by_source"],
+        "source_labels": SOURCE_LABELS,
+        "superseded": counts["superseded"],
         "details": {
             "fetched": counts["details_done"],
             "pending": counts["details_pending"],
@@ -598,24 +644,10 @@ async def _build_status_payload() -> dict:
             "pending": counts["streams_pending"],
             "total": counts["total"],
         },
+        "rate_limits": sync_state.rate_limit_payload(),
         "last_error": sync_state.last_error,
         "last_sync": sync_state.last_sync.isoformat() if sync_state.last_sync else None,
     }
-    if settings.icu_enabled():
-        payload["rate_limit"] = {
-            "fifteen_min": {
-                "used": sync_state.rate_limit_15min_usage,
-                "limit": sync_state.rate_limit_15min_limit,
-            },
-            "daily": {
-                "used": sync_state.rate_limit_daily_usage,
-                "limit": sync_state.rate_limit_daily_limit,
-            },
-            "last_checked_at": rl_last.isoformat() if rl_last else None,
-        }
-    else:
-        payload["rate_limit"] = None
-    return payload
 
 
 @app.get("/sync/status")
@@ -625,26 +657,22 @@ async def sync_status():
 
 @app.post("/sync/refresh-rate-limit")
 async def refresh_rate_limit():
-    """Probe intervals.icu athlete endpoint to refresh rate-limit headers."""
+    """Refresh each connected source's published quota headers."""
     if sync_state.is_running:
         return JSONResponse(
             status_code=409,
             content={"error": "A sync is already running; rate limits will update from that."},
         )
-    if not settings.icu_enabled():
+    if not config.sources.enabled_names():
         return JSONResponse(
             status_code=400,
-            content={"error": "intervals.icu is not configured."},
+            content={"error": "No activity source is enabled."},
         )
-    client = IntervalsClient()
     try:
-        await client.get_athlete()
-        _snapshot_rate_limits(client)
-    except Exception as e:
+        await refresh_rate_limits()
+    except Exception as e:  # noqa: BLE001 - surfaced to the status page
         logger.warning("Rate-limit refresh failed: %s", e)
         return JSONResponse(status_code=502, content={"error": str(e)})
-    finally:
-        await client.close()
     return await _build_status_payload()
 
 

@@ -10,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from withings_plugin.config import settings
 from withings_plugin.models import WithingsToken
+from withings_plugin.options import API_BASE, TOKEN_URL, WithingsOptions
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,9 @@ def measure_value_to_float(value: int, unit: int) -> float:
 
 
 class WithingsClient:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, options: WithingsOptions):
         self.session = session
+        self.options = options
 
     async def _get_token_row(self) -> WithingsToken | None:
         result = await self.session.execute(select(WithingsToken).limit(1))
@@ -34,14 +35,14 @@ class WithingsClient:
     async def exchange_code(self, code: str) -> dict[str, Any]:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                settings.WITHINGS_TOKEN_URL,
+                TOKEN_URL,
                 data={
                     "action": "requesttoken",
                     "grant_type": "authorization_code",
-                    "client_id": settings.WITHINGS_CLIENT_ID,
-                    "client_secret": settings.WITHINGS_CLIENT_SECRET,
+                    "client_id": self.options.client_id,
+                    "client_secret": self.options.client_secret,
                     "code": code,
-                    "redirect_uri": settings.oauth_callback_url,
+                    "redirect_uri": self.options.oauth_callback_url,
                 },
             )
         response.raise_for_status()
@@ -53,12 +54,12 @@ class WithingsClient:
     async def _refresh_access_token(self, token: WithingsToken) -> WithingsToken:
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                settings.WITHINGS_TOKEN_URL,
+                TOKEN_URL,
                 data={
                     "action": "requesttoken",
                     "grant_type": "refresh_token",
-                    "client_id": settings.WITHINGS_CLIENT_ID,
-                    "client_secret": settings.WITHINGS_CLIENT_SECRET,
+                    "client_id": self.options.client_id,
+                    "client_secret": self.options.client_secret,
                     "refresh_token": token.refresh_token,
                 },
             )
@@ -117,7 +118,7 @@ class WithingsClient:
         access_token = await self.get_valid_access_token()
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{settings.WITHINGS_API_BASE}/measure",
+                f"{API_BASE}/measure",
                 data={
                     "action": "getmeas",
                     "meastype": meastype,

@@ -13,66 +13,82 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings
 from models import OAuthToken
+from sources.base import SourceRateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
+SOURCE_NAME = "google_health"
 PROVIDER = "google_health"
 
+DEFAULT_API_BASE = "https://health.googleapis.com/v4"
 
-class RateLimitExceeded(Exception):
-    def __init__(self, reset_after: float = 60.0):
-        self.reset_after = reset_after
-        super().__init__(f"Rate limit exceeded. Reset after {reset_after:.0f}s")
+# Endpoints and scopes are properties of the provider, not deployment config.
+OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+SCOPES = " ".join(
+    [
+        "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+        "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+    ]
+)
 
 
 class GoogleHealthClient:
-    """Async Google Health client with OAuth refresh for Google Health exercise data."""
+    """Async Google Health client with OAuth refresh for exercise data."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        client_id: str = "",
+        client_secret: str = "",
+        api_base: str = DEFAULT_API_BASE,
+        redirect_uri: str = "",
+    ):
         self.session = session
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.api_base = (api_base or DEFAULT_API_BASE).rstrip("/")
+        self.redirect_uri = redirect_uri
         self._http = httpx.AsyncClient(timeout=60.0)
         self._token_lock = asyncio.Lock()
-        self._rate_limit_usage_15min = 0
-        self._rate_limit_limit_15min = 1000
-        self._rate_limit_usage_daily = 0
-        self._rate_limit_limit_daily = 10000
 
     async def close(self) -> None:
         await self._http.aclose()
 
-    @staticmethod
-    def authorization_url(state: str = "google_health") -> str:
+    # ── OAuth ───────────────────────────────────────────────────────
+
+    def authorization_url(self, state: str = "google_health") -> str:
         params = {
-            "client_id": settings.GOOGLE_HEALTH_CLIENT_ID,
+            "client_id": self.client_id,
             "response_type": "code",
-            "redirect_uri": settings.google_oauth_callback_url,
-            "scope": settings.GOOGLE_HEALTH_SCOPES,
+            "redirect_uri": self.redirect_uri,
+            "scope": SCOPES,
             "access_type": "offline",
             "prompt": "consent",
             "include_granted_scopes": "false",
             "state": state,
         }
-        return f"{settings.GOOGLE_OAUTH_AUTH_URL}?{urlencode(params)}"
+        return f"{OAUTH_AUTH_URL}?{urlencode(params)}"
 
-    @staticmethod
-    async def exchange_code(code: str) -> dict:
-        async with httpx.AsyncClient(timeout=30.0) as http:
-            response = await http.post(
-                settings.GOOGLE_OAUTH_TOKEN_URL,
-                data={
-                    "client_id": settings.GOOGLE_HEALTH_CLIENT_ID,
-                    "client_secret": settings.GOOGLE_HEALTH_CLIENT_SECRET,
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": settings.google_oauth_callback_url,
-                },
-            )
-            response.raise_for_status()
-            return response.json()
+    async def exchange_code(self, code: str) -> dict:
+        response = await self._http.post(
+            OAUTH_TOKEN_URL,
+            data={
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": self.redirect_uri,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
 
-    async def store_tokens(self, token_payload: dict, external_user_id: str | None = None) -> None:
+    async def store_tokens(
+        self, token_payload: dict, external_user_id: str | None = None
+    ) -> None:
         expires_in = int(token_payload.get("expires_in", 3600))
         expires_at = int(time.time()) + expires_in
         refresh = token_payload.get("refresh_token")
@@ -128,10 +144,10 @@ class GoogleHealthClient:
             if token.expires_at < time.time() + 300:
                 logger.info("Google Health access token expiring; refreshing...")
                 response = await self._http.post(
-                    settings.GOOGLE_OAUTH_TOKEN_URL,
+                    OAUTH_TOKEN_URL,
                     data={
-                        "client_id": settings.GOOGLE_HEALTH_CLIENT_ID,
-                        "client_secret": settings.GOOGLE_HEALTH_CLIENT_SECRET,
+                        "client_id": self.client_id,
+                        "client_secret": self.client_secret,
                         "grant_type": "refresh_token",
                         "refresh_token": token.refresh_token,
                     },
@@ -139,7 +155,8 @@ class GoogleHealthClient:
                 if response.status_code != 200:
                     logger.error("Token refresh failed: %s", response.text)
                     raise ValueError(
-                        "Google Health token refresh failed; reconnect Google Health from the home page."
+                        "Google Health token refresh failed; reconnect Google Health "
+                        "from the home page."
                     )
                 data = response.json()
                 token.access_token = data["access_token"]
@@ -151,19 +168,20 @@ class GoogleHealthClient:
 
             return token.access_token
 
-    async def _request(
-        self, method: str, path: str, **kwargs
-    ) -> dict | list | None:
+    # ── Requests ────────────────────────────────────────────────────
+
+    async def _request(self, method: str, path: str, **kwargs) -> dict | list | None:
         access_token = await self._ensure_valid_token()
-        base = settings.GOOGLE_HEALTH_API_BASE.rstrip("/")
-        url = path if path.startswith("http") else f"{base}{path}"
+        url = path if path.startswith("http") else f"{self.api_base}{path}"
         headers = kwargs.pop("headers", {})
         headers["Authorization"] = f"Bearer {access_token}"
         response = await self._http.request(method, url, headers=headers, **kwargs)
 
         if response.status_code == 429:
             retry_after = response.headers.get("Retry-After", "60")
-            raise RateLimitExceeded(reset_after=float(retry_after))
+            raise SourceRateLimitExceeded(
+                source=SOURCE_NAME, reset_after=float(retry_after)
+            )
 
         response.raise_for_status()
         if response.status_code == 204 or not response.content:
@@ -235,7 +253,11 @@ class GoogleHealthClient:
 
     async def get_exercise(self, name: str) -> dict:
         """GET a single exercise data point by resource name."""
-        path = name if name.startswith("users/") else f"users/me/dataTypes/exercise/dataPoints/{name}"
+        path = (
+            name
+            if name.startswith("users/")
+            else f"users/me/dataTypes/exercise/dataPoints/{name}"
+        )
         if not path.startswith("/"):
             path = "/" + path
         data = await self._request("GET", path)

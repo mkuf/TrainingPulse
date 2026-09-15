@@ -12,18 +12,25 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 @runtime_checkable
 class TrainingPulsePlugin(Protocol):
-    """Optional data-source plugin loaded into the core FastAPI app."""
+    """Optional data-source plugin loaded into the core FastAPI app.
+
+    Instances are built by the plugin package's ``build_plugin(ctx)`` factory,
+    which receives a :class:`~trainingpulse_common.config.PluginContext`.
+    Whether a plugin is *enabled* is decided by configuration before it is
+    built, so a plugin never has to answer that question itself.
+    """
 
     name: str
-
-    def is_enabled(self) -> bool:
-        """True when listed in ENABLED_PLUGINS."""
 
     def is_configured(self) -> bool:
         """True when required credentials and database URL are set."""
 
     def is_mcp_available(self) -> bool:
-        """True when enabled and the plugin database URL is set (read-only MCP)."""
+        """True when the plugin database URL is set (read-only MCP tools).
+
+        Deliberately independent of credentials: the MCP server only reads
+        already-synced tables.
+        """
 
     @property
     def engine(self) -> AsyncEngine:

@@ -214,14 +214,12 @@ async def _migrate_strava_era_schema(conn: AsyncConnection) -> bool:
                 )
             )
 
-    # 7. Drop suffer_score (Strava-specific, not used by new providers)
-    if await _column_exists(conn, "activities", "suffer_score"):
-        await conn.execute(
-            text("ALTER TABLE activities DROP COLUMN suffer_score")
-        )
-        logger.info("Dropped activities.suffer_score column")
+    # 7. suffer_score is Strava-only but no longer dropped: Strava is a
+    #    first-class source again, so a Strava-era database keeps its values.
 
     # ── Drop strava_tokens table ────────────────────────────────────────
+    # Strava OAuth now lives in the shared oauth_tokens table, so the old
+    # single-provider table is obsolete. Reconnecting Strava re-authorizes.
     if await _table_exists(conn, "strava_tokens"):
         await conn.execute(text("DROP TABLE IF EXISTS strava_tokens CASCADE"))
         logger.info("Dropped strava_tokens table")
@@ -232,15 +230,62 @@ async def _migrate_strava_era_schema(conn: AsyncConnection) -> bool:
     return True
 
 
-async def _ensure_active_activities_view(conn: AsyncConnection) -> None:
-    """Create or replace the active_activities view.
+async def _restore_suffer_score(conn: AsyncConnection) -> None:
+    """Re-add ``activities.suffer_score`` and adopt preserved Strava rows.
 
-    This view excludes superseded activities so Grafana dashboards and
-    aggregate queries automatically filter out duplicates.
+    An earlier release dropped this column when Strava was replaced by
+    intervals.icu and Google Health. Strava is a source again, so the column
+    comes back and the preserved ``strava_<id>`` rows — whose ids are still real
+    Strava activity ids — are re-queued for a detail fetch to recover the lost
+    values and pick up any upstream edits.
+
+    Guarded on the column's absence, so it runs exactly once per database.
+    ``create_all`` adds the column on a fresh database, where there is nothing
+    to adopt; a Strava-era database still has its values and is left alone.
+
+    Streams are deliberately *not* re-queued: the earlier migration re-prefixed
+    ``activity_streams`` rather than deleting them, so the time series survived.
+    Re-fetching them would burn Strava's tight read budget to replace data we
+    already hold.
     """
+    if not await _table_exists(conn, "activities"):
+        return
+    if await _column_exists(conn, "activities", "suffer_score"):
+        return
+
+    await conn.execute(text("ALTER TABLE activities ADD COLUMN suffer_score FLOAT"))
+    logger.info("Re-added activities.suffer_score column")
+
+    result = await conn.execute(
+        text(
+            "UPDATE activities SET detail_synced = false "
+            "WHERE source = 'strava' AND detail_synced = true"
+        )
+    )
+    adopted = result.rowcount or 0
+    if adopted:
+        logger.info(
+            "Queued %d preserved Strava activities for a detail refresh; "
+            "only the ones that win on precedence will be fetched",
+            adopted,
+        )
+
+
+async def _ensure_active_activities_view(conn: AsyncConnection) -> None:
+    """Create the active_activities view, excluding superseded activities.
+
+    Grafana dashboards and aggregate queries read this view so duplicated
+    activities from overlapping sources are filtered out automatically.
+
+    The view is dropped and rebuilt rather than replaced: it is a ``SELECT *``,
+    whose column list is fixed at creation time, and ``CREATE OR REPLACE VIEW``
+    can only *append* columns. Re-adding ``suffer_score`` puts a column back in
+    the middle of ``activities``, which a replace would reject.
+    """
+    await conn.execute(text("DROP VIEW IF EXISTS active_activities"))
     await conn.execute(
         text(
-            "CREATE OR REPLACE VIEW active_activities AS "
+            "CREATE VIEW active_activities AS "
             "SELECT * FROM activities WHERE superseded_by IS NULL"
         )
     )
@@ -291,5 +336,6 @@ async def ensure_schema(conn: AsyncConnection) -> None:
         )
     await conn.run_sync(Base.metadata.create_all)
     await migrate_fitbit_labels(conn)
+    await _restore_suffer_score(conn)
     await _ensure_active_activities_view(conn)
 

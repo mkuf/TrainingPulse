@@ -4,34 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 
 import httpx
 
-from config import settings
+from sources.base import SourceRateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
+SOURCE_NAME = "icu"
+
+DEFAULT_API_BASE = "https://intervals.icu/api/v1"
+
+# intervals.icu sits behind Cloudflare and rejects non-browser user agents.
 USER_AGENT = (
     "Mozilla/5.0 (compatible; TrainingPulse/1.0; +https://github.com/trainingpulse)"
 )
 
 
-class RateLimitExceeded(Exception):
-    """Raised when we need to wait for the rate limit window to reset."""
-
-    def __init__(self, reset_after: float):
-        self.reset_after = reset_after
-        super().__init__(f"Rate limit exceeded. Reset after {reset_after:.0f}s")
-
-
 class IntervalsClient:
-    """Async intervals.icu client using personal API key (Basic auth)."""
+    """Async intervals.icu client using a personal API key (HTTP Basic)."""
 
-    def __init__(self, api_key: str | None = None):
-        self.api_key = (api_key or settings.INTERVALS_ICU_API_KEY).strip()
+    def __init__(self, api_key: str, *, api_base: str = DEFAULT_API_BASE):
+        self.api_key = (api_key or "").strip()
         if not self.api_key:
-            raise ValueError("INTERVALS_ICU_API_KEY is not set")
+            raise ValueError("intervals.icu API key is not set")
+        self.api_base = (api_base or DEFAULT_API_BASE).rstrip("/")
         self._http = httpx.AsyncClient(
             timeout=60.0,
             headers={"User-Agent": USER_AGENT},
@@ -42,6 +39,7 @@ class IntervalsClient:
         self._rate_limit_limit_15min = 2500
         self._rate_limit_usage_daily = 0
         self._rate_limit_limit_daily = 5000
+        self._rate_limit_seen = False
         self._rate_limit_lock = asyncio.Lock()
 
     async def close(self) -> None:
@@ -67,6 +65,28 @@ class IntervalsClient:
             rem_15, rem_daily = remaining
             self._rate_limit_usage_15min = max(0, limit[0] - rem_15)
             self._rate_limit_usage_daily = max(0, limit[1] - rem_daily)
+            self._rate_limit_seen = True
+
+    @property
+    def rate_limit_seen(self) -> bool:
+        """True once the provider has reported quota headers."""
+        return self._rate_limit_seen
+
+    @property
+    def rate_limit_usage_15min(self) -> int:
+        return self._rate_limit_usage_15min
+
+    @property
+    def rate_limit_limit_15min(self) -> int:
+        return self._rate_limit_limit_15min
+
+    @property
+    def rate_limit_usage_daily(self) -> int:
+        return self._rate_limit_usage_daily
+
+    @property
+    def rate_limit_limit_daily(self) -> int:
+        return self._rate_limit_limit_daily
 
     @property
     def rate_limit_remaining_15min(self) -> int:
@@ -95,14 +115,11 @@ class IntervalsClient:
                     self._rate_limit_usage_daily,
                     self._rate_limit_limit_daily,
                 )
-                raise RateLimitExceeded(reset_after=3600)
+                raise SourceRateLimitExceeded(source=SOURCE_NAME, reset_after=3600)
 
-    async def _request(
-        self, method: str, path: str, **kwargs
-    ) -> dict | list | None:
+    async def _request(self, method: str, path: str, **kwargs) -> dict | list | None:
         await self._wait_for_rate_limit()
-        base = settings.INTERVALS_ICU_API_BASE.rstrip("/")
-        url = f"{base}{path}"
+        url = f"{self.api_base}{path}"
         response = await self._http.request(method, url, **kwargs)
         self._update_rate_limits(response)
 
@@ -110,7 +127,7 @@ class IntervalsClient:
             retry_after = response.headers.get("Retry-After")
             reset = float(retry_after) if retry_after else 900.0
             logger.warning("Got 429 from intervals.icu (Retry-After=%s)", reset)
-            raise RateLimitExceeded(reset_after=reset)
+            raise SourceRateLimitExceeded(source=SOURCE_NAME, reset_after=reset)
 
         response.raise_for_status()
         if response.status_code == 204 or not response.content:
@@ -118,16 +135,11 @@ class IntervalsClient:
         return response.json()
 
     async def get_athlete(self) -> dict:
-        """GET /athlete/0 — authenticated athlete profile."""
+        """GET /athlete/0 — used only to verify the key and read the athlete id."""
         data = await self._request("GET", "/athlete/0")
         if not isinstance(data, dict):
             raise ValueError("Unexpected athlete response")
         return data
-
-    async def get_sport_settings(self) -> list | dict:
-        """GET /athlete/0/sport-settings — FTP, HR zones per sport."""
-        data = await self._request("GET", "/athlete/0/sport-settings")
-        return data if data is not None else []
 
     async def list_activities(
         self,
@@ -140,9 +152,7 @@ class IntervalsClient:
         params: dict = {"oldest": oldest, "newest": newest}
         if limit is not None:
             params["limit"] = limit
-        data = await self._request(
-            "GET", "/athlete/0/activities", params=params
-        )
+        data = await self._request("GET", "/athlete/0/activities", params=params)
         if data is None:
             return []
         if not isinstance(data, list):
@@ -152,19 +162,14 @@ class IntervalsClient:
     async def get_activity(self, activity_id: str, *, intervals: bool = False) -> dict:
         """GET /activity/{id}."""
         params = {"intervals": "true"} if intervals else None
-        # Strip provider prefix if present
-        raw_id = activity_id.removeprefix("icu_").removeprefix("icu:")
-        data = await self._request(
-            "GET", f"/activity/{raw_id}", params=params
-        )
+        data = await self._request("GET", f"/activity/{activity_id}", params=params)
         if not isinstance(data, dict):
             raise ValueError("Unexpected activity response")
         return data
 
     async def get_activity_streams(self, activity_id: str) -> dict:
         """GET /activity/{id}/streams.json — keyed stream arrays."""
-        raw_id = activity_id.removeprefix("icu_").removeprefix("icu:")
-        data = await self._request("GET", f"/activity/{raw_id}/streams.json")
+        data = await self._request("GET", f"/activity/{activity_id}/streams.json")
         if data is None:
             return {}
         if isinstance(data, dict):

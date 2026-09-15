@@ -8,13 +8,14 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from fddb_plugin.config import settings
+from fddb_plugin.options import FddbOptions
 from fddb_plugin.sync import get_status, run_sync
 
 SETUP_BODY = """
 <div class="card">
-  <p>Set <code>FDDB_USER</code>, <code>FDDB_PW</code>, and <code>FDDB_COOKIE</code>
-    in your <code>.env</code>, enable <code>ENABLED_PLUGINS=fddb</code>, then restart.</p>
+  <p>Set <code>plugins.fddb.user</code>, <code>plugins.fddb.password</code>, and
+    <code>plugins.fddb.cookie</code> in <code>config.yaml</code>, set
+    <code>plugins.fddb.enabled: true</code>, then restart.</p>
   <h3>How to get the session cookie</h3>
   <ol>
     <li>Log in at <a href="https://fddb.info/" target="_blank">fddb.info</a>.</li>
@@ -51,17 +52,19 @@ def _page(title: str, body: str) -> str:
 </html>"""
 
 
-def create_router(session_factory: async_sessionmaker) -> APIRouter:
+def create_router(
+    session_factory: async_sessionmaker, options: FddbOptions
+) -> APIRouter:
     router = APIRouter()
 
     async def trigger_sync_task() -> None:
         async with session_factory() as session:
-            await run_sync(session)
+            await run_sync(session, options)
 
     @router.get("/", response_class=HTMLResponse)
     async def home():
         async with session_factory() as session:
-            status = await get_status(session)
+            status = await get_status(session, options)
 
         if not status["configured"]:
             return HTMLResponse(_page("Setup", SETUP_BODY))
@@ -81,7 +84,7 @@ def create_router(session_factory: async_sessionmaker) -> APIRouter:
             ({status['latest_kcal'] or '—'} kcal)</p>
           <p><strong>Sync running:</strong> {sync.get('running')}</p>
           {err}
-          <form method="post" action="{settings.PLUGIN_PREFIX}/sync/trigger">
+          <form method="post" action="{options.prefix}/sync/trigger">
             <button type="submit">Sync now</button>
           </form>
         </div>
@@ -91,7 +94,7 @@ def create_router(session_factory: async_sessionmaker) -> APIRouter:
     @router.post("/sync/trigger")
     async def sync_trigger():
         asyncio.create_task(trigger_sync_task())
-        return RedirectResponse(f"{settings.PLUGIN_PREFIX}/", status_code=303)
+        return RedirectResponse(f"{options.prefix}/", status_code=303)
 
     @router.get("/api/health")
     async def api_health():

@@ -3,49 +3,52 @@
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any
+from typing import Any, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
-from trainingpulse_common import TrainingPulsePlugin
+from trainingpulse_common import Config, PluginContext, TrainingPulsePlugin
+from trainingpulse_common.config import PLUGIN_NAMES, plugin_context
 
 logger = logging.getLogger(__name__)
 
-_PLUGIN_BUILDERS: dict[str, Any] = {
-    "withings": lambda: __import__(
+_PLUGIN_BUILDERS: dict[str, Callable[[PluginContext], TrainingPulsePlugin]] = {
+    "withings": lambda ctx: __import__(
         "withings_plugin", fromlist=["build_plugin"]
-    ).build_plugin(),
-    "fddb": lambda: __import__(
+    ).build_plugin(ctx),
+    "fddb": lambda ctx: __import__(
         "fddb_plugin", fromlist=["build_plugin"]
-    ).build_plugin(),
+    ).build_plugin(ctx),
 }
 
 
-def _parse_enabled() -> set[str]:
-    raw = os.environ.get("ENABLED_PLUGINS", "")
-    return {name.strip().lower() for name in raw.split(",") if name.strip()}
+def enabled_plugin_names(config: Config) -> list[str]:
+    """Plugin names enabled in configuration, in declaration order."""
+    return config.plugins.enabled_names()
 
 
-def enabled_plugin_names() -> list[str]:
-    """Sorted plugin names listed in ENABLED_PLUGINS (withings, fddb)."""
-    known = ("withings", "fddb")
-    enabled = _parse_enabled()
-    return [name for name in known if name in enabled]
+def load_plugins(
+    config: Config, *, for_mcp: bool = False
+) -> list[TrainingPulsePlugin]:
+    """Build every enabled plugin that is usable in this process.
 
-
-def load_plugins(*, for_mcp: bool = False) -> list[TrainingPulsePlugin]:
-    enabled = _parse_enabled()
+    The core app needs full credentials; the MCP server only reads tables, so
+    it accepts a plugin that merely has a database URL.
+    """
     loaded: list[TrainingPulsePlugin] = []
-    for name in ("withings", "fddb"):
-        if name not in enabled:
-            continue
+    for name in config.plugins.enabled_names():
         builder = _PLUGIN_BUILDERS.get(name)
         if builder is None:
-            logger.warning("Unknown plugin in ENABLED_PLUGINS: %s", name)
+            logger.warning("No builder registered for plugin: %s", name)
             continue
-        plugin = builder()
+
+        try:
+            plugin = builder(plugin_context(config, name))
+        except Exception as exc:  # noqa: BLE001 - one plugin must not stop boot
+            logger.error("Plugin %s failed to initialize: %s", name, exc)
+            continue
+
         if for_mcp:
             if not plugin.is_mcp_available():
                 logger.warning(
@@ -59,6 +62,7 @@ def load_plugins(*, for_mcp: bool = False) -> list[TrainingPulsePlugin]:
                 name,
             )
             continue
+
         loaded.append(plugin)
         logger.info("Loaded plugin: %s", name)
     return loaded
@@ -97,3 +101,13 @@ async def dispose_plugins(plugins: list[TrainingPulsePlugin]) -> None:
     for plugin in plugins:
         if hasattr(plugin, "dispose"):
             await plugin.dispose()
+
+
+__all__ = [
+    "PLUGIN_NAMES",
+    "dispose_plugins",
+    "enabled_plugin_names",
+    "load_plugins",
+    "register_plugin_mcp_tools",
+    "setup_plugins",
+]

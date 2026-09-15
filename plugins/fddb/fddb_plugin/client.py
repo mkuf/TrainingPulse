@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 
-from fddb_plugin.config import settings
+from fddb_plugin.options import FddbOptions
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +146,10 @@ def _find_summary_value(soup: BeautifulSoup, labels: tuple[str, ...]) -> float:
 
 
 class FddbClient:
-    def __init__(self) -> None:
-        self._cookie = settings.FDDB_COOKIE.strip()
-        self._auth_header = self._basic_auth_header(settings.FDDB_USER, settings.FDDB_PW)
+    def __init__(self, options: FddbOptions) -> None:
+        self.options = options
+        self._cookie = options.cookie.strip()
+        self._auth_header = self._basic_auth_header(options.user, options.password)
 
     @staticmethod
     def _basic_auth_header(user: str, password: str) -> str:
@@ -165,8 +166,8 @@ class FddbClient:
     async def fetch_day(self, client: httpx.AsyncClient, day: date) -> DailyNutritionData:
         start_ts, end_ts = day_timeframe(day)
         url = (
-            f"{settings.FDDB_BASE_URL}/db/i18n/myday20/"
-            f"?lang={settings.FDDB_LANG}&p={start_ts}&q={end_ts}"
+            f"{self.options.base_url}/db/i18n/myday20/"
+            f"?lang={self.options.lang}&p={start_ts}&q={end_ts}"
         )
         response = await client.get(url, headers=self._headers(), follow_redirects=True)
         response.raise_for_status()
@@ -182,7 +183,9 @@ class FddbClient:
         if end_day < start_day:
             raise ValueError("end_day must be on or after start_day")
 
-        pause = (delay_ms if delay_ms is not None else settings.SYNC_REQUEST_DELAY_MS) / 1000
+        pause = (
+            delay_ms if delay_ms is not None else self.options.request_delay_ms
+        ) / 1000
         results: list[DailyNutritionData] = []
         parse_errors: list[FddbParseError] = []
         day = start_day

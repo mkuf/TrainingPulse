@@ -1,0 +1,19 @@
+# Build context is the repository root (see docker-compose.yml), so this file
+# is what actually applies — app/.dockerignore is never read.
+.git
+.gitignore
+.env
+.env.*
+config.yaml
+.kilo
+.cursor
+screenshots
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/*.egg-info
+grafana/dashboards
+README.md
+DEVELOPERS.md

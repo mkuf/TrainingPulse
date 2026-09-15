@@ -3,7 +3,6 @@
 Exposes read-only, training-aware tools over MCP for local/network clients.
 """
 
-import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, AsyncIterator
@@ -13,6 +12,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import Select, desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import config
 from database import async_session
 from models import Activity, ActivityStream, AthleteSettings, DailyMetrics
 from plugins.registry import load_plugins, register_plugin_mcp_tools
@@ -20,15 +20,6 @@ from plugins.registry import load_plugins, register_plugin_mcp_tools
 APP_NAME = "TrainingPulse MCP"
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
-DEFAULT_ALLOWED_HOSTS = "localhost:*,127.0.0.1:*"
-
-
-def _csv_env(name: str, default: str) -> list[str]:
-    return [
-        value.strip()
-        for value in os.environ.get(name, default).split(",")
-        if value.strip()
-    ]
 
 
 def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
@@ -40,9 +31,6 @@ def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
         origins.append(f"http://{host}")
         origins.append(f"https://{host}")
     return origins
-
-
-MCP_ALLOWED_HOSTS = _csv_env("MCP_ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS)
 
 
 mcp = FastMCP(
@@ -57,8 +45,8 @@ mcp = FastMCP(
     json_response=True,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=MCP_ALLOWED_HOSTS,
-        allowed_origins=_allowed_origins(MCP_ALLOWED_HOSTS),
+        allowed_hosts=config.mcp.allowed_hosts,
+        allowed_origins=_allowed_origins(config.mcp.allowed_hosts),
     ),
 )
 
@@ -98,10 +86,16 @@ def _apply_activity_filters(
     end_date: date | None = None,
     sport_type: str | None = None,
     gear_name: str | None = None,
+    include_superseded: bool = False,
 ) -> Select:
     start_at = _start_datetime(start_date)
     end_at = _end_datetime(end_date)
 
+    if not include_superseded:
+        # The same workout can arrive from several sources. Only the row that
+        # wins on precedence is visible, otherwise every aggregate here would
+        # double-count duplicated activities.
+        stmt = stmt.where(Activity.superseded_by == None)  # noqa: E711
     if start_at is not None:
         stmt = stmt.where(Activity.start_date >= start_at)
     if end_at is not None:
@@ -374,6 +368,9 @@ async def get_activity_detail(activity_id: str) -> dict[str, Any]:
         "hr_zone_seconds": _zone_seconds(activity.hr_zone_seconds),
         "power_zone_seconds": _zone_seconds(activity.power_zone_seconds),
         "source": activity.source,
+        # Direct id lookups deliberately still resolve a hidden duplicate, so
+        # the caller needs to be told that it is one.
+        "superseded_by": activity.superseded_by,
         "detail_synced": activity.detail_synced,
         "streams_synced": activity.synced_streams,
         "stream_types": stream_types,
@@ -530,6 +527,18 @@ async def get_sync_health() -> dict[str, Any]:
         ),
         activity_count.filter(Activity.average_watts.is_(None)).label("without_power"),
         func.max(Activity.start_date).label("latest_activity_date"),
+    ).where(
+        # Superseded duplicates are never shown and never enriched, so counting
+        # them here would permanently report a sync that looks incomplete.
+        Activity.superseded_by == None  # noqa: E711
+    )
+    superseded_stmt = select(func.count(Activity.id)).where(
+        Activity.superseded_by != None  # noqa: E711
+    )
+    by_source_stmt = (
+        select(Activity.source, func.count(Activity.id))
+        .where(Activity.superseded_by == None)  # noqa: E711
+        .group_by(Activity.source)
     )
     settings_stmt = (
         select(AthleteSettings).order_by(desc(AthleteSettings.updated_at)).limit(1)
@@ -538,6 +547,8 @@ async def get_sync_health() -> dict[str, Any]:
 
     async with _readonly_session() as session:
         row = (await session.execute(stmt)).one()
+        superseded = (await session.execute(superseded_stmt)).scalar_one()
+        by_source = dict((await session.execute(by_source_stmt)).all())
         athlete_settings = (await session.scalars(settings_stmt)).first()
         latest_metrics = (await session.scalars(metrics_stmt)).first()
 
@@ -548,6 +559,11 @@ async def get_sync_health() -> dict[str, Any]:
 
     return {
         "activity_count": int(row.activity_count or 0),
+        "activities_by_source": {
+            str(source or "unknown"): int(count or 0)
+            for source, count in by_source.items()
+        },
+        "superseded_duplicates": int(superseded or 0),
         "missing_detail_sync": int(row.missing_details or 0),
         "missing_stream_sync": int(row.missing_streams or 0),
         "activities_without_heart_rate": int(row.without_heart_rate or 0),
@@ -585,13 +601,11 @@ async def get_sync_health() -> dict[str, Any]:
     }
 
 
-_plugin_instances = load_plugins(for_mcp=True)
+_plugin_instances = load_plugins(config, for_mcp=True)
 register_plugin_mcp_tools(mcp, _plugin_instances)
 
 
 if __name__ == "__main__":
-    host = os.environ.get("MCP_HOST", "0.0.0.0")
-    port = int(os.environ.get("MCP_PORT", "8001"))
-    mcp.settings.host = host
-    mcp.settings.port = port
+    mcp.settings.host = config.mcp.host
+    mcp.settings.port = config.mcp.port
     mcp.run(transport="streamable-http")

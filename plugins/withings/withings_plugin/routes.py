@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from withings_plugin.client import WithingsClient
-from withings_plugin.config import settings
+from withings_plugin.options import AUTH_URL, SCOPES, WithingsOptions
 from withings_plugin.sync import get_status, run_sync, sync_state
 
 logger = logging.getLogger(__name__)
@@ -74,20 +74,21 @@ def _latest_weight_html(weight_kg: float | None) -> str:
     """
 
 
-def _authorize_url(redirect_uri: str | None = None) -> str:
-    uri = redirect_uri or settings.oauth_callback_url
+def _authorize_url(options: WithingsOptions, redirect_uri: str | None = None) -> str:
+    uri = redirect_uri or options.oauth_callback_url
     params = {
         "response_type": "code",
-        "client_id": settings.WITHINGS_CLIENT_ID,
+        "client_id": options.client_id,
         "state": secrets.token_urlsafe(16),
-        "scope": settings.WITHINGS_SCOPES,
+        "scope": SCOPES,
         "redirect_uri": uri,
     }
-    return f"{settings.WITHINGS_AUTH_URL}?{urlencode(params)}"
+    return f"{AUTH_URL}?{urlencode(params)}"
 
 
 def create_router(
     session_factory: async_sessionmaker,
+    options: WithingsOptions,
     *,
     on_connected: Callable[[], None] | None = None,
 ) -> APIRouter:
@@ -95,26 +96,26 @@ def create_router(
 
     async def trigger_sync_task() -> None:
         async with session_factory() as session:
-            await run_sync(session)
+            await run_sync(session, options)
 
     @router.get("/auth/setup")
     async def auth_setup():
-        client_id = settings.WITHINGS_CLIENT_ID
+        client_id = options.client_id
         return JSONResponse(
             {
-                "redirect_uri": settings.oauth_callback_url,
-                "redirect_uri_legacy_path": settings.oauth_callback_url_legacy,
-                "app_base_url": settings.APP_BASE_URL,
+                "redirect_uri": options.oauth_callback_url,
+                "redirect_uri_legacy_path": options.oauth_callback_url_legacy,
+                "app_base_url": options.app_base_url,
                 "client_id_prefix": client_id[:12] + "…" if len(client_id) > 12 else client_id,
-                "authorize_url_preview": _authorize_url(),
+                "authorize_url_preview": _authorize_url(options),
             }
         )
 
     @router.get("/auth/withings")
     async def auth_withings(redirect_uri: str | None = Query(default=None)):
-        allowed = {settings.oauth_callback_url, settings.oauth_callback_url_legacy}
-        uri = redirect_uri if redirect_uri in allowed else settings.oauth_callback_url
-        return RedirectResponse(_authorize_url(uri))
+        allowed = {options.oauth_callback_url, options.oauth_callback_url_legacy}
+        uri = redirect_uri if redirect_uri in allowed else options.oauth_callback_url
+        return RedirectResponse(_authorize_url(options, uri))
 
     @router.api_route("/auth/callback", methods=["GET", "HEAD"])
     @router.api_route("/get_token", methods=["GET", "HEAD"])
@@ -141,7 +142,7 @@ def create_router(
 
         async with session_factory() as session:
             try:
-                client = WithingsClient(session)
+                client = WithingsClient(session, options)
                 body = await client.exchange_code(code)
                 await client.store_tokens(body)
             except (httpx.HTTPError, RuntimeError) as exc:
@@ -181,8 +182,8 @@ def create_router(
                     <div class="card">
                       <p>Connect Withings to sync body weight into TrainingPulse.</p>
                       <p>Callback URL for the Partner dashboard:</p>
-                      <p><code>{settings.oauth_callback_url}</code></p>
-                      <a href="{settings.PLUGIN_PREFIX}/auth/withings" class="btn">Connect Withings</a>
+                      <p><code>{options.oauth_callback_url}</code></p>
+                      <a href="{options.prefix}/auth/withings" class="btn">Connect Withings</a>
                     </div>
                     """,
                 )
@@ -203,7 +204,7 @@ def create_router(
                   {_latest_weight_html(status['latest_weight_kg'])}
                   <p><strong>Sync running:</strong> {sync.get('running')}</p>
                   {err}
-                  <form method="post" action="{settings.PLUGIN_PREFIX}/sync/trigger">
+                  <form method="post" action="{options.prefix}/sync/trigger">
                     <button type="submit">Sync now</button>
                   </form>
                 </div>
@@ -214,7 +215,7 @@ def create_router(
     @router.post("/sync/trigger")
     async def sync_trigger():
         asyncio.create_task(trigger_sync_task())
-        return RedirectResponse(f"{settings.PLUGIN_PREFIX}/", status_code=303)
+        return RedirectResponse(f"{options.prefix}/", status_code=303)
 
     @router.get("/api/health")
     async def api_health():

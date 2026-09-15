@@ -88,6 +88,8 @@ class Activity(Base):
     gear_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gear_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     weighted_average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Strava's "relative effort". Only Strava reports it; NULL elsewhere.
+    suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     training_load: Mapped[float | None] = mapped_column(Float, nullable=True)
     detail_synced: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

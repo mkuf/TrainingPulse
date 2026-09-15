@@ -1,0 +1,117 @@
+# TrainingPulse configuration.
+#
+# Copy to config.yaml and edit. config.yaml is gitignored.
+#
+# Two environment mechanisms sit on top of this file:
+#
+#   1. Structural overrides — TP_<SECTION>__<KEY>, e.g.
+#        TP_SYNC__RECONCILE_DAYS=7
+#        TP_SOURCES__STRAVA__CLIENT_SECRET=abc123
+#        TP_SOURCES__PRECEDENCE=icu,strava        (lists are comma-separated)
+#      An override always beats the value in this file.
+#
+#   2. Value interpolation — ${VAR} or ${VAR:-default} inside a value here,
+#      expanded from the environment before validation. Use this to keep
+#      secrets out of the file (Docker secrets, CI injection). An unset ${VAR}
+#      with no default becomes an empty string and logs a warning.
+#
+# Unknown keys, wrong types, and missing required values abort startup with
+# every problem listed at once.
+
+app:
+  base_url: http://localhost:8000
+  # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  log_level: INFO
+
+database:
+  # Docker Compose sets TP_DATABASE__URL from the POSTGRES_* values in .env,
+  # which the db and grafana containers also need. Leave this alone unless you
+  # run the app outside Compose.
+  url: postgresql+asyncpg://trainingpulse:changeme@db:5432/trainingpulse
+
+# REQUIRED. These are the only source of heart-rate zones and FTP: no provider
+# is asked for a profile. Zones are computed from max_hr and rest_hr.
+# Getting these wrong silently distorts TRIMP and therefore CTL/ATL/TSB for
+# your entire history, which is why there are no defaults.
+athlete:
+  max_hr: 190
+  rest_hr: 60
+  ftp: 250
+
+sources:
+  # Highest precedence first. When two sources report the same workout, the
+  # higher one is shown and the others are stored but hidden. Only the winner
+  # spends detail and stream API calls.
+  #
+  # Precedence is positional and independent of `enabled`, so disabling a
+  # source does not silently promote another one's rows over its history.
+  # Sources you omit rank last.
+  precedence: [icu, strava, google_health]
+
+  # intervals.icu — API key from https://intervals.icu/settings
+  icu:
+    enabled: true
+    api_key: ${INTERVALS_ICU_API_KEY}
+    api_base: https://intervals.icu/api/v1
+
+  # Strava — create an app at https://www.strava.com/settings/api and set the
+  # Authorization Callback Domain to your app.base_url host. The full callback
+  # URL is {app.base_url}/auth/strava/callback
+  #
+  # Strava's default read budget is 100 requests per 15 minutes and 1000 per
+  # day, roughly twenty times tighter than intervals.icu. A full history
+  # backfill with streams can take days; it resumes automatically.
+  strava:
+    enabled: false
+    client_id: ""
+    client_secret: ${STRAVA_CLIENT_SECRET:-}
+
+  # Google Health — OAuth client from Google Cloud Console. The redirect URI
+  # must be exactly {app.base_url}/auth/google/callback
+  google_health:
+    enabled: false
+    client_id: ""
+    client_secret: ${GOOGLE_HEALTH_CLIENT_SECRET:-}
+    api_base: https://health.googleapis.com/v4
+
+sync:
+  interval_minutes: 15
+  # Re-list this many recent days each run to pick up upstream edits. 0 = off.
+  reconcile_days: 90
+  backfill_years: 10
+  # Chunk size for backfill and reconcile listing.
+  window_days: 90
+  detail_concurrency: 5
+  streams_concurrency: 5
+
+mcp:
+  host: 0.0.0.0
+  # Must match the container port published in docker-compose.yml.
+  port: 8001
+  allowed_hosts:
+    - "localhost:*"
+    - "127.0.0.1:*"
+
+plugins:
+  # Body weight from Withings.
+  withings:
+    enabled: false
+    client_id: ""
+    client_secret: ${WITHINGS_CLIENT_SECRET:-}
+    # Blank uses {app.base_url}/plugins/withings/get_token
+    redirect_uri: ""
+    sync_interval_minutes: 60
+    sync_lookback_days: 3650
+
+  # Nutrition from fddb.info. `cookie` is the value of the `fddb` session
+  # cookie, without the `fddb=` prefix.
+  fddb:
+    enabled: false
+    user: ""
+    password: ${FDDB_PW:-}
+    cookie: ${FDDB_COOKIE:-}
+    base_url: https://fddb.info
+    lang: de
+    sync_interval_minutes: 60
+    sync_lookback_days: 365
+    request_delay_ms: 300

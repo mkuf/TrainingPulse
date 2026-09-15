@@ -1,5 +1,10 @@
 .env
+# Deployment configuration: may contain API keys and OAuth secrets.
+config.yaml
 __pycache__/
 *.pyc
 .venv/
 .DS_Store
+.pytest_cache/
+*.egg-info/
+.kilo

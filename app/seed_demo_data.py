@@ -39,16 +39,15 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from fddb_plugin.config import settings as fddb_settings
 from fddb_plugin.models import Base as FddbBase
 from fddb_plugin.models import DailyNutrition
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from trainingpulse_common import make_async_engine, make_session_factory
-from withings_plugin.config import settings as withings_settings
 from withings_plugin.models import Base as WithingsBase
 from withings_plugin.models import WeightMeasurement
 
+from config import config
 from database import async_session, engine
 from metrics import (
     calculate_best_interval,
@@ -61,6 +60,7 @@ from metrics import (
     recalculate_daily_metrics,
 )
 from models import Activity, ActivityStream, AthleteSettings, Base, DailyMetrics
+from sources.engine import recompute_supersessions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -393,15 +393,27 @@ def build_activity(
 
     name = _pick_name(random.Random(activity_id), sport, intensity)
 
-    # Alternate sources: rides → icu, other sports → google_health
+    # Spread demo data across all three sources so the status page, the
+    # precedence card, and the Grafana dashboards all exercise a multi-source
+    # store: rides → intervals.icu, runs → Strava, everything else → Google
+    # Health. `_seed_duplicate_activity` then adds overlapping rows so the
+    # supersession path is covered too.
     if sport in {"Ride", "VirtualRide", "MountainBikeRide"}:
         source = "icu"
         row_id = f"icu_demo{activity_id}"
         device_name = "Demo Bike Computer"
+        suffer_score = None
+    elif sport in {"Run", "TrailRun"}:
+        source = "strava"
+        row_id = f"strava_demo{activity_id}"
+        device_name = "Demo Running Watch"
+        # Only Strava reports relative effort.
+        suffer_score = round((trimp_value or 0.0) * 0.9, 0) or None
     else:
         source = "google_health"
         row_id = f"ghealth_demo{activity_id}"
         device_name = "Demo Google Health"
+        suffer_score = None
 
     activity = Activity(
         id=row_id,
@@ -432,6 +444,7 @@ def build_activity(
                    else "Demo Trainer" if sport == "VirtualRide"
                    else "Demo Running Shoes"),
         weighted_average_watts=round(np, 1) if np is not None else None,
+        suffer_score=suffer_score,
         training_load=float(training_load),
         detail_synced=True,
         trimp=round(trimp_value, 1) if trimp_value is not None else None,
@@ -724,13 +737,76 @@ async def _upsert_profile(session: AsyncSession, profile: AthleteProfile) -> Ath
     return existing
 
 
+async def _seed_duplicate_activities(
+    session: AsyncSession, profile: AthleteProfile
+) -> int:
+    """Add lower-precedence copies of some rides so dedup has something to do.
+
+    Real setups routinely record the same workout on two services. These rows
+    are intentionally thinner than the originals — that is what makes keeping
+    the higher-precedence copy the right call.
+    """
+    rides = (
+        (
+            await session.execute(
+                select(Activity)
+                .where(
+                    Activity.athlete_id == profile.athlete_id,
+                    Activity.source == "icu",
+                )
+                .order_by(Activity.start_date.desc())
+                .limit(12)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    created = 0
+    for ride in rides:
+        duplicate_id = f"strava_demodup{ride.id.removeprefix('icu_demo')}"
+        if await session.get(Activity, duplicate_id) is not None:
+            continue
+        session.add(
+            Activity(
+                id=duplicate_id,
+                source="strava",
+                athlete_id=profile.athlete_id,
+                name=ride.name,
+                sport_type=ride.sport_type,
+                # A couple of minutes off, as two devices started separately.
+                start_date=ride.start_date + timedelta(minutes=2),
+                elapsed_time=ride.elapsed_time,
+                moving_time=ride.moving_time,
+                distance=ride.distance,
+                average_heartrate=ride.average_heartrate,
+                max_heartrate=ride.max_heartrate,
+                has_heartrate=ride.has_heartrate,
+                # No power: the phone recording has none, which is exactly why
+                # the intervals.icu copy should win.
+                device_watts=False,
+                device_name="Demo Phone",
+                detail_synced=True,
+                synced_streams=True,
+                trimp=ride.trimp,
+            )
+        )
+        created += 1
+
+    if created:
+        await session.commit()
+    return created
+
+
 async def _seed(args: argparse.Namespace) -> None:
     rng = random.Random(args.seed)
     profile = AthleteProfile()
 
-    fddb_engine = make_async_engine(fddb_settings.DATABASE_URL) if fddb_settings.DATABASE_URL else None
+    # Plugin tables live in the same database, in their own schemas.
+    plugin_database_url = config.database.url
+    fddb_engine = make_async_engine(plugin_database_url) if plugin_database_url else None
     withings_engine = (
-        make_async_engine(withings_settings.DATABASE_URL) if withings_settings.DATABASE_URL else None
+        make_async_engine(plugin_database_url) if plugin_database_url else None
     )
     fddb_session_factory = make_session_factory(fddb_engine) if fddb_engine is not None else None
     withings_session_factory = (
@@ -808,6 +884,21 @@ async def _seed(args: argparse.Namespace) -> None:
                     session.add_all(batch_activities)
                     session.add_all(batch_streams)
                     await session.commit()
+
+                duplicates = await _seed_duplicate_activities(session, profile)
+                logger.info(
+                    "Seeded %d overlapping duplicate activities to exercise "
+                    "source precedence",
+                    duplicates,
+                )
+                superseded = await recompute_supersessions(
+                    session, profile.athlete_id, config.sources.precedence
+                )
+                logger.info(
+                    "Supersession resolved: %d rows updated (precedence %s)",
+                    superseded,
+                    ", ".join(config.sources.precedence),
+                )
 
                 if best_20_overall > 0:
                     settings_row = (

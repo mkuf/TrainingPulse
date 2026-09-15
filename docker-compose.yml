@@ -8,7 +8,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-trainingpulse}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/02-init-addon-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trainingpulse} -d ${POSTGRES_DB:-trainingpulse}"]
       interval: 5s
@@ -22,30 +21,15 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    volumes:
+      # All application configuration lives here. See config.example.yaml.
+      - ./config.yaml:/config/config.yaml:ro
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-trainingpulse}
-      INTERVALS_ICU_API_KEY: ${INTERVALS_ICU_API_KEY:-}
-      INTERVALS_ICU_API_BASE: ${INTERVALS_ICU_API_BASE:-https://intervals.icu/api/v1}
-      GOOGLE_HEALTH_CLIENT_ID: ${GOOGLE_HEALTH_CLIENT_ID:-}
-      GOOGLE_HEALTH_CLIENT_SECRET: ${GOOGLE_HEALTH_CLIENT_SECRET:-}
-      GOOGLE_HEALTH_API_BASE: ${GOOGLE_HEALTH_API_BASE:-https://health.googleapis.com/v4}
-      ENABLED_ACTIVITY_SOURCES: ${ENABLED_ACTIVITY_SOURCES:-icu,google_health}
-      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8000}
-      DEFAULT_MAX_HR: ${DEFAULT_MAX_HR:-190}
-      DEFAULT_REST_HR: ${DEFAULT_REST_HR:-60}
-      MAX_HR: ${MAX_HR:-}
-      REST_HR: ${REST_HR:-}
-      FTP: ${FTP:-}
-      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-15}
-      SYNC_RECONCILE_DAYS: ${SYNC_RECONCILE_DAYS:-90}
-      ENABLED_PLUGINS: ${ENABLED_PLUGINS:-}
-      WITHINGS_CLIENT_ID: ${WITHINGS_CLIENT_ID:-}
-      WITHINGS_CLIENT_SECRET: ${WITHINGS_CLIENT_SECRET:-}
-      WITHINGS_SYNC_INTERVAL_MINUTES: ${WITHINGS_SYNC_INTERVAL_MINUTES:-60}
-      FDDB_USER: ${FDDB_USER:-}
-      FDDB_PW: ${FDDB_PW:-}
-      FDDB_COOKIE: ${FDDB_COOKIE:-}
-      FDDB_SYNC_INTERVAL_MINUTES: ${FDDB_SYNC_INTERVAL_MINUTES:-60}
+      TP_CONFIG_FILE: /config/config.yaml
+      # The db and grafana containers need POSTGRES_* as environment variables,
+      # so the connection string is composed here rather than duplicated in
+      # config.yaml. Any TP_*__* variable overrides the file.
+      TP_DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-trainingpulse}
     depends_on:
       db:
         condition: service_healthy
@@ -57,13 +41,18 @@ services:
     restart: unless-stopped
     command: ["python", "mcp_server.py"]
     ports:
+      # The container always listens on mcp.port (8001); only the host port is
+      # configurable here.
       - "${MCP_PORT:-8001}:8001"
+    volumes:
+      # Shares the app's config file. To keep source and plugin credentials out
+      # of this container, point TP_CONFIG_FILE at a reduced file instead — the
+      # MCP server only needs mcp.*, database.url, and plugins.*.enabled.
+      - ./config.yaml:/config/config.yaml:ro
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-trainingpulse}
-      MCP_HOST: 0.0.0.0
-      MCP_PORT: 8001
-      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost:*,127.0.0.1:*}
-      ENABLED_PLUGINS: ${ENABLED_PLUGINS:-}
+      TP_CONFIG_FILE: /config/config.yaml
+      TP_DATABASE__URL: postgresql+asyncpg://${POSTGRES_USER:-trainingpulse}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-trainingpulse}
+      TP_MCP__PORT: 8001
     depends_on:
       db:
         condition: service_healthy

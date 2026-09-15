@@ -10,11 +10,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import select
-from trainingpulse_common import make_async_engine, make_session_factory
+from trainingpulse_common import PluginContext, make_async_engine, make_session_factory
 
-from withings_plugin.config import settings
 from withings_plugin.mcp_tools import register_mcp_tools
 from withings_plugin.models import WithingsToken
+from withings_plugin.options import PLUGIN_NAME, WithingsOptions
 from withings_plugin.routes import create_router
 from withings_plugin.schema import ensure_schema
 from withings_plugin.sync import run_sync
@@ -23,21 +23,20 @@ logger = logging.getLogger(__name__)
 
 
 class WithingsPlugin:
-    name = "withings"
+    name = PLUGIN_NAME
 
-    def __init__(self) -> None:
-        self._engine = make_async_engine(settings.DATABASE_URL)
+    def __init__(self, options: WithingsOptions) -> None:
+        self.options = options
+        self._engine = make_async_engine(options.database_url)
         self._session_factory = make_session_factory(self._engine)
         self._scheduler_started = False
 
-    def is_enabled(self) -> bool:
-        return settings.is_enabled()
-
     def is_configured(self) -> bool:
-        return settings.is_configured()
+        return self.options.is_configured()
 
     def is_mcp_available(self) -> bool:
-        return settings.is_enabled() and bool(settings.DATABASE_URL)
+        """MCP only reads the plugin's own tables, so credentials are optional."""
+        return bool(self.options.database_url)
 
     @property
     def engine(self):
@@ -57,6 +56,7 @@ class WithingsPlugin:
 
         router = create_router(
             self._session_factory,
+            self.options,
             on_connected=on_connected,
         )
         app.include_router(router, prefix=prefix)
@@ -66,7 +66,7 @@ class WithingsPlugin:
             scheduler.add_job(
                 self._trigger_sync,
                 "interval",
-                minutes=settings.SYNC_INTERVAL_MINUTES,
+                minutes=self.options.sync_interval_minutes,
                 id="withings_sync",
                 replace_existing=True,
             )
@@ -74,7 +74,7 @@ class WithingsPlugin:
 
     async def _trigger_sync(self) -> None:
         async with self._session_factory() as session:
-            await run_sync(session)
+            await run_sync(session, self.options)
 
     def register_scheduler(
         self,
@@ -84,7 +84,7 @@ class WithingsPlugin:
         scheduler.add_job(
             self._trigger_sync,
             "interval",
-            minutes=settings.SYNC_INTERVAL_MINUTES,
+            minutes=self.options.sync_interval_minutes,
             id="withings_sync",
             replace_existing=True,
         )
@@ -104,5 +104,5 @@ class WithingsPlugin:
         await self._engine.dispose()
 
 
-def build_plugin() -> WithingsPlugin:
-    return WithingsPlugin()
+def build_plugin(ctx: PluginContext) -> WithingsPlugin:
+    return WithingsPlugin(WithingsOptions.from_context(ctx))

@@ -9,16 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trainingpulse_common import SimpleSyncState
 
 from fddb_plugin.client import FddbAuthenticationError, FddbClient
-from fddb_plugin.config import settings
 from fddb_plugin.models import DailyNutrition
+from fddb_plugin.options import FddbOptions
 
 logger = logging.getLogger(__name__)
 
 sync_state = SimpleSyncState()
 
 
-async def run_sync(session: AsyncSession) -> int:
-    if not settings.credentials_configured:
+async def run_sync(session: AsyncSession, options: FddbOptions) -> int:
+    if not options.credentials_configured:
         sync_state.mark_finished(error="FDDB credentials not configured")
         logger.warning("FDDB sync skipped: missing credentials")
         return 0
@@ -26,8 +26,8 @@ async def run_sync(session: AsyncSession) -> int:
     sync_state.mark_running()
     try:
         end_day = date.today()
-        start_day = end_day - timedelta(days=settings.SYNC_LOOKBACK_DAYS)
-        client = FddbClient()
+        start_day = end_day - timedelta(days=options.sync_lookback_days)
+        client = FddbClient(options)
         rows = await client.fetch_range(start_day, end_day)
 
         upserted = 0
@@ -72,7 +72,7 @@ async def run_sync(session: AsyncSession) -> int:
         raise
 
 
-async def get_status(session: AsyncSession) -> dict:
+async def get_status(session: AsyncSession, options: FddbOptions) -> dict:
     count = (await session.execute(select(func.count(DailyNutrition.id)))).scalar_one()
     latest = (
         await session.execute(
@@ -86,7 +86,7 @@ async def get_status(session: AsyncSession) -> dict:
     ).scalar_one_or_none()
 
     return {
-        "configured": settings.credentials_configured,
+        "configured": options.credentials_configured,
         "day_count": int(count or 0),
         "latest_date": latest.date.isoformat() if latest else None,
         "latest_kcal": round(latest.kcal, 1) if latest else None,

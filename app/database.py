@@ -3,9 +3,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from trainingpulse_common import make_async_engine, make_session_factory
 
-from config import settings
+from config import config
 
-engine = make_async_engine(settings.DATABASE_URL)
+engine = make_async_engine(config.database.url)
 
 async_session = make_session_factory(engine)
 

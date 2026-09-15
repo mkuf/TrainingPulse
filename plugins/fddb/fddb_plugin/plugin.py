@@ -10,11 +10,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import text
-from trainingpulse_common import make_async_engine, make_session_factory
+from trainingpulse_common import PluginContext, make_async_engine, make_session_factory
 
-from fddb_plugin.config import settings
 from fddb_plugin.mcp_tools import register_mcp_tools
 from fddb_plugin.models import Base
+from fddb_plugin.options import PLUGIN_NAME, FddbOptions
 from fddb_plugin.routes import create_router
 from fddb_plugin.sync import run_sync
 
@@ -22,20 +22,19 @@ logger = logging.getLogger(__name__)
 
 
 class FddbPlugin:
-    name = "fddb"
+    name = PLUGIN_NAME
 
-    def __init__(self) -> None:
-        self._engine = make_async_engine(settings.DATABASE_URL)
+    def __init__(self, options: FddbOptions) -> None:
+        self.options = options
+        self._engine = make_async_engine(options.database_url)
         self._session_factory = make_session_factory(self._engine)
 
-    def is_enabled(self) -> bool:
-        return settings.is_enabled()
-
     def is_configured(self) -> bool:
-        return settings.is_configured()
+        return self.options.is_configured()
 
     def is_mcp_available(self) -> bool:
-        return settings.is_enabled() and bool(settings.DATABASE_URL)
+        """MCP only reads the plugin's own tables, so credentials are optional."""
+        return bool(self.options.database_url)
 
     @property
     def engine(self):
@@ -51,24 +50,24 @@ class FddbPlugin:
             await conn.run_sync(Base.metadata.create_all)
 
     def register_routes(self, app: FastAPI, *, prefix: str) -> None:
-        router = create_router(self._session_factory)
+        router = create_router(self._session_factory, self.options)
         app.include_router(router, prefix=prefix)
 
     async def _trigger_sync(self) -> None:
         async with self._session_factory() as session:
-            await run_sync(session)
+            await run_sync(session, self.options)
 
     def register_scheduler(
         self,
         scheduler: AsyncIOScheduler,
         trigger: Callable[[], Any],
     ) -> None:
-        if not settings.credentials_configured:
+        if not self.options.credentials_configured:
             logger.info("FDDB scheduler job registered; starts when credentials are set")
         scheduler.add_job(
             self._trigger_sync,
             "interval",
-            minutes=settings.SYNC_INTERVAL_MINUTES,
+            minutes=self.options.sync_interval_minutes,
             id="fddb_sync",
             replace_existing=True,
         )
@@ -80,5 +79,5 @@ class FddbPlugin:
         await self._engine.dispose()
 
 
-def build_plugin() -> FddbPlugin:
-    return FddbPlugin()
+def build_plugin(ctx: PluginContext) -> FddbPlugin:
+    return FddbPlugin(FddbOptions.from_context(ctx))
