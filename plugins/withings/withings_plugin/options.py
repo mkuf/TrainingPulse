@@ -33,8 +33,8 @@ class WithingsOptions:
     def from_context(cls, ctx: PluginContext) -> "WithingsOptions":
         options = ctx.options
         return cls(
-            client_id=options.client_id,
-            client_secret=options.client_secret,
+            client_id=options.client_id.strip(),
+            client_secret=options.client_secret.strip(),
             app_base_url=ctx.app_base_url.rstrip("/"),
             database_url=ctx.database_url,
             redirect_uri=options.redirect_uri.strip(),
@@ -57,4 +57,6 @@ class WithingsOptions:
         return urljoin(f"{self.app_base_url}{PLUGIN_PREFIX}/", "auth/callback")
 
     def is_configured(self) -> bool:
-        return bool(self.client_id and self.client_secret and self.database_url)
+        return bool(
+            self.client_id.strip() and self.client_secret.strip() and self.database_url
+        )

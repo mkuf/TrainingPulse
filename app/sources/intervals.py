@@ -55,7 +55,11 @@ def provider_updated_at(payload: dict) -> datetime | None:
 def map_row(payload: dict, athlete_id: int) -> dict | None:
     """Map an intervals.icu activity payload onto ``activities`` columns."""
     raw_id = payload.get("id")
-    start = parse_dt(payload.get("start_date") or payload.get("start_date_local"))
+    # ``start_date_local`` is local wall-clock time with no offset, not UTC;
+    # ``parse_dt`` treats a naive timestamp as UTC, so falling back to it here
+    # would silently shift the stored time. Only ``start_date`` (true UTC) is
+    # usable without also knowing the athlete's UTC offset.
+    start = parse_dt(payload.get("start_date"))
     if start is None:
         logger.warning("intervals.icu activity %s has no start_date; skipping", raw_id)
         return None
@@ -104,7 +108,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "id": activity_id(raw_id),
         "source": SOURCE_NAME,
         "athlete_id": athlete_id,
-        "name": payload.get("name") or "",
+        "name": clip_text(payload.get("name"), 500) or "",
         "description": payload.get("description"),
         "private_note": payload.get("private_note") or payload.get("coach_notes"),
         "sport_type": str(sport),

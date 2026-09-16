@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from google_health_client import DEFAULT_API_BASE, GoogleHealthClient
 from models import Activity
-from sources.base import RateLimitSnapshot, prefixed_id
+from sources.base import OAuthStateGuard, RateLimitSnapshot, prefixed_id
 from sources.mapping import (
     as_float,
     clip_text,
@@ -139,7 +139,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "id": activity_id(raw_id),
         "source": SOURCE_NAME,
         "athlete_id": athlete_id,
-        "name": display or sport_type(exercise_type),
+        "name": clip_text(display, 500) or sport_type(exercise_type),
         "description": exercise.get("notes"),
         "private_note": None,
         "sport_type": sport_type(exercise_type),
@@ -229,6 +229,7 @@ class GoogleHealthSource:
         self._app_base_url = app_base_url.rstrip("/")
         self._session = None
         self._client: GoogleHealthClient | None = None
+        self._oauth_state = OAuthStateGuard()
 
     @property
     def redirect_uri(self) -> str:
@@ -281,15 +282,27 @@ class GoogleHealthSource:
                 return RedirectResponse(
                     url="/?error=google_health_not_configured", status_code=303
                 )
+            state = self._oauth_state.issue()
             async with self._session_factory() as session:
-                url = self._build_client(session).authorization_url()
+                url = self._build_client(session).authorization_url(state=state)
             return RedirectResponse(url=url, status_code=307)
 
         @app.get(CALLBACK_PATH)
-        async def google_callback(code: str | None = None, error: str | None = None):
+        async def google_callback(
+            code: str | None = None,
+            state: str | None = None,
+            error: str | None = None,
+        ):
             if error or not code:
                 return RedirectResponse(
                     url=f"/?error={error or 'missing_code'}", status_code=303
+                )
+            if not self._oauth_state.verify(state):
+                logger.warning(
+                    "Google Health OAuth callback rejected: bad or missing state"
+                )
+                return RedirectResponse(
+                    url="/?error=google_invalid_state", status_code=303
                 )
             async with self._session_factory() as session:
                 client = self._build_client(session)

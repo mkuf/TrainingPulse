@@ -233,10 +233,14 @@ async def upsert_rows(
     values = [dict(row) for row in rows]
     fields = list(LIST_UPSERT_FIELDS)
     if not source.supports_detail:
-        # The list payload is all there is, so the row is complete on arrival.
+        # The list payload is all there is, and there is no later detail-merge
+        # step (drain_detail_queue never runs for these sources) to ever
+        # refresh detail-only columns afterwards. Refresh them from the list
+        # payload here too, or they freeze at their first-seen value forever.
         for row in values:
             row["detail_synced"] = True
         fields.append("detail_synced")
+        fields.extend(_DETAIL_ONLY_FIELDS)
 
     stmt = pg_insert(Activity).values(values)
     stmt = stmt.on_conflict_do_update(
@@ -500,6 +504,7 @@ def choose_winners(
         return (rank.get(row.source, unranked), -(row.elapsed or 0), row.start, row.id)
 
     ordered = sorted(rows, key=lambda row: (row.start, row.id))
+    by_id = {row.id: row for row in rows}
     direct: dict[str, str | None] = {}
 
     for index, row in enumerate(ordered):
@@ -521,14 +526,26 @@ def choose_winners(
 
     resolved: dict[str, str | None] = {}
     for activity_id in direct:
+        origin = by_id[activity_id]
         winner = direct[activity_id]
         seen = {activity_id}
         while winner is not None and direct.get(winner) is not None:
             if winner in seen:
                 # Defensive: a cycle would mean two rows each outrank the other.
                 break
+            candidate = direct[winner]
+            if candidate is not None and not _overlaps(origin, by_id[candidate]):
+                # The chain's next hop no longer overlaps the original
+                # activity. ``winner`` itself is not a root (it lost to
+                # ``candidate``), so it cannot be used either without
+                # violating "always points at a visible activity". With no
+                # valid visible activity that actually overlaps ``origin``,
+                # leave it visible rather than collapsing it into an
+                # unrelated activity it never overlapped.
+                winner = None
+                break
             seen.add(winner)
-            winner = direct[winner]
+            winner = candidate
         resolved[activity_id] = winner
     return resolved
 
@@ -569,18 +586,27 @@ async def recompute_supersessions(
     winners = choose_winners(keys, precedence)
 
     changed = 0
+    changes_by_winner: dict[str | None, list[str]] = {}
     for activity_id, winner in winners.items():
         if current.get(activity_id) == winner:
             continue
+        changes_by_winner.setdefault(winner, []).append(activity_id)
+        changed += 1
+
+    # Grouped by target winner rather than one UPDATE per activity: a
+    # precedence change or initial multi-source backfill can affect a large
+    # share of an athlete's history, and most changed rows share the same new
+    # winner (or None), so this collapses what could be thousands of
+    # round-trips into one per distinct winner.
+    for winner, activity_ids in changes_by_winner.items():
         await session.execute(
             update(Activity)
-            .where(Activity.id == activity_id)
+            .where(Activity.id.in_(activity_ids))
             .values(superseded_by=winner)
         )
-        changed += 1
         logger.info(
-            "%s is now %s",
-            activity_id,
+            "%d activities are now %s",
+            len(activity_ids),
             f"superseded by {winner}" if winner else "visible",
         )
 
@@ -626,7 +652,10 @@ async def refresh_progress(
 
 
 async def _apply_detail(
-    session: AsyncSession, source: ActivitySource, activity_id: str
+    session: AsyncSession,
+    source: ActivitySource,
+    activity_id: str,
+    athlete_id: int,
 ) -> bool:
     """Fetch and merge one activity's detail. Returns True when it progressed."""
     try:
@@ -638,39 +667,38 @@ async def _apply_detail(
         return False
 
     if payload is None:
-        # Gone upstream: stop asking, but keep the row and its history.
-        await session.execute(
+        # Gone upstream: stop asking, but keep the row and its history. The
+        # UPDATE's rowcount (rather than a preceding SELECT) tells us whether
+        # the row still exists, which the caller's athlete_id already known
+        # from the queue query makes unnecessary to re-fetch here.
+        result = await session.execute(
             update(Activity)
             .where(Activity.id == activity_id)
             .values(detail_synced=True)
         )
         await session.commit()
-        return True
+        return result.rowcount > 0
 
-    activity = await session.get(Activity, activity_id)
-    if activity is None:
-        return False
-
-    row = source.map_row(payload, activity.athlete_id)
+    row = source.map_row(payload, athlete_id)
     if row is None:
-        await session.execute(
+        result = await session.execute(
             update(Activity)
             .where(Activity.id == activity_id)
             .values(detail_synced=True)
         )
         await session.commit()
-        return True
+        return result.rowcount > 0
 
     # Never let a detail payload rewrite identity or supersession.
     row.pop("id", None)
     row.pop("source", None)
     row.pop("athlete_id", None)
     row["detail_synced"] = True
-    await session.execute(
+    result = await session.execute(
         update(Activity).where(Activity.id == activity_id).values(**row)
     )
     await session.commit()
-    return True
+    return result.rowcount > 0
 
 
 async def drain_detail_queue(
@@ -712,7 +740,9 @@ async def drain_detail_queue(
         async def _worker(activity_id: str) -> None:
             nonlocal merged
             async with ctx.session_factory() as worker_session:
-                progressed = await _apply_detail(worker_session, source, activity_id)
+                progressed = await _apply_detail(
+                    worker_session, source, activity_id, ctx.athlete_id
+                )
             if progressed:
                 async with counter_lock:
                     merged += 1

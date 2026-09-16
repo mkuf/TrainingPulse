@@ -11,6 +11,11 @@ from models import Base
 
 logger = logging.getLogger(__name__)
 
+#: How far back to re-queue preserved Strava activities for a detail refresh
+#: when ``suffer_score`` is restored. Bounded so the migration cannot consume
+#: an entire day's tight Strava read budget on multi-year-old history.
+_SUFFER_SCORE_BACKFILL_WINDOW_DAYS = 90
+
 
 async def _table_exists(conn: AsyncConnection, name: str) -> bool:
     result = await conn.execute(
@@ -78,10 +83,9 @@ async def _migrate_strava_era_schema(conn: AsyncConnection) -> bool:
         )
 
     if not needs_migration:
-        # Already on the new schema — just clean up leftover strava_tokens
-        if await _table_exists(conn, "strava_tokens"):
-            await conn.execute(text("DROP TABLE IF EXISTS strava_tokens CASCADE"))
-            logger.info("Dropped leftover strava_tokens table")
+        # Already on the new schema. strava_tokens (if any) is migrated and
+        # dropped later in ``ensure_schema``, once oauth_tokens is guaranteed
+        # to exist.
         return False
 
     # ── Migrate activity_streams first (FK references activities.id) ────
@@ -217,17 +221,46 @@ async def _migrate_strava_era_schema(conn: AsyncConnection) -> bool:
     # 7. suffer_score is Strava-only but no longer dropped: Strava is a
     #    first-class source again, so a Strava-era database keeps its values.
 
-    # ── Drop strava_tokens table ────────────────────────────────────────
-    # Strava OAuth now lives in the shared oauth_tokens table, so the old
-    # single-provider table is obsolete. Reconnecting Strava re-authorizes.
-    if await _table_exists(conn, "strava_tokens"):
-        await conn.execute(text("DROP TABLE IF EXISTS strava_tokens CASCADE"))
-        logger.info("Dropped strava_tokens table")
+    # strava_tokens is migrated into oauth_tokens and dropped later in
+    # ``ensure_schema``, once oauth_tokens is guaranteed to exist.
 
     logger.info(
         "Strava-era schema migration complete — all activity history preserved"
     )
     return True
+
+
+async def _migrate_strava_tokens(conn: AsyncConnection) -> None:
+    """Carry an existing Strava OAuth token over into ``oauth_tokens``.
+
+    Must run after ``Base.metadata.create_all`` so ``oauth_tokens`` exists.
+    Idempotent: once ``strava_tokens`` is dropped this is a no-op on every
+    later startup, and ``ON CONFLICT DO NOTHING`` protects a rare case where
+    both tables already have a row for ``provider = 'strava'``.
+    """
+    if not await _table_exists(conn, "strava_tokens"):
+        return
+
+    result = await conn.execute(
+        text(
+            "INSERT INTO oauth_tokens "
+            "(provider, access_token, refresh_token, expires_at, external_user_id) "
+            "SELECT 'strava', access_token, refresh_token, expires_at, "
+            "athlete_id::text FROM strava_tokens "
+            "ORDER BY updated_at DESC LIMIT 1 "
+            "ON CONFLICT (provider) DO NOTHING"
+        )
+    )
+    if result.rowcount:
+        logger.info("Migrated existing Strava OAuth token into oauth_tokens")
+    else:
+        logger.info(
+            "strava_tokens had no token to migrate, or oauth_tokens already "
+            "had one for 'strava'"
+        )
+
+    await conn.execute(text("DROP TABLE IF EXISTS strava_tokens CASCADE"))
+    logger.info("Dropped strava_tokens table")
 
 
 async def _restore_suffer_score(conn: AsyncConnection) -> None:
@@ -242,6 +275,13 @@ async def _restore_suffer_score(conn: AsyncConnection) -> None:
     Guarded on the column's absence, so it runs exactly once per database.
     ``create_all`` adds the column on a fresh database, where there is nothing
     to adopt; a Strava-era database still has its values and is left alone.
+
+    The re-queue is bounded to the last ``_SUFFER_SCORE_BACKFILL_WINDOW_DAYS``
+    days rather than a user's entire history: Strava's read budget is tight
+    (100/15min, 1000/day), and unconditionally re-queuing years of already-synced
+    activities right after an upgrade would consume that whole budget on old
+    data instead of the current sync. Older rows simply keep ``suffer_score``
+    unset until a future detail fetch (e.g. a manual full resync) touches them.
 
     Streams are deliberately *not* re-queued: the earlier migration re-prefixed
     ``activity_streams`` rather than deleting them, so the time series survived.
@@ -259,15 +299,19 @@ async def _restore_suffer_score(conn: AsyncConnection) -> None:
     result = await conn.execute(
         text(
             "UPDATE activities SET detail_synced = false "
-            "WHERE source = 'strava' AND detail_synced = true"
-        )
+            "WHERE source = 'strava' AND detail_synced = true "
+            "AND start_date >= now() - make_interval(days => :window_days)"
+        ),
+        {"window_days": _SUFFER_SCORE_BACKFILL_WINDOW_DAYS},
     )
     adopted = result.rowcount or 0
     if adopted:
         logger.info(
-            "Queued %d preserved Strava activities for a detail refresh; "
-            "only the ones that win on precedence will be fetched",
+            "Queued %d preserved Strava activities (last %d days) for a "
+            "detail refresh; only the ones that win on precedence will be "
+            "fetched",
             adopted,
+            _SUFFER_SCORE_BACKFILL_WINDOW_DAYS,
         )
 
 
@@ -335,6 +379,7 @@ async def ensure_schema(conn: AsyncConnection) -> None:
             "overlapping activities will be marked as superseded during sync"
         )
     await conn.run_sync(Base.metadata.create_all)
+    await _migrate_strava_tokens(conn)
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)
     await _ensure_active_activities_view(conn)

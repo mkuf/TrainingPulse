@@ -291,6 +291,40 @@ def test_large_history_stays_pairwise_not_transitive():
     assert all(winner is None for winner in winners.values())
 
 
+def test_overlap_chain_does_not_collapse_non_overlapping_ends():
+    """A bridges B, B bridges C, but A and C never overlap.
+
+    ``gh_1`` (0s-1000s) only overlaps ``strava_1`` (100s-1100s), which only
+    overlaps ``icu_1`` (950s-1950s). ``gh_1`` and ``icu_1`` are 950s apart,
+    just outside ``START_TOLERANCE_SECONDS`` (900s), so they must never be
+    linked even though the direct-link chain would otherwise bridge them via
+    ``strava_1``.
+    """
+    rows = [
+        key("gh_1", "google_health", offset_seconds=0, elapsed=1000),
+        key("strava_1", "strava", offset_seconds=100, elapsed=1000),
+        key("icu_1", "icu", offset_seconds=950, elapsed=1000),
+    ]
+    assert (950 - 0) > START_TOLERANCE_SECONDS
+    assert (950 - 100) <= START_TOLERANCE_SECONDS
+
+    winners = choose_winners(rows, DEFAULT_PRECEDENCE)
+
+    # icu_1 outranks everything and is visible; strava_1 genuinely overlaps
+    # icu_1, so it is correctly superseded by it.
+    assert winners["icu_1"] is None
+    assert winners["strava_1"] == "icu_1"
+    # gh_1 never overlaps icu_1, and its only real overlap partner
+    # (strava_1) is not itself visible, so gh_1 must stay visible rather
+    # than being collapsed into an activity it never overlapped.
+    assert winners["gh_1"] is None
+
+    visible = {activity_id for activity_id, w in winners.items() if w is None}
+    for activity_id, winner in winners.items():
+        if winner is not None:
+            assert winner in visible, f"{activity_id} points at a hidden row"
+
+
 # ── Reconcile diffing ───────────────────────────────────────────────
 
 

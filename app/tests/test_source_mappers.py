@@ -167,6 +167,9 @@ def test_icu_map_row_reads_icu_prefixed_aliases():
 
     assert row["id"] == "icu_555"
     assert row["sport_type"] == "VirtualRide"
+    # start_date (true UTC) must win over start_date_local (local wall-clock
+    # time with no offset), which would otherwise be misparsed as UTC.
+    assert row["start_date"] == _utc("2026-03-15T06:00:00Z")
     assert row["elapsed_time"] == 1800
     assert row["moving_time"] == 1700
     assert row["average_heartrate"] == pytest.approx(130.0)

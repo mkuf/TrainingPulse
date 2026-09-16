@@ -11,7 +11,13 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from models import Activity
-from sources.base import RateLimitSnapshot, SourceRateLimitExceeded, external_id, prefixed_id
+from sources.base import (
+    OAuthStateGuard,
+    RateLimitSnapshot,
+    SourceRateLimitExceeded,
+    external_id,
+    prefixed_id,
+)
 from sources.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
 from strava_client import DEFAULT_API_BASE, StravaClient
 
@@ -63,7 +69,11 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         logger.warning("Strava activity payload has no id; skipping")
         return None
 
-    start = parse_dt(payload.get("start_date") or payload.get("start_date_local"))
+    # ``start_date_local`` is local wall-clock time with no offset, not UTC;
+    # ``parse_dt`` treats a naive timestamp as UTC, so falling back to it here
+    # would silently shift the stored time. Only ``start_date`` (true UTC) is
+    # usable without also knowing the athlete's UTC offset.
+    start = parse_dt(payload.get("start_date"))
     if start is None:
         logger.warning("Strava activity %s has no start_date; skipping", raw_id)
         return None
@@ -91,7 +101,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "id": activity_id(raw_id),
         "source": SOURCE_NAME,
         "athlete_id": athlete_id,
-        "name": payload.get("name") or "",
+        "name": clip_text(payload.get("name"), 500) or "",
         "description": payload.get("description"),
         "private_note": payload.get("private_note"),
         "sport_type": str(sport),
@@ -167,6 +177,7 @@ class StravaSource:
         self._app_base_url = app_base_url.rstrip("/")
         self._session = None
         self._client: StravaClient | None = None
+        self._oauth_state = OAuthStateGuard()
 
     @property
     def redirect_uri(self) -> str:
@@ -228,15 +239,25 @@ class StravaSource:
                 return RedirectResponse(
                     url="/?error=strava_not_configured", status_code=303
                 )
+            state = self._oauth_state.issue()
             async with self._session_factory() as session:
-                url = self._build_client(session).authorization_url()
+                url = self._build_client(session).authorization_url(state=state)
             return RedirectResponse(url=url, status_code=307)
 
         @app.get(CALLBACK_PATH)
-        async def strava_callback(code: str | None = None, error: str | None = None):
+        async def strava_callback(
+            code: str | None = None,
+            state: str | None = None,
+            error: str | None = None,
+        ):
             if error or not code:
                 return RedirectResponse(
                     url=f"/?error={error or 'missing_code'}", status_code=303
+                )
+            if not self._oauth_state.verify(state):
+                logger.warning("Strava OAuth callback rejected: bad or missing state")
+                return RedirectResponse(
+                    url="/?error=strava_invalid_state", status_code=303
                 )
             async with self._session_factory() as session:
                 client = self._build_client(session)

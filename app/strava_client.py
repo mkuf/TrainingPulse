@@ -157,15 +157,6 @@ class StravaClient:
             await self.session.delete(token)
             await self.session.commit()
 
-    async def stored_athlete_id(self) -> int | None:
-        token = await self._get_token()
-        if token is None or not token.external_user_id:
-            return None
-        try:
-            return int(token.external_user_id)
-        except ValueError:
-            return None
-
     async def _ensure_valid_token(self) -> str:
         """Return a valid access token, refreshing if needed."""
         async with self._token_lock:

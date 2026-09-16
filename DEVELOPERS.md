@@ -212,6 +212,8 @@ On startup the effective configuration is logged at INFO with every field marked
 
 Changing any athlete value requires a full resync to recalculate history.
 
+**Upgrading from the old `.env`-only setup:** earlier releases fell back to generic HR/FTP defaults (190/60/200) when `MAX_HR`/`REST_HR`/`FTP` were unset. That fallback is gone — the process now exits non-zero if `athlete.*` is missing. Add `athlete.max_hr`/`rest_hr`/`ftp` to `config.yaml`, or set `TP_ATHLETE__MAX_HR` / `TP_ATHLETE__REST_HR` / `TP_ATHLETE__FTP` as environment variables (the structural-override mechanism creates the section even if `config.yaml` omits it entirely) before restarting.
+
 ## Schema upgrades
 
 On startup [`app/schema_migrate.py`](app/schema_migrate.py) migrates **in place and preserves all activity history**:

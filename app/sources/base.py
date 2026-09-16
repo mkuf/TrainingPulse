@@ -10,6 +10,9 @@ source alike.
 
 from __future__ import annotations
 
+import hmac
+import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
@@ -99,6 +102,39 @@ def external_id(prefix: str, activity_id: str) -> str:
     if value.startswith(colon):
         return value[len(colon) :]
     return value
+
+
+class OAuthStateGuard:
+    """CSRF ``state`` handling for a single-tenant OAuth connect/callback pair.
+
+    There is no user session to bind a CSRF token to, so the token is held in
+    memory between the redirect to the provider and the callback. It is
+    single-use (cleared on the first verification attempt, success or not) and
+    expires quickly, keeping the window an attacker could exploit small: they
+    would need to get their own authorization code into this server's
+    callback before the legitimate flow that issued the token completes.
+    """
+
+    def __init__(self, *, ttl_seconds: float = 600.0) -> None:
+        self._ttl_seconds = ttl_seconds
+        self._pending: tuple[str, float] | None = None
+
+    def issue(self) -> str:
+        """Generate and remember a fresh token for the next callback."""
+        token = secrets.token_urlsafe(24)
+        self._pending = (token, time.monotonic() + self._ttl_seconds)
+        return token
+
+    def verify(self, state: str | None) -> bool:
+        """Check ``state`` against the last issued token, then forget it."""
+        pending = self._pending
+        self._pending = None
+        if pending is None or not state:
+            return False
+        token, expires_at = pending
+        if time.monotonic() > expires_at:
+            return False
+        return hmac.compare_digest(token, state)
 
 
 @runtime_checkable

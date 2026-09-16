@@ -28,9 +28,9 @@ class FddbOptions:
     def from_context(cls, ctx: PluginContext) -> "FddbOptions":
         options = ctx.options
         return cls(
-            user=options.user,
-            password=options.password,
-            cookie=options.cookie,
+            user=options.user.strip(),
+            password=options.password.strip(),
+            cookie=options.cookie.strip(),
             database_url=ctx.database_url,
             base_url=options.base_url.rstrip("/"),
             lang=options.lang,
@@ -45,7 +45,7 @@ class FddbOptions:
 
     @property
     def credentials_configured(self) -> bool:
-        return bool(self.user and self.password and self.cookie)
+        return bool(self.user.strip() and self.password.strip() and self.cookie.strip())
 
     def is_configured(self) -> bool:
         return self.credentials_configured and bool(self.database_url)
