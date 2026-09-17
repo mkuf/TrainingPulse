@@ -43,7 +43,7 @@ CONFIG_PATH_ENV = "TP_CONFIG_FILE"
 DEFAULT_CONFIG_PATHS: tuple[str, ...] = ("/config/config.yaml", "config.yaml")
 
 #: Known activity sources, in default precedence order.
-SOURCE_NAMES: tuple[str, ...] = ("icu", "strava", "google_health")
+SOURCE_NAMES: tuple[str, ...] = ("icu", "strava", "google_health", "hammerhead")
 
 #: Known plugin names.
 PLUGIN_NAMES: tuple[str, ...] = ("withings", "fddb")
@@ -203,12 +203,33 @@ class GoogleHealthSourceSection(_Section):
         return missing
 
 
+class HammerheadSourceSection(_Section):
+    enabled: bool = False
+    client_id: str = ""
+    client_secret: str = secret("")
+    api_base: str = "https://api.hammerhead.io/v1/api"
+
+    def is_configured(self) -> bool:
+        return bool(self.client_id.strip() and self.client_secret.strip())
+
+    def missing_credentials(self) -> list[str]:
+        missing = []
+        if not self.client_id.strip():
+            missing.append("client_id")
+        if not self.client_secret.strip():
+            missing.append("client_secret")
+        return missing
+
+
 class SourcesSection(_Section):
     precedence: list[str] = Field(default_factory=lambda: list(SOURCE_NAMES))
     icu: IcuSourceSection = Field(default_factory=IcuSourceSection)
     strava: StravaSourceSection = Field(default_factory=StravaSourceSection)
     google_health: GoogleHealthSourceSection = Field(
         default_factory=GoogleHealthSourceSection
+    )
+    hammerhead: HammerheadSourceSection = Field(
+        default_factory=HammerheadSourceSection
     )
 
     _split_precedence = field_validator("precedence", mode="before")(

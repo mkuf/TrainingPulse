@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     Integer,
+    LargeBinary,
     String,
     Text,
     func,
@@ -140,6 +141,28 @@ class ActivityStream(Base):
         String(500), nullable=False, default=""
     )
     sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ActivityFitFile(Base):
+    """Raw .fit file bytes, permanently stored once per activity.
+
+    Generic across any FIT-capable source: fetch_detail and fetch_streams both
+    read/write this table (via fitfiles.store) so a provider's FIT file is
+    only ever downloaded once, and can be re-analyzed later without another
+    round-trip to the provider.
+    """
+
+    __tablename__ = "activity_fit_files"
+
+    activity_id: Mapped[str] = mapped_column(
+        String(128), primary_key=True, autoincrement=False
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    raw_data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

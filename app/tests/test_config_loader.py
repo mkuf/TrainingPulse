@@ -231,7 +231,7 @@ def test_list_override_is_comma_split(minimal_config):
         },
     )
 
-    assert config.sources.precedence == ["strava", "icu", "google_health"]
+    assert config.sources.precedence == ["strava", "icu", "google_health", "hammerhead"]
     assert config.mcp.allowed_hosts == ["a:*", "b:*"]
 
 
@@ -432,7 +432,7 @@ def test_precedence_subset_appends_missing_sources(write_config):
 
     config = load_config(path, env={})
 
-    assert config.sources.precedence == ["strava", "icu", "google_health"]
+    assert config.sources.precedence == ["strava", "icu", "google_health", "hammerhead"]
 
 
 def test_precedence_rejects_unknown_source(write_config):

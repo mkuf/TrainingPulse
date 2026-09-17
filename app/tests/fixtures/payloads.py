@@ -197,3 +197,43 @@ GOOGLE_HEALTH_HR_POINTS = [
     # Unusable: no timestamp.
     {"heartRate": {"beatsPerMinute": 110}},
 ]
+
+# ── Hammerhead ──────────────────────────────────────────────────────
+
+#: List-phase summaries carry no sport, HR, power, or elevation data at all —
+#: only the detail-phase merge (with a downloaded and analyzed .fit file) adds
+#: that, via the private "_fit_summary" key.
+HAMMERHEAD_LIST_ACTIVITY = {
+    "id": "1000.activity.abcd",
+    "name": "My Epic Ride",
+    "createdAt": "2026-03-14T17:05:00.000Z",
+    "duration": 3720,
+    "distance": 41234.5,
+}
+
+HAMMERHEAD_DETAIL_ACTIVITY = {
+    **HAMMERHEAD_LIST_ACTIVITY,
+    "activityType": "MOUNTAIN_BIKE",
+    "description": "Muddy but fun",
+    "updatedAt": "2026-03-14T19:00:00.000Z",
+    "_fit_summary": {
+        "start_date": "2026-03-14T17:06:10Z",
+        "elapsed_time": 3700,
+        "moving_time": 3600,
+        "distance": 41500.0,
+        "average_heartrate": 148.2,
+        "max_heartrate": 181.0,
+        "has_heartrate": True,
+        "average_watts": 212.4,
+        "max_watts": 690.0,
+        "device_watts": True,
+        "weighted_average_watts": 228.9,
+        "average_speed": 11.45,
+        "total_elevation_gain": 312.0,
+        "calories": 820.0,
+        "device_name": "Hammerhead Karoo 3",
+    },
+}
+
+HAMMERHEAD_ACTIVITY_NO_ID = {"name": "No id", "createdAt": "2026-03-14T17:05:00Z"}
+HAMMERHEAD_ACTIVITY_NO_START = {"id": "1000.activity.nostart", "name": "No start"}

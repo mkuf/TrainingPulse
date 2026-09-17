@@ -35,6 +35,7 @@ SOURCE_LABELS: dict[str, str] = {
     "icu": "intervals.icu",
     "strava": "Strava",
     "google_health": "Google Health",
+    "hammerhead": "Hammerhead",
 }
 
 APP_DISPLAY_NAME = "TrainingPulse"

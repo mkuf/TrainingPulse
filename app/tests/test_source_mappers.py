@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import pytest
 from fixtures import payloads
 from sources import google_health as gh
+from sources import hammerhead
 from sources import intervals as icu
 from sources import strava
 from sources.base import ActivitySource, external_id, prefixed_id
@@ -40,6 +41,9 @@ def _utc(text: str) -> datetime:
         # Google Health resource names collapse to the last path segment.
         ("ghealth_", "users/me/dataTypes/exercise/dataPoints/abc", "ghealth_abc"),
         ("ghealth_", "ghealth_abc", "ghealth_abc"),
+        # Hammerhead's own ids already contain dots; they pass through as-is.
+        ("hammerhead_", "1000.activity.abcd", "hammerhead_1000.activity.abcd"),
+        ("hammerhead_", "hammerhead_1000.activity.abcd", "hammerhead_1000.activity.abcd"),
     ],
 )
 def test_prefixed_id(prefix, raw, expected):
@@ -59,6 +63,11 @@ def test_prefixing_is_idempotent():
         ("strava_", "1122334455", "1122334455"),
         ("icu_", "icu_i999", "i999"),
         ("ghealth_", "ghealth_abc", "abc"),
+        (
+            "hammerhead_",
+            "hammerhead_1000.activity.abcd",
+            "1000.activity.abcd",
+        ),
     ],
 )
 def test_external_id_round_trip(prefix, activity_id, expected):
@@ -78,8 +87,11 @@ def test_external_id_round_trip(prefix, activity_id, expected):
         gh.GoogleHealthSource(
             session_factory=None, client_id="c", client_secret="s"
         ),
+        hammerhead.HammerheadSource(
+            session_factory=None, client_id="c", client_secret="s"
+        ),
     ],
-    ids=["icu", "strava", "google_health"],
+    ids=["icu", "strava", "google_health", "hammerhead"],
 )
 def test_sources_satisfy_the_protocol(source):
     assert isinstance(source, ActivitySource)
@@ -97,10 +109,10 @@ def test_sources_satisfy_the_protocol(source):
 
 
 def test_source_names_and_prefixes_are_distinct():
-    names = {icu.SOURCE_NAME, strava.SOURCE_NAME, gh.SOURCE_NAME}
-    prefixes = {icu.ID_PREFIX, strava.ID_PREFIX, gh.ID_PREFIX}
-    assert len(names) == 3
-    assert len(prefixes) == 3
+    names = {icu.SOURCE_NAME, strava.SOURCE_NAME, gh.SOURCE_NAME, hammerhead.SOURCE_NAME}
+    prefixes = {icu.ID_PREFIX, strava.ID_PREFIX, gh.ID_PREFIX, hammerhead.ID_PREFIX}
+    assert len(names) == 4
+    assert len(prefixes) == 4
 
 
 def test_mappers_agree_on_the_column_set():
@@ -112,8 +124,11 @@ def test_mappers_agree_on_the_column_set():
     icu_row = icu.map_row(payloads.ICU_LIST_ACTIVITY, ATHLETE_ID)
     strava_row = strava.map_row(payloads.STRAVA_LIST_ACTIVITY, ATHLETE_ID)
     gh_row = gh.map_row(payloads.GOOGLE_HEALTH_EXERCISE, ATHLETE_ID)
+    hammerhead_row = hammerhead.map_row(
+        payloads.HAMMERHEAD_LIST_ACTIVITY, ATHLETE_ID
+    )
 
-    assert set(icu_row) == set(strava_row) == set(gh_row)
+    assert set(icu_row) == set(strava_row) == set(gh_row) == set(hammerhead_row)
 
 
 def test_mapped_columns_all_exist_on_the_model():
@@ -130,6 +145,7 @@ def test_no_mapper_leaks_private_keys():
         icu.map_row(payloads.ICU_LIST_ACTIVITY, ATHLETE_ID),
         strava.map_row(payloads.STRAVA_LIST_ACTIVITY, ATHLETE_ID),
         gh.map_row(payloads.GOOGLE_HEALTH_EXERCISE, ATHLETE_ID),
+        hammerhead.map_row(payloads.HAMMERHEAD_DETAIL_ACTIVITY, ATHLETE_ID),
     ):
         assert [key for key in row if key.startswith("_")] == []
 
@@ -375,3 +391,160 @@ def test_google_health_hr_points_to_streams_when_nothing_usable():
 )
 def test_google_health_sport_type(raw, expected):
     assert gh.sport_type(raw) == expected
+
+
+# ── Hammerhead ──────────────────────────────────────────────────────
+
+
+def test_hammerhead_map_row_list_phase_only():
+    """No detail/FIT merge yet: only createdAt/duration/distance are usable."""
+    row = hammerhead.map_row(payloads.HAMMERHEAD_LIST_ACTIVITY, ATHLETE_ID)
+
+    assert row["id"] == "hammerhead_1000.activity.abcd"
+    assert row["source"] == "hammerhead"
+    assert row["athlete_id"] == ATHLETE_ID
+    assert row["name"] == "My Epic Ride"
+    # activityType is a detail-only field.
+    assert row["sport_type"] == ""
+    assert row["start_date"] == _utc("2026-03-14T17:05:00Z")
+    assert row["elapsed_time"] == 3720
+    assert row["moving_time"] == 3720
+    assert row["distance"] == pytest.approx(41234.5)
+    assert row["average_heartrate"] is None
+    assert row["has_heartrate"] is False
+    assert row["device_watts"] is False
+    assert row["gear_id"] is None
+    assert row["provider_updated_at"] is None
+
+
+def test_hammerhead_map_row_merges_fit_summary():
+    """Detail merge: activityType and the analyzed FIT summary both apply."""
+    row = hammerhead.map_row(payloads.HAMMERHEAD_DETAIL_ACTIVITY, ATHLETE_ID)
+
+    assert row["sport_type"] == "MountainBikeRide"
+    assert row["description"] == "Muddy but fun"
+    # The FIT-derived start_date/elapsed/moving/distance win over the
+    # provisional list-phase values.
+    assert row["start_date"] == _utc("2026-03-14T17:06:10Z")
+    assert row["elapsed_time"] == 3700
+    assert row["moving_time"] == 3600
+    assert row["distance"] == pytest.approx(41500.0)
+    assert row["average_heartrate"] == pytest.approx(148.2)
+    assert row["max_heartrate"] == pytest.approx(181.0)
+    assert row["has_heartrate"] is True
+    assert row["average_watts"] == pytest.approx(212.4)
+    assert row["device_watts"] is True
+    assert row["weighted_average_watts"] == pytest.approx(228.9)
+    assert row["total_elevation_gain"] == pytest.approx(312.0)
+    assert row["calories"] == pytest.approx(820.0)
+    assert row["device_name"] == "Hammerhead Karoo 3"
+    assert row["provider_updated_at"] == _utc("2026-03-14T19:00:00Z")
+    # Hammerhead/FIT don't track gear or a proprietary training-load score.
+    assert row["gear_id"] is None
+    assert row["gear_name"] is None
+    assert row["suffer_score"] is None
+    assert row["training_load"] is None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [payloads.HAMMERHEAD_ACTIVITY_NO_ID, payloads.HAMMERHEAD_ACTIVITY_NO_START],
+    ids=["no id", "no start"],
+)
+def test_hammerhead_map_row_skips_unusable_payloads(payload):
+    assert hammerhead.map_row(payload, ATHLETE_ID) is None
+
+
+def test_hammerhead_map_row_preserves_a_genuine_zero_elapsed_or_moving_time():
+    """A real FIT-derived 0 must not be treated as "missing" and overwritten.
+
+    Regression test: ``as_int(...) or fallback`` used to be indistinguishable
+    from "no value provided" for a genuine zero.
+    """
+    payload = {
+        **payloads.HAMMERHEAD_LIST_ACTIVITY,
+        "_fit_summary": {
+            **payloads.HAMMERHEAD_DETAIL_ACTIVITY["_fit_summary"],
+            "elapsed_time": 0,
+            "moving_time": 0,
+        },
+    }
+
+    row = hammerhead.map_row(payload, ATHLETE_ID)
+
+    assert row["elapsed_time"] == 0
+    assert row["moving_time"] == 0
+
+
+def test_hammerhead_analysis_cache_round_trips_and_is_bounded():
+    """The fetch_detail -> fetch_streams handoff cache works and stays small.
+
+    Regression test for the FIT bytes being fully re-parsed twice per
+    activity: fetch_detail stashes the already-computed analysis so
+    fetch_streams can reuse it instead of re-parsing.
+    """
+    source = hammerhead.HammerheadSource(
+        session_factory=None, client_id="c", client_secret="s"
+    )
+    analysis = object()
+
+    source._cache_analysis("hammerhead_1", analysis)
+    assert source._take_cached_analysis("hammerhead_1") is analysis
+    # Popped, not just peeked: a second take must miss.
+    assert source._take_cached_analysis("hammerhead_1") is None
+
+    for i in range(hammerhead._ANALYSIS_CACHE_MAX + 5):
+        source._cache_analysis(f"hammerhead_{i}", object())
+    assert len(source._analysis_cache) <= hammerhead._ANALYSIS_CACHE_MAX
+
+
+class _FakeScalars:
+    def __init__(self, values):
+        self._values = values
+
+    def all(self):
+        return self._values
+
+
+class _FakeResult:
+    def __init__(self, values):
+        self._values = values
+
+    def scalars(self):
+        return _FakeScalars(self._values)
+
+
+class _FakeSession:
+    def __init__(self, already_detailed_ids):
+        self._ids = already_detailed_ids
+
+    async def execute(self, _stmt):
+        return _FakeResult(self._ids)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_hammerhead_drop_already_detailed_skips_previously_detailed_rows():
+    """Regression test for the list-phase clobbering bug.
+
+    Re-listing an already-detailed activity must not happen: its bare summary
+    would map to blank HR/power/elevation columns, and engine.upsert_rows has
+    no way to tell that from "provider actually cleared this field", so it
+    would silently null out real, previously FIT-enriched data.
+    """
+    already_detailed = {"hammerhead_1", "hammerhead_2"}
+    source = hammerhead.HammerheadSource(
+        session_factory=lambda: _FakeSession(already_detailed),
+        client_id="c",
+        client_secret="s",
+    )
+    payloads_in = [{"id": "1"}, {"id": "2"}, {"id": "3"}, {"name": "no id"}]
+
+    kept = await source._drop_already_detailed(payloads_in)
+
+    assert [item.get("id") for item in kept] == ["3", None]

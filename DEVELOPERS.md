@@ -7,7 +7,8 @@ Technical reference for **TrainingPulse**. Day-to-day setup lives in [`README.md
 ```
 intervals.icu API  ─┐
 Strava API         ─┼→ [app/ FastAPI core] → PostgreSQL (trainingpulse)
-Google Health API  ─┘
+Google Health API  ─┤
+Hammerhead API      ─┘
 Optional plugins (withings, fddb) → PostgreSQL schemas `withings`, `fddb`
 Grafana → provisioned Postgres datasource
 MCP → same database as core (+ plugin schemas when enabled)
@@ -23,16 +24,19 @@ flowchart TB
     ICU[intervals.icu]
     Strava[Strava]
     GHealth[Google Health]
+    Hammerhead[Hammerhead]
   end
   subgraph app_container [app and mcp containers]
     Cfg[config.yaml]
     Main[app.main]
     Sync[app.sync]
     Engine[sources.engine]
+    Fit[fitfiles]
     Reg[plugins.registry]
     Cfg --> Main
     Main --> Sync
     Sync --> Engine
+    Engine --> Fit
     Main --> Reg
     Reg --> Withings[withings_plugin]
     Reg --> Fddb[fddb_plugin]
@@ -45,7 +49,9 @@ flowchart TB
   ICU --> Engine
   Strava --> Engine
   GHealth --> Engine
+  Hammerhead --> Engine
   Engine --> Public
+  Fit --> Public
   Withings --> Wsch
   Fddb --> Fsch
 ```
@@ -64,8 +70,9 @@ Activity primary keys are **strings** with a source prefix:
 - `icu_<intervalsId>` — e.g. `icu_i55610271`
 - `strava_<stravaId>` — e.g. `strava_1122334455`
 - `ghealth_<dataPointId>` — Google Health exercise resource id
+- `hammerhead_<activityId>` — e.g. `hammerhead_1000.activity.abcd`
 
-Column `activities.source` is `icu`, `strava`, or `google_health`. Prefixing is idempotent, so ids preserved across earlier migrations map back onto themselves.
+Column `activities.source` is `icu`, `strava`, `google_health`, or `hammerhead`. Prefixing is idempotent, so ids preserved across earlier migrations map back onto themselves.
 
 ### The source contract
 
@@ -136,6 +143,26 @@ Auth: Google OAuth (`access_type=offline`). Tokens in `oauth_tokens` (`provider=
 
 `supports_detail` is False (the list payload is complete) and `supports_reconcile` is False, because Google Health publishes no per-activity update marker worth re-listing for. Google publishes no usable quota headers, so `rate_limits()` reports `known: false` rather than a misleading 0/0.
 
+### Hammerhead
+
+| Method | Endpoint | Role |
+|--------|----------|------|
+| List | `GET /activities?startDate=&page=&perPage=` | Date-window list; no upper bound |
+| Detail | `GET /activities/{id}` | `activityType`, `description`, `updatedAt` only |
+| FIT file | `GET /activities/{id}/file` | Raw `.fit` bytes — see [FIT file analysis](#fit-file-analysis) |
+
+Auth: OAuth, scope `activity:read`. Tokens live in `oauth_tokens` (`provider=hammerhead`), refreshed automatically. Callback is `{app.base_url}/auth/hammerhead/callback`. Unlike Strava, the token response has no `expires_at` (only `expires_in`), and the authorization-code exchange requires `redirect_uri` in the request body. `disconnect()` best-effort calls `POST /oauth/deauthorize` before removing the local token.
+
+**Its list/detail JSON carries no heart rate, power, cadence, or elevation data at all** — `ActivitySummary` is just `{id, name, createdAt, duration, distance}`, and the detail response only adds `activityType`/`description`/`updatedAt`. Every aggregate column (HR, power, moving/elapsed split, elevation gain, calories, device) and every stream comes from analyzing the `.fit` file, downloaded once per activity via `fetch_detail`/`fetch_streams` and permanently stored (see below). `map_row` reads these from a private `_fit_summary` key that `fetch_detail` attaches to the payload before mapping, keeping `map_row` itself pure.
+
+`supports_reconcile` is False: because the list summary is missing everything a reconcile diff would need to detect an edit, re-listing would look like every activity changed on every pass and force a wasted FIT re-download for the whole window. `list_activities` also pads its `start` by `_LIST_SAFETY_MARGIN_DAYS` (14 days) before querying `startDate`, since a Karoo device can sync a ride to the cloud well after it was recorded. Hammerhead publishes no rate-limit headers, so `rate_limits()` reports `known: false`.
+
+### FIT file analysis
+
+[`app/fitfiles/`](app/fitfiles/) is a small, source-agnostic package for turning raw `.fit` bytes into a `FitSummary` (aggregate metrics) and canonical streams (`fitfiles.analyzer.analyze_fit_file`, built on `fitdecode`), plus a permanent store (`fitfiles.store`) keyed by the local activity id in the `activity_fit_files` table (one row per activity, `BYTEA`). Any current or future source that can hand it raw FIT bytes gets the same analysis — it has no knowledge of Hammerhead or any other provider.
+
+Hammerhead's source adapter downloads a FIT file at most once: `fetch_detail` downloads-and-stores it if missing, and `fetch_streams` reuses whatever is already stored (falling back to a download only if it runs before detail has, e.g. after a rate-limit pause). A missing or unreadable FIT file degrades gracefully — detail still merges `name`/`description`/`activityType`, just without HR/power/etc., and streams return `{}` (the engine's existing no-HR TRIMP estimate then applies).
+
 ## Source precedence and supersession
 
 A run is two-pass, and the ordering is load-bearing:
@@ -168,6 +195,9 @@ The `active_activities` view (`superseded_by IS NULL`) is what Grafana reads. It
 | `GET`  | `/auth/google` | Start Google Health OAuth |
 | `GET`  | `/auth/google/callback` | OAuth redirect; stores tokens |
 | `POST` | `/auth/google/disconnect` | Remove Google Health tokens |
+| `GET`  | `/auth/hammerhead` | Start Hammerhead OAuth |
+| `GET`  | `/auth/hammerhead/callback` | OAuth redirect; stores tokens |
+| `POST` | `/auth/hammerhead/disconnect` | Remove Hammerhead tokens |
 | `GET`  | `/sync/status` | JSON sync status, including per-source quota |
 | `POST` | `/sync/trigger` | Incremental sync |
 | `POST` | `/sync/full` | Full historical resync |
@@ -238,7 +268,7 @@ Computed in [`app/metrics.py`](app/metrics.py) and stored alongside activities a
 
 ## MCP
 
-The `mcp` Compose service runs [`app/mcp_server.py`](app/mcp_server.py) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…`).
+The `mcp` Compose service runs [`app/mcp_server.py`](app/mcp_server.py) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…` / `hammerhead_…`).
 
 Every aggregate filters `superseded_by IS NULL` via `_apply_activity_filters`, so duplicated activities are not double-counted. `get_activity_detail` still resolves a hidden duplicate when asked for it by id, and reports `superseded_by` so the caller can tell.
 
@@ -252,6 +282,7 @@ docker compose exec app python -m pytest tests -q
 
 - `tests/test_config_loader.py` — loader, overrides, interpolation, validation, redaction
 - `tests/test_source_mappers.py` — per-source mappers and stream normalizers against `tests/fixtures/payloads.py`, plus protocol conformance
+- `tests/test_fitfiles.py` — generic FIT-file analyzer: stream/summary derivation and message dispatch, against faked `fitdecode` frames
 - `tests/test_engine.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
 
 ## Demo data
@@ -268,9 +299,10 @@ docker compose exec app python seed_demo_data.py --force
 - Sync ordering: [`app/sync.py`](app/sync.py)
 - Source contract: [`app/sources/base.py`](app/sources/base.py)
 - Generic phases, precedence, supersession: [`app/sources/engine.py`](app/sources/engine.py)
-- Source adapters: [`app/sources/intervals.py`](app/sources/intervals.py), [`app/sources/strava.py`](app/sources/strava.py), [`app/sources/google_health.py`](app/sources/google_health.py)
+- Source adapters: [`app/sources/intervals.py`](app/sources/intervals.py), [`app/sources/strava.py`](app/sources/strava.py), [`app/sources/google_health.py`](app/sources/google_health.py), [`app/sources/hammerhead.py`](app/sources/hammerhead.py)
 - Source construction from config: [`app/sources/registry.py`](app/sources/registry.py)
-- Provider HTTP clients: [`app/intervals_client.py`](app/intervals_client.py), [`app/strava_client.py`](app/strava_client.py), [`app/google_health_client.py`](app/google_health_client.py)
+- Provider HTTP clients: [`app/intervals_client.py`](app/intervals_client.py), [`app/strava_client.py`](app/strava_client.py), [`app/google_health_client.py`](app/google_health_client.py), [`app/hammerhead_client.py`](app/hammerhead_client.py)
+- Generic FIT-file analysis and storage: [`app/fitfiles/`](app/fitfiles/)
 - Schema migration (in place, history preserved): [`app/schema_migrate.py`](app/schema_migrate.py)
 - Metrics: [`app/metrics.py`](app/metrics.py)
 - Models: [`app/models.py`](app/models.py)

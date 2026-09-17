@@ -9,6 +9,7 @@ from trainingpulse_common.config import Config
 
 from sources.base import ActivitySource
 from sources.google_health import GoogleHealthSource
+from sources.hammerhead import HammerheadSource
 from sources.intervals import IntervalsSource
 from sources.strava import StravaSource
 
@@ -46,10 +47,23 @@ def _build_google_health(
     )
 
 
+def _build_hammerhead(
+    config: Config, session_factory: async_sessionmaker
+) -> ActivitySource:
+    return HammerheadSource(
+        session_factory=session_factory,
+        client_id=config.sources.hammerhead.client_id,
+        client_secret=config.sources.hammerhead.client_secret,
+        api_base=config.sources.hammerhead.api_base,
+        app_base_url=config.app.base_url,
+    )
+
+
 _BUILDERS = {
     "icu": _build_icu,
     "strava": _build_strava,
     "google_health": _build_google_health,
+    "hammerhead": _build_hammerhead,
 }
 
 

@@ -46,7 +46,7 @@ sources:
   # Precedence is positional and independent of `enabled`, so disabling a
   # source does not silently promote another one's rows over its history.
   # Sources you omit rank last.
-  precedence: [icu, strava, google_health]
+  precedence: [icu, strava, google_health, hammerhead]
 
   # intervals.icu — API key from https://intervals.icu/settings
   icu:
@@ -73,6 +73,20 @@ sources:
     client_id: ""
     client_secret: ${GOOGLE_HEALTH_CLIENT_SECRET:-}
     api_base: https://health.googleapis.com/v4
+
+  # Hammerhead (Karoo bike computers) — create an API client via
+  # https://support.hammerhead.io/hc/en-us/sections/42738685226523-Public-API
+  # and set its redirect URI to exactly {app.base_url}/auth/hammerhead/callback
+  #
+  # Hammerhead's list/detail JSON carries no heart rate, power, cadence, or
+  # elevation data — only its .fit file does, so every activity downloads and
+  # permanently stores one (see app/fitfiles/). Hammerhead publishes no
+  # documented rate-limit budget.
+  hammerhead:
+    enabled: false
+    client_id: ""
+    client_secret: ${HAMMERHEAD_CLIENT_SECRET:-}
+    api_base: https://api.hammerhead.io/v1/api
 
 sync:
   interval_minutes: 15
