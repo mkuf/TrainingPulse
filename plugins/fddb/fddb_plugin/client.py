@@ -32,6 +32,10 @@ class FddbNoDataError(Exception):
     """No diary entries for the requested day."""
 
 
+class FddbParseError(Exception):
+    """Diary page has an unexpected structure (FDDB layout change?)."""
+
+
 @dataclass(frozen=True)
 class DailyNutritionData:
     day: date
@@ -48,6 +52,22 @@ def _extract_number(text: str) -> float:
     if not match:
         return 0.0
     return float(match.group(0).replace(",", "."))
+
+
+KCAL_RE = re.compile(r"(-?\d+(?:[.,]\d+)?)\s*kcal", re.IGNORECASE)
+KJ_RE = re.compile(r"(-?\d+(?:[.,]\d+)?)\s*kj", re.IGNORECASE)
+KJ_PER_KCAL = 4.184
+
+
+def _extract_kcal(text: str) -> float | None:
+    """kcal from "2565 kcal" or "10741 KJ (2565 kcal)"; kJ-only is converted."""
+    match = KCAL_RE.search(text)
+    if match:
+        return float(match.group(1).replace(",", "."))
+    match = KJ_RE.search(text)
+    if match:
+        return float(match.group(1).replace(",", ".")) / KJ_PER_KCAL
+    return None
 
 
 def day_timeframe(day: date) -> tuple[int, int]:
@@ -72,13 +92,33 @@ def parse_diary_html(html: str, day: date) -> DailyNutritionData:
     if not rows:
         raise FddbNoDataError(f"No diary data for {day.isoformat()}")
 
-    footer_cells = rows[-1].find_all("td")
-    if len(footer_cells) < 6:
-        raise FddbNoDataError(f"No diary totals for {day.isoformat()}")
+    footer = soup.select_one("table.myday-table-std tr:has(td.myday-table-std-td-footer)")
+    footer_cells = (footer or rows[-1]).find_all("td")
 
-    kcal = _extract_number(footer_cells[2].get_text())
+    # Layouts: old = [name, kJ, kcal, fat, carbs, protein];
+    # redesign (Oct 2026) = [name, "kJ (kcal)", fat, carbs, protein].
+    # Locate the kcal cell and read the three macro cells that follow it.
+    kcal = None
+    kcal_idx = -1
+    for idx, cell in enumerate(footer_cells[1:], start=1):
+        text = cell.get_text(" ", strip=True)
+        if KCAL_RE.search(text):
+            kcal, kcal_idx = _extract_kcal(text), idx
+            break
+    if kcal is None and len(footer_cells) > 1:
+        # kJ-only energy cell
+        kcal = _extract_kcal(footer_cells[1].get_text(" ", strip=True))
+        kcal_idx = 1
+    if kcal is None or len(footer_cells) < kcal_idx + 4:
+        totals = (footer or rows[-1]).get_text(" | ", strip=True)[:200]
+        raise FddbParseError(
+            f"Unrecognized diary totals row for {day.isoformat()} "
+            f"({len(footer_cells)} cells): {totals!r}"
+        )
     if kcal <= 0:
         raise FddbNoDataError(f"Empty diary day {day.isoformat()}")
+
+    fat_cell, carbs_cell, protein_cell = footer_cells[kcal_idx + 1 : kcal_idx + 4]
 
     sugar_g = _find_summary_value(soup, SUGAR_LABELS)
     fiber_g = _find_summary_value(soup, FIBER_LABELS)
@@ -86,10 +126,10 @@ def parse_diary_html(html: str, day: date) -> DailyNutritionData:
     return DailyNutritionData(
         day=day,
         kcal=kcal,
-        protein_g=_extract_number(footer_cells[5].get_text()),
-        carbs_g=_extract_number(footer_cells[4].get_text()),
+        protein_g=_extract_number(protein_cell.get_text()),
+        carbs_g=_extract_number(carbs_cell.get_text()),
         sugar_g=sugar_g,
-        fat_g=_extract_number(footer_cells[3].get_text()),
+        fat_g=_extract_number(fat_cell.get_text()),
         fiber_g=fiber_g,
     )
 
@@ -144,6 +184,7 @@ class FddbClient:
 
         pause = (delay_ms if delay_ms is not None else settings.SYNC_REQUEST_DELAY_MS) / 1000
         results: list[DailyNutritionData] = []
+        parse_errors: list[FddbParseError] = []
         day = start_day
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -154,10 +195,15 @@ class FddbClient:
                     logger.debug("Skipping empty day %s", day.isoformat())
                 except FddbAuthenticationError:
                     raise
+                except FddbParseError as exc:
+                    logger.warning("Could not parse FDDB diary for %s: %s", day.isoformat(), exc)
+                    parse_errors.append(exc)
                 except httpx.HTTPError as exc:
                     logger.warning("HTTP error for %s: %s", day.isoformat(), exc)
                 day += timedelta(days=1)
                 if day <= end_day and pause > 0:
                     await asyncio.sleep(pause)
 
+        if parse_errors and not results:
+            raise parse_errors[0]
         return results
