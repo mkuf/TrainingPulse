@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block body %}
+<header class="page-header">
+    <img src="/static/assets/favicon.svg" width="44" height="44" alt="" class="logo">
+    <div class="page-title">
+        <h1>{{ app_name }}</h1>
+        <p class="muted">Keeps your training data in sync for your dashboards</p>
+    </div>
+    <a class="btn btn-primary" href="{{ grafana_url }}/dashboards" target="_blank" rel="noopener">
+        Open dashboards <span aria-hidden="true">↗</span>
+    </a>
+</header>
+
+<main>
+    {% include "_live.html" %}
+
+    {% if not setup %}
+    <section class="section">
+        <h2 class="section-title">Athlete settings</h2>
+        <div class="card">
+            <dl class="settings">
+                <div><dt>Max heart rate</dt><dd>{{ athlete.max_hr }} <span>bpm</span></dd></div>
+                <div><dt>Resting heart rate</dt><dd>{{ athlete.rest_hr }} <span>bpm</span></dd></div>
+                <div><dt>FTP</dt><dd>{{ athlete.ftp }} <span>W</span></dd></div>
+                <div><dt>Time zone</dt><dd class="small-value">{{ athlete.timezone }}</dd></div>
+            </dl>
+            <p class="muted small">Heart-rate and power zones come from these values. Change them under <code>athlete</code> in config.yaml.</p>
+
+            <details class="advanced">
+                <summary>Full resync</summary>
+                <p>Downloads everything again from every account and recalculates all metrics with the settings above. Use it if a setting was wrong from the start or your data looks broken. With Strava it can take several days because of its rate limits.</p>
+                <form action="/sync/full" method="post" data-sync-action
+                      data-confirm="Full resync downloads everything again and can take a long time. Start it?">
+                    <button type="submit" class="btn btn-caution">Start full resync</button>
+                </form>
+            </details>
+        </div>
+    </section>
+    {% endif %}
+</main>
+
+<footer class="page-footer muted small">
+    Not affiliated with any of the services above. The numbers are informational, not medical advice.
+</footer>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/status.js" defer></script>
+{% endblock %}

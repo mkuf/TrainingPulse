@@ -228,7 +228,8 @@ The `active_activities`, `active_body_measurements`, and `active_daily_nutrition
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET`  | `/` | Status page with sources, sync progress, metrics |
+| `GET`  | `/` | Status page: accounts, sync progress, where each data kind comes from |
+| `GET`  | `/partials/live` | The status page's auto-refreshing region, as HTML |
 | `GET`  | `/auth/strava` | Start Strava OAuth |
 | `GET`  | `/auth/strava/callback` | OAuth redirect; stores tokens |
 | `POST` | `/auth/strava/disconnect` | Remove Strava tokens |
@@ -244,7 +245,6 @@ The `active_activities`, `active_body_measurements`, and `active_daily_nutrition
 | `GET`  | `/sync/status` | JSON sync status, including per-provider quota |
 | `POST` | `/sync/trigger` | Incremental sync |
 | `POST` | `/sync/full` | Full historical resync |
-| `POST` | `/sync/refresh-rate-limit` | Refresh each connected provider's quota headers |
 
 OAuth routes are mounted by the providers themselves via `register_auth_routes`, not hardcoded in `app/main.py`. The Google and Withings callback paths are fixed strings because they are already registered in users' OAuth clients.
 
@@ -288,7 +288,7 @@ On startup the effective configuration is logged at INFO with every field marked
 
 `athlete_settings.estimated_ftp` is still derived locally as 95% of the best 20-minute power across visible activities; it is a computed value, not configuration.
 
-Changing any athlete value requires a full resync to recalculate history.
+Changing an athlete value only affects activities processed afterwards. A full resync re-downloads everything and recalculates all history with the current values, which is only right when the old value was wrong rather than outdated.
 
 **Upgrading from the old `.env`-only setup:** earlier releases fell back to generic HR/FTP defaults (190/60/200) when `MAX_HR`/`REST_HR`/`FTP` were unset. That fallback is gone — the process now exits non-zero if `athlete.*` is missing. Add `athlete.max_hr`/`rest_hr`/`ftp` to `config.yaml`, or set `TP_ATHLETE__MAX_HR` / `TP_ATHLETE__REST_HR` / `TP_ATHLETE__FTP` as environment variables (the structural-override mechanism creates the section even if `config.yaml` omits it entirely) before restarting.
 

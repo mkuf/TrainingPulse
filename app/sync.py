@@ -214,21 +214,6 @@ async def force_full_resync(session: AsyncSession, athlete_id: int) -> None:
 # ── Main entry ──────────────────────────────────────────────────────
 
 
-async def refresh_rate_limits() -> None:
-    """Ask every enabled provider for its quota usage, outside a sync run."""
-    providers = build_enabled_providers(config, async_session)
-    for provider in providers:
-        try:
-            if not await provider.is_connected():
-                continue
-            await provider.verify_credentials()
-        except Exception as exc:  # noqa: BLE001 - status page only
-            logger.warning("%s rate-limit refresh failed: %s", provider.name, exc)
-        finally:
-            sync_state.snapshot_rate_limits(provider)
-            await provider.close()
-
-
 def _in_precedence(providers: list[Provider], kind: DataKind) -> list[Provider]:
     """The providers that import ``kind``, ordered by its precedence."""
     by_name = {provider.name: provider for provider in providers}

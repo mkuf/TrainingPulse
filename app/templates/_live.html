@@ -1,0 +1,119 @@
+<div id="live" data-running="{{ 'true' if sync.running else 'false' }}">
+    {% if setup %}
+    <section class="card intro">
+        <h2>Connect your first account</h2>
+        <p>TrainingPulse copies your activities, body measurements, and nutrition from the services below into its own database, so your Grafana dashboards work from one place. Turn the ones you use on in config.yaml, then connect any that ask for permission.</p>
+    </section>
+    {% else %}
+    <section class="status-bar status-{{ sync.state }}" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <div class="status-text">
+            <strong>{{ sync.headline }}</strong>
+            {% if sync.detail %}<span class="muted" title="{{ sync.last_sync_local }}">{{ sync.detail }}</span>{% endif %}
+        </div>
+        {% if sync.running %}
+        <span class="muted small">Syncing…</span>
+        {% else %}
+        <form action="/sync/trigger" method="post" data-sync-action>
+            <button type="submit" class="btn">Sync now</button>
+        </form>
+        {% endif %}
+    </section>
+
+    {% if sync.error %}
+    <div class="banner {{ 'banner-warn' if sync.rate_limited else 'banner-danger' }}" role="status">
+        <strong>{{ 'Paused for a rate limit' if sync.rate_limited else 'Something went wrong' }}</strong>
+        <p>{{ sync.error }}</p>
+    </div>
+    {% endif %}
+
+    {% if sync.bars %}
+    <section class="card progress-card">
+        <h2 class="card-title">Filling in your history</h2>
+        {% for bar in sync.bars %}
+        <div class="bar-row">
+            <div class="bar-label">
+                <span>{{ bar.label }}</span>
+                <span class="muted">{{ bar.done|num }} of {{ bar.total|num }}</span>
+            </div>
+            <div class="bar" role="progressbar" aria-valuenow="{{ bar.pct }}" aria-valuemin="0" aria-valuemax="100">
+                <span style="width: {{ bar.pct }}%"></span>
+            </div>
+        </div>
+        {% endfor %}
+        <p class="muted small">{{ sync.note }}</p>
+    </section>
+    {% endif %}
+
+    {% endif %}
+
+    <section class="section">
+        <h2 class="section-title">Your accounts</h2>
+        <div class="provider-grid">
+            {% for p in providers %}
+            <article class="provider provider-{{ p.status }}">
+                <header class="provider-head">
+                    <h3>{{ p.label }}</h3>
+                    <span class="pill pill-{{ p.tone }}">{{ p.status_label }}</span>
+                </header>
+                <p class="muted small">{{ p.kinds_label }}</p>
+
+                {% if p.counts %}
+                <p class="provider-counts">{{ p.counts|join(' · ') }}</p>
+                {% endif %}
+                {% if p.hidden %}
+                <p class="muted small" title="An account ranked higher has the same entries, so these aren't counted twice.">
+                    {{ p.hidden|num }} duplicate{{ '' if p.hidden == 1 else 's' }} hidden
+                </p>
+                {% endif %}
+
+                {% if p.quota %}
+                <div class="quota{{ ' quota-high' if p.quota.high }}">
+                    <div class="bar-label small">
+                        <span>Daily API quota</span>
+                        <span class="muted">{{ p.quota.daily_used|num }} of {{ p.quota.daily_limit|num }}</span>
+                    </div>
+                    <div class="bar bar-thin"><span style="width: {{ p.quota.pct }}%"></span></div>
+                    <p class="muted small">{{ p.quota.fifteen_used }} of {{ p.quota.fifteen_limit }} in the last 15 min · checked {{ p.quota.checked }}</p>
+                </div>
+                {% endif %}
+
+                <p class="hint small">{{ p.hint }}</p>
+
+                {% if p.status == 'disconnected' %}
+                <a class="btn btn-primary btn-block" href="{{ p.connect_path }}">Connect {{ p.label }}</a>
+                {% elif p.status == 'connected' %}
+                <form action="{{ p.disconnect_path }}" method="post" class="provider-actions">
+                    <button type="submit" class="link-button">Disconnect</button>
+                </form>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    {% if kinds %}
+    <section class="section">
+        <h2 class="section-title">Where your data comes from</h2>
+        <p class="section-lead muted">When two accounts record the same workout or day, the first one in the list wins and the other copy is hidden. Change the order with <code>data.&lt;kind&gt;.precedence</code> in config.yaml.</p>
+        <div class="card list-card">
+            {% for k in kinds %}
+            <div class="kind-row">
+                <div class="kind-name">
+                    <strong>{{ k.label }}</strong>
+                    <span class="muted small">{{ k.total_label }}</span>
+                </div>
+                <ol class="chain" aria-label="{{ k.label }} sources, highest priority first">
+                    {% for c in k.chain %}
+                    <li class="chip{{ ' chip-lead' if loop.first }}{{ ' chip-off' if c.off }}"
+                        {% if c.off %}title="Turned off. Its earlier entries still count until another account replaces them."{% endif %}>
+                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ol>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+</div>

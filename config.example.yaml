@@ -20,6 +20,9 @@
 
 app:
   base_url: http://localhost:8000
+  # Where the status page links to Grafana. Leave empty to use base_url's host
+  # on port 3000.
+  grafana_url: ""
   # DEBUG | INFO | WARNING | ERROR | CRITICAL
   log_level: INFO
 

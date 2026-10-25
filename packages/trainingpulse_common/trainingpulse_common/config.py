@@ -144,9 +144,12 @@ def _split_csv(value: Any) -> Any:
 
 class AppSection(_Section):
     base_url: str = "http://localhost:8000"
+    #: Where the status page links to the dashboards. Empty means base_url's
+    #: host on Grafana's default port 3000.
+    grafana_url: str = ""
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
-    @field_validator("base_url")
+    @field_validator("base_url", "grafana_url")
     @classmethod
     def _normalize_base_url(cls, value: str) -> str:
         return value.strip().rstrip("/")

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" type="image/svg+xml" href="/static/assets/favicon.svg">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <title>{% block title %}{{ app_name }}{% endblock %}</title>
+</head>
+<body>
+    <div class="page">
+        {% block body %}{% endblock %}
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -81,11 +81,11 @@ Example views from the bundled dashboards.
 
    **Google OAuth tip:** set the consent screen publishing status to **In production** (you can leave the app unverified for personal use) so refresh tokens are not limited to 7 days. Testing mode requires reconnecting about weekly.
 
-   **Strava rate limits:** Strava's default read budget is 100 requests per 15 minutes and 1000 per day — roughly twenty times tighter than intervals.icu. A full multi-year backfill including streams can take several days. It pauses and resumes automatically, and the status page shows the remaining budget.
+   **Strava rate limits:** Strava's default read budget is 100 requests per 15 minutes and 1000 per day — roughly twenty times tighter than intervals.icu. A full multi-year backfill including streams can take several days. It pauses and resumes automatically, and Strava's card on the status page shows the remaining daily budget.
 
    **Hammerhead:** every activity's `.fit` file is downloaded once and permanently stored — it is the only source of heart rate, power, cadence, and elevation data for Hammerhead-sourced activities, since the API's own JSON payload doesn't carry any of that.
 
-4. **Open Grafana.** Browse to `http://your-host:3000/`. The Postgres datasource **`trainingpulse`** and the bundled dashboards are provisioned automatically.
+4. **Open Grafana.** Browse to `http://your-host:3000/`, or use **Open dashboards** on the status page. If Grafana is not on port 3000 of the app's host, set `app.grafana_url` so the link points to it. The Postgres datasource **`trainingpulse`** and the bundled dashboards are provisioned automatically.
 
 5. **Optional: connect an MCP client.** The read-only MCP service is available at `http://your-host:8001/mcp`.
 
@@ -93,7 +93,7 @@ Example views from the bundled dashboards.
 
 `athlete.max_hr`, `athlete.rest_hr`, and `athlete.ftp` are **required** and have no defaults. No provider is asked for a profile, so these values alone determine your heart-rate zones and power zones, and therefore TRIMP and all of CTL / ATL / TSB. Getting them wrong produces plausible-looking but incorrect numbers, which is why startup refuses to guess.
 
-Heart-rate zones are computed from `max_hr` and `rest_hr` using the standard five-zone percentage model. After changing any of these values, use **Full Resync** on the status page to recalculate history.
+Heart-rate zones are computed from `max_hr` and `rest_hr` using the standard five-zone percentage model. A changed value applies to activities synced from then on. If a value was wrong from the start, open **Full resync** under the athlete settings on the status page to recalculate your whole history with the corrected value.
 
 ## Providers and data kinds
 
@@ -147,6 +147,6 @@ If you used the Withings or FDDB plugins:
 - Move `plugins.withings` and `plugins.fddb` to `providers.withings` and `providers.fddb`. Their `sync_interval_minutes` and `sync_lookback_days` are gone: one sync covers every provider, and history lengths are `data.body.history_days` and `data.nutrition.history_days`. Startup names any old key and where it went.
 - Set `athlete.timezone` (default `UTC`) so weigh-ins are assigned to the right day.
 - The `/plugins/withings/` and `/plugins/fddb/` pages are gone; both providers appear on the status page.
-- **Heart-rate zones now come only from configuration.** If you previously relied on custom zones from intervals.icu, zones are now computed from `athlete.max_hr` and `athlete.rest_hr`. This changes TRIMP and therefore all historical CTL / ATL / TSB. Run **Full Resync** after checking your values.
+- **Heart-rate zones now come only from configuration.** If you previously relied on custom zones from intervals.icu, zones are now computed from `athlete.max_hr` and `athlete.rest_hr`. This changes TRIMP and therefore all historical CTL / ATL / TSB. Run **Full resync** after checking your values.
 
 For architecture, the HTTP API, the configuration schema, and metric formulas, see [`DEVELOPERS.md`](DEVELOPERS.md).
