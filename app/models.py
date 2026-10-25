@@ -12,6 +12,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -23,7 +24,7 @@ class Base(DeclarativeBase):
 
 
 class OAuthToken(Base):
-    """OAuth tokens for providers that need them (e.g. Google Health)."""
+    """OAuth tokens, one row per provider that needs them."""
 
     __tablename__ = "oauth_tokens"
 
@@ -183,5 +184,64 @@ class DailyMetrics(Base):
     tsb: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     activity_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class BodyMeasurement(Base):
+    """One weigh-in from any provider that supplies body data.
+
+    Every provider's rows are kept. ``superseded_by`` names the provider that
+    wins this row's ``day``, or is NULL when the row is visible; the
+    ``active_body_measurements`` view holds the visible rows.
+    """
+
+    __tablename__ = "body_measurements"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_id", name="uq_body_provider_external"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    measured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    #: Calendar day of ``measured_at`` in ``athlete.timezone``; the unit of
+    #: deduplication.
+    day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    weight_kg: Mapped[float] = mapped_column(Float, nullable=False)
+    fat_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    muscle_mass_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    device: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DailyNutrition(Base):
+    """One day's intake totals from any provider that supplies nutrition.
+
+    One row per provider and day. ``superseded_by`` works as for
+    :class:`BodyMeasurement`; ``active_daily_nutrition`` holds visible rows.
+    """
+
+    __tablename__ = "daily_nutrition"
+    __table_args__ = (
+        UniqueConstraint("provider", "day", name="uq_nutrition_provider_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    kcal: Mapped[float] = mapped_column(Float, nullable=False)
+    protein_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    carbs_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sugar_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fat_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fiber_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

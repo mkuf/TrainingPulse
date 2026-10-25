@@ -22,9 +22,9 @@ from __future__ import annotations
 import logging
 import os
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, get_args
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from pydantic import (
@@ -32,8 +32,18 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
+    ValidationInfo,
     field_validator,
     model_validator,
+)
+
+from trainingpulse_common.catalog import (
+    KINDS,
+    PROVIDER_NAMES,
+    PROVIDERS,
+    DataKind,
+    default_precedence,
+    providers_supporting,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,13 +52,17 @@ ENV_PREFIX = "TP_"
 CONFIG_PATH_ENV = "TP_CONFIG_FILE"
 DEFAULT_CONFIG_PATHS: tuple[str, ...] = ("/config/config.yaml", "config.yaml")
 
-#: Known activity sources, in default precedence order.
-SOURCE_NAMES: tuple[str, ...] = ("icu", "strava", "google_health", "hammerhead")
-
-#: Known plugin names.
-PLUGIN_NAMES: tuple[str, ...] = ("withings", "fddb")
-
 REDACTED = "***"
+
+#: Top-level and nested keys from the sources/plugins era, with where they went.
+#: Reported instead of a bare "extra inputs are not permitted".
+_MOVED_KEYS: dict[tuple[str, ...], str] = {
+    ("sources",): "moved to providers.<name>, and sources.precedence to "
+    "data.activities.precedence",
+    ("plugins",): "moved to providers.withings and providers.fddb",
+    ("sync", "backfill_years"): "moved to data.<kind>.history_days (in days)",
+    ("sync", "reconcile_days"): "moved to data.activities.refresh_days",
+}
 
 
 # ── Errors ──────────────────────────────────────────────────────────
@@ -148,6 +162,19 @@ class AthleteSection(_Section):
     max_hr: int = Field(..., gt=0, le=300)
     rest_hr: int = Field(..., gt=0, le=300)
     ftp: int = Field(..., gt=0, le=2000)
+    #: IANA zone used to assign timestamps to calendar days. Body measurements
+    #: are deduplicated per day, and a 00:30 weigh-in in Berlin belongs to the
+    #: previous day in UTC.
+    timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown time zone {value!r}") from exc
+        return value
 
     @model_validator(mode="after")
     def _check_hr_order(self) -> "AthleteSection":
@@ -156,114 +183,228 @@ class AthleteSection(_Section):
         return self
 
 
-class IcuSourceSection(_Section):
+# ── Providers ───────────────────────────────────────────────────────
+
+
+class _ProviderSection(_Section):
     enabled: bool = False
-    api_key: str = secret("")
-    api_base: str = "https://intervals.icu/api/v1"
+    #: Data kinds to import. Omitted means every kind the provider supports.
+    #: Named ``imports`` because ``import`` cannot be a field name and the
+    #: ``TP_*`` override resolver matches field names, not aliases.
+    imports: list[DataKind] | None = None
+
+    _split_imports = field_validator("imports", mode="before")(
+        classmethod(lambda cls, v: _split_csv(v))
+    )
+
+    def missing_credentials(self) -> list[str]:
+        return []
 
     def is_configured(self) -> bool:
-        return bool(self.api_key.strip())
+        return not self.missing_credentials()
+
+
+class _OAuthProviderSection(_ProviderSection):
+    client_id: str = ""
+    client_secret: str = secret("")
+
+    def missing_credentials(self) -> list[str]:
+        return [
+            name
+            for name, value in (
+                ("client_id", self.client_id),
+                ("client_secret", self.client_secret),
+            )
+            if not value.strip()
+        ]
+
+
+class IcuProvider(_ProviderSection):
+    api_key: str = secret("")
+    api_base: str = "https://intervals.icu/api/v1"
 
     def missing_credentials(self) -> list[str]:
         return [] if self.api_key.strip() else ["api_key"]
 
 
-class StravaSourceSection(_Section):
-    enabled: bool = False
-    client_id: str = ""
-    client_secret: str = secret("")
-
-    def is_configured(self) -> bool:
-        return bool(self.client_id.strip() and self.client_secret.strip())
-
-    def missing_credentials(self) -> list[str]:
-        missing = []
-        if not self.client_id.strip():
-            missing.append("client_id")
-        if not self.client_secret.strip():
-            missing.append("client_secret")
-        return missing
+class StravaProvider(_OAuthProviderSection):
+    pass
 
 
-class GoogleHealthSourceSection(_Section):
-    enabled: bool = False
-    client_id: str = ""
-    client_secret: str = secret("")
+class GoogleHealthProvider(_OAuthProviderSection):
     api_base: str = "https://health.googleapis.com/v4"
 
-    def is_configured(self) -> bool:
-        return bool(self.client_id.strip() and self.client_secret.strip())
 
-    def missing_credentials(self) -> list[str]:
-        missing = []
-        if not self.client_id.strip():
-            missing.append("client_id")
-        if not self.client_secret.strip():
-            missing.append("client_secret")
-        return missing
-
-
-class HammerheadSourceSection(_Section):
-    enabled: bool = False
-    client_id: str = ""
-    client_secret: str = secret("")
+class HammerheadProvider(_OAuthProviderSection):
     api_base: str = "https://api.hammerhead.io/v1/api"
 
-    def is_configured(self) -> bool:
-        return bool(self.client_id.strip() and self.client_secret.strip())
+
+class WithingsProvider(_OAuthProviderSection):
+    #: Blank uses {app.base_url}/plugins/withings/get_token, the callback
+    #: earlier releases registered, so existing Partner Hub apps keep working.
+    redirect_uri: str = ""
+
+
+class FddbProvider(_ProviderSection):
+    user: str = ""
+    password: str = secret("")
+    cookie: str = secret("")
+    base_url: str = "https://fddb.info"
+    lang: str = "de"
+    #: Politeness delay between scraped diary pages.
+    request_delay_ms: int = Field(300, ge=0)
+
+    @field_validator("base_url")
+    @classmethod
+    def _normalize_base_url(cls, value: str) -> str:
+        return value.strip().rstrip("/")
 
     def missing_credentials(self) -> list[str]:
-        missing = []
-        if not self.client_id.strip():
-            missing.append("client_id")
-        if not self.client_secret.strip():
-            missing.append("client_secret")
-        return missing
+        return [
+            name
+            for name, value in (
+                ("user", self.user),
+                ("password", self.password),
+                ("cookie", self.cookie),
+            )
+            if not value.strip()
+        ]
 
 
-class SourcesSection(_Section):
-    precedence: list[str] = Field(default_factory=lambda: list(SOURCE_NAMES))
-    icu: IcuSourceSection = Field(default_factory=IcuSourceSection)
-    strava: StravaSourceSection = Field(default_factory=StravaSourceSection)
-    google_health: GoogleHealthSourceSection = Field(
-        default_factory=GoogleHealthSourceSection
-    )
-    hammerhead: HammerheadSourceSection = Field(
-        default_factory=HammerheadSourceSection
-    )
+class ProvidersSection(_Section):
+    icu: IcuProvider = Field(default_factory=IcuProvider)
+    strava: StravaProvider = Field(default_factory=StravaProvider)
+    google_health: GoogleHealthProvider = Field(default_factory=GoogleHealthProvider)
+    hammerhead: HammerheadProvider = Field(default_factory=HammerheadProvider)
+    withings: WithingsProvider = Field(default_factory=WithingsProvider)
+    fddb: FddbProvider = Field(default_factory=FddbProvider)
+
+    @field_validator(*PROVIDER_NAMES)
+    @classmethod
+    def _validate_imports(
+        cls, section: _ProviderSection, info: ValidationInfo
+    ) -> _ProviderSection:
+        if section.imports is None:
+            return section
+        spec = PROVIDERS[info.field_name]
+        if not section.imports:
+            raise ValueError(
+                "imports is empty; set enabled: false instead, or omit imports "
+                "to take everything this provider supports"
+            )
+        unsupported = [kind.value for kind in section.imports if kind not in spec.kinds]
+        if unsupported:
+            raise ValueError(
+                f"{spec.label} cannot provide {', '.join(unsupported)}; it provides "
+                f"{', '.join(kind.value for kind in spec.kinds)}"
+            )
+        # Dedupe, keeping the user's order.
+        return section.model_copy(
+            update={"imports": list(dict.fromkeys(section.imports))}
+        )
+
+    def section(self, name: str) -> _ProviderSection:
+        return getattr(self, name)
+
+    def imports_of(self, name: str) -> list[DataKind]:
+        """Kinds ``name`` is configured to import, whether or not it is enabled."""
+        section = self.section(name)
+        if section.imports is None:
+            return list(PROVIDERS[name].kinds)
+        return list(section.imports)
+
+    def is_active(self, name: str, kind: DataKind) -> bool:
+        """True when ``name`` is enabled and imports ``kind``."""
+        return self.section(name).enabled and kind in self.imports_of(name)
+
+    def enabled_names(self) -> list[str]:
+        """Enabled provider names, in declaration order."""
+        return [name for name in PROVIDER_NAMES if self.section(name).enabled]
+
+
+# ── Data kinds ──────────────────────────────────────────────────────
+
+
+class DataKindSection(_Section):
+    #: Highest precedence first. Supporting providers left out rank last.
+    #: Positional and independent of ``enabled``: disabling a provider must not
+    #: promote another provider's rows over its stored history.
+    precedence: list[str] = Field(default_factory=list)
+    #: How far back the first sync lists. Filled from the kind's default.
+    history_days: int | None = Field(None, ge=1)
+    #: How far back every later sync re-lists to pick up upstream edits.
+    #: 0 disables re-listing. Filled from the kind's default.
+    refresh_days: int | None = Field(None, ge=0)
 
     _split_precedence = field_validator("precedence", mode="before")(
         classmethod(lambda cls, v: _split_csv(v))
     )
 
-    @field_validator("precedence")
+
+class DataSection(_Section):
+    # validate_default so an omitted block still gets its kind's defaults.
+    activities: DataKindSection = Field(
+        default_factory=DataKindSection, validate_default=True
+    )
+    body: DataKindSection = Field(default_factory=DataKindSection, validate_default=True)
+    nutrition: DataKindSection = Field(
+        default_factory=DataKindSection, validate_default=True
+    )
+    sleep: DataKindSection = Field(default_factory=DataKindSection, validate_default=True)
+
+    @field_validator(*(kind.value for kind in DataKind), mode="after")
     @classmethod
-    def _validate_precedence(cls, value: list[str]) -> list[str]:
-        names = [item.strip().lower() for item in value]
-        unknown = [name for name in names if name not in SOURCE_NAMES]
+    def _resolve(cls, section: DataKindSection, info: ValidationInfo) -> DataKindSection:
+        kind = DataKind(info.field_name)
+        spec = KINDS[kind]
+        supporting = providers_supporting(kind)
+
+        names = [name.strip().lower() for name in section.precedence]
+        unknown = [name for name in names if name not in PROVIDERS]
         if unknown:
             raise ValueError(
-                f"unknown source name(s) {', '.join(unknown)}; "
-                f"known sources are {', '.join(SOURCE_NAMES)}"
+                f"unknown provider(s) {', '.join(unknown)} in precedence; known "
+                f"providers are {', '.join(PROVIDER_NAMES)}"
+            )
+        cannot = [name for name in names if name not in supporting]
+        if cannot:
+            raise ValueError(
+                f"{', '.join(cannot)} cannot provide {kind.value}; providers that "
+                f"can are {', '.join(supporting) or 'none yet'}"
             )
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
-            raise ValueError(f"duplicate source name(s) {', '.join(duplicates)}")
-        # Sources omitted from the list rank last, in declaration order.
-        return names + [name for name in SOURCE_NAMES if name not in names]
+            raise ValueError(
+                f"duplicate provider(s) {', '.join(duplicates)} in precedence"
+            )
 
-    def section(self, name: str) -> _Section:
-        return getattr(self, name)
+        resolved = names + [
+            name for name in default_precedence(kind) if name not in names
+        ]
+        return section.model_copy(
+            update={
+                "precedence": resolved,
+                "history_days": section.history_days or spec.default_history_days,
+                "refresh_days": (
+                    spec.default_refresh_days
+                    if section.refresh_days is None
+                    else section.refresh_days
+                ),
+            }
+        )
 
-    def enabled_names(self) -> list[str]:
-        """Enabled source names in precedence order."""
-        return [name for name in self.precedence if self.section(name).enabled]
+    def kind(self, kind: DataKind) -> DataKindSection:
+        return getattr(self, kind.value)
+
+
+# ── Sync and MCP ────────────────────────────────────────────────────
 
 
 class SyncSection(_Section):
+    """Scheduling and throughput. History windows live in ``data.<kind>``."""
+
     interval_minutes: int = Field(15, ge=1)
-    reconcile_days: int = Field(90, ge=0)
-    backfill_years: int = Field(10, ge=1)
+    #: Chunk size for backfill and refresh listing.
     window_days: int = Field(90, ge=1)
     detail_concurrency: int = Field(5, ge=1)
     streams_concurrency: int = Field(5, ge=1)
@@ -281,105 +422,24 @@ class McpSection(_Section):
     )
 
 
-class WithingsPluginSection(_Section):
-    enabled: bool = False
-    client_id: str = ""
-    client_secret: str = secret("")
-    redirect_uri: str = ""
-    sync_interval_minutes: int = Field(60, ge=1)
-    sync_lookback_days: int = Field(3650, ge=1)
-
-    def is_configured(self) -> bool:
-        return bool(self.client_id.strip() and self.client_secret.strip())
-
-    def missing_credentials(self) -> list[str]:
-        missing = []
-        if not self.client_id.strip():
-            missing.append("client_id")
-        if not self.client_secret.strip():
-            missing.append("client_secret")
-        return missing
-
-
-class FddbPluginSection(_Section):
-    enabled: bool = False
-    user: str = ""
-    password: str = secret("")
-    cookie: str = secret("")
-    base_url: str = "https://fddb.info"
-    lang: str = "de"
-    sync_interval_minutes: int = Field(60, ge=1)
-    sync_lookback_days: int = Field(365, ge=1)
-    request_delay_ms: int = Field(300, ge=0)
-
-    @field_validator("base_url")
-    @classmethod
-    def _normalize_base_url(cls, value: str) -> str:
-        return value.strip().rstrip("/")
-
-    def is_configured(self) -> bool:
-        return bool(self.user.strip() and self.password.strip() and self.cookie.strip())
-
-    def missing_credentials(self) -> list[str]:
-        return [
-            name
-            for name, value in (
-                ("user", self.user),
-                ("password", self.password),
-                ("cookie", self.cookie),
-            )
-            if not value.strip()
-        ]
-
-
-class PluginsSection(_Section):
-    withings: WithingsPluginSection = Field(default_factory=WithingsPluginSection)
-    fddb: FddbPluginSection = Field(default_factory=FddbPluginSection)
-
-    def section(self, name: str) -> _Section:
-        return getattr(self, name)
-
-    def enabled_names(self) -> list[str]:
-        return [name for name in PLUGIN_NAMES if self.section(name).enabled]
-
-
 class Config(_Section):
     """Root of the TrainingPulse configuration."""
 
     athlete: AthleteSection
     app: AppSection = Field(default_factory=AppSection)
     database: DatabaseSection = Field(default_factory=DatabaseSection)
-    sources: SourcesSection = Field(default_factory=SourcesSection)
+    providers: ProvidersSection = Field(default_factory=ProvidersSection)
+    data: DataSection = Field(default_factory=DataSection)
     sync: SyncSection = Field(default_factory=SyncSection)
     mcp: McpSection = Field(default_factory=McpSection)
-    plugins: PluginsSection = Field(default_factory=PluginsSection)
 
-
-# ── Plugin injection ────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class PluginContext:
-    """Everything a plugin needs at construction time."""
-
-    name: str
-    database_url: str
-    app_base_url: str
-    options: Any
-
-    @property
-    def prefix(self) -> str:
-        return f"/plugins/{self.name}"
-
-
-def plugin_context(config: Config, name: str) -> PluginContext:
-    """Build the context handed to ``build_plugin`` for one plugin."""
-    return PluginContext(
-        name=name,
-        database_url=config.database.url,
-        app_base_url=config.app.base_url,
-        options=config.plugins.section(name),
-    )
+    def active_providers(self, kind: DataKind) -> list[str]:
+        """Providers that sync ``kind``, in that kind's precedence order."""
+        return [
+            name
+            for name in self.data.kind(kind).precedence
+            if self.providers.is_active(name, kind)
+        ]
 
 
 # ── Interpolation ───────────────────────────────────────────────────
@@ -402,7 +462,7 @@ def _interpolate_str(value: str, env: Mapping[str, str], location: str) -> str:
         if fallback is not None:
             return fallback
         # Not an error on its own: an unset credential only matters when the
-        # source or plugin is actually enabled, which the semantic checks below
+        # provider is actually enabled, which the semantic checks below
         # report with a far better message.
         logger.warning(
             "config %s references ${%s}, which is not set; using an empty value",
@@ -490,57 +550,62 @@ def _apply_env_overrides(
 # ── Semantic checks ─────────────────────────────────────────────────
 
 
-def _semantic_problems(config: Config) -> list[tuple[str, str]]:
-    """Cross-field rules that need a fully validated model."""
+def _moved_key_problems(data: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Point keys from the sources/plugins era at their new home."""
     problems: list[tuple[str, str]] = []
-
-    for name in SOURCE_NAMES:
-        section = config.sources.section(name)
-        if section.enabled and not section.is_configured():
-            missing = ", ".join(section.missing_credentials())
-            problems.append(
-                (
-                    f"sources.{name}",
-                    f"enabled is true but {missing} is blank",
-                )
-            )
-
-    for name in PLUGIN_NAMES:
-        section = config.plugins.section(name)
-        if section.enabled and not section.is_configured():
-            missing = ", ".join(section.missing_credentials())
-            problems.append(
-                (
-                    f"plugins.{name}",
-                    f"enabled is true but {missing} is blank",
-                )
-            )
-
+    for path, message in _MOVED_KEYS.items():
+        cursor: Any = data
+        for part in path:
+            if not isinstance(cursor, Mapping) or part not in cursor:
+                break
+            cursor = cursor[part]
+        else:
+            problems.append((".".join(path), message))
     return problems
 
 
-def _warn_precedence(config: Config) -> None:
-    """Warn when a disabled source outranks an enabled one.
-
-    A disabled source still participates in supersession, so ranking one above
-    an enabled source hides rows that can be enriched behind rows that cannot.
-    """
-    enabled = set(config.sources.enabled_names())
-    for index, name in enumerate(config.sources.precedence):
-        if name in enabled:
-            continue
-        outranked = [
-            other for other in config.sources.precedence[index + 1 :] if other in enabled
-        ]
-        if outranked:
-            logger.warning(
-                "sources.precedence ranks %s above enabled source(s) %s, but %s is "
-                "disabled; its activities will outrank data that can still be "
-                "refreshed",
-                name,
-                ", ".join(outranked),
-                name,
+def _semantic_problems(config: Config) -> list[tuple[str, str]]:
+    """Cross-field rules that need a fully validated model."""
+    problems: list[tuple[str, str]] = []
+    for name in PROVIDER_NAMES:
+        section = config.providers.section(name)
+        if section.enabled and not section.is_configured():
+            problems.append(
+                (
+                    f"providers.{name}",
+                    f"enabled is true but {', '.join(section.missing_credentials())} "
+                    "is blank",
+                )
             )
+    return problems
+
+
+def precedence_warnings(config: Config) -> list[str]:
+    """Inactive providers ranked above active ones, per kind.
+
+    Not an error: a provider you stopped using keeps its stored rows, and
+    ranking it first is how you say "keep its history visible". But those rows
+    can no longer be refreshed, which is usually not what was meant.
+    """
+    warnings: list[str] = []
+    for kind in DataKind:
+        precedence = config.data.kind(kind).precedence
+        for index, name in enumerate(precedence):
+            if config.providers.is_active(name, kind):
+                continue
+            outranked = [
+                other
+                for other in precedence[index + 1 :]
+                if config.providers.is_active(other, kind)
+            ]
+            if outranked:
+                warnings.append(
+                    f"data.{kind.value}.precedence ranks {name} above "
+                    f"{', '.join(outranked)}, but {name} is not importing "
+                    f"{kind.value}; its stored rows will hide data that can "
+                    "still be refreshed"
+                )
+    return warnings
 
 
 # ── Loading ─────────────────────────────────────────────────────────
@@ -622,10 +687,16 @@ def load_config(
     problems = _apply_env_overrides(data, environ)
 
     config: Config | None = None
-    try:
-        config = Config.model_validate(data)
-    except ValidationError as exc:
-        problems.extend(_validation_problems(exc))
+    moved = _moved_key_problems(data)
+    if moved:
+        # Validating would only add a less helpful "extra inputs" error for
+        # the same keys, plus knock-on errors from sections that moved.
+        problems.extend(moved)
+    else:
+        try:
+            config = Config.model_validate(data)
+        except ValidationError as exc:
+            problems.extend(_validation_problems(exc))
 
     if config is not None:
         problems.extend(_semantic_problems(config))
@@ -634,7 +705,8 @@ def load_config(
         raise ConfigError(problems, path=resolved)
 
     assert config is not None  # narrowed: no problems means validation succeeded
-    _warn_precedence(config)
+    for warning in precedence_warnings(config):
+        logger.warning(warning)
     return config
 
 

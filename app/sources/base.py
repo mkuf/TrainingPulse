@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from fastapi import FastAPI
+from trainingpulse_common.catalog import AuthMethod, DataKind
 
 from models import Activity
 
@@ -139,10 +140,17 @@ class OAuthStateGuard:
 
 @runtime_checkable
 class ActivitySource(Protocol):
-    """One provider of activities."""
+    """An activity provider that is its own activities feed.
+
+    Satisfies both :class:`providers.base.Provider` and
+    :class:`providers.feeds.ActivityFeed`; the engine works against this
+    combined view because it needs the feed and the provider's rate limits.
+    """
 
     #: Value stored in ``activities.source``.
     name: str
+    auth: AuthMethod
+    kind: DataKind
     #: Prefix applied to ``activities.id``, e.g. ``"strava_"``.
     id_prefix: str
     #: True when the provider has a per-activity detail endpoint worth calling.
@@ -152,8 +160,6 @@ class ActivitySource(Protocol):
     supports_streams: bool
     #: True when re-listing a recent window is cheap enough to detect edits.
     supports_reconcile: bool
-    #: True when the user must complete an OAuth flow before syncing.
-    requires_authorization: bool
     #: Route that starts authorization, or "" for API-key sources.
     connect_path: str
     #: Route that revokes stored credentials, or "" for API-key sources.

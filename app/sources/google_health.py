@@ -13,9 +13,11 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from trainingpulse_common.catalog import AuthMethod, DataKind
 
 from google_health_client import DEFAULT_API_BASE, GoogleHealthClient
 from models import Activity
+from providers.base import granted_if_connected
 from sources.base import OAuthStateGuard, RateLimitSnapshot, prefixed_id
 from sources.mapping import (
     as_float,
@@ -209,7 +211,8 @@ class GoogleHealthSource:
     # re-listing is the same cost as the incremental pass, so reconciliation is
     # left off until the list-call cost is measured against a real account.
     supports_reconcile = False
-    requires_authorization = True
+    auth = AuthMethod.OAUTH
+    kind = DataKind.ACTIVITIES
     connect_path = CONNECT_PATH
     disconnect_path = DISCONNECT_PATH
 
@@ -346,6 +349,13 @@ class GoogleHealthSource:
         end = start + timedelta(seconds=max(activity.elapsed_time or 0, 60))
         points = await self.client.list_heart_rate(start, end)
         return hr_points_to_streams(points, start)
+
+    def feeds(self) -> dict[DataKind, "GoogleHealthSource"]:
+        # Single-kind provider: the source is its own activities feed.
+        return {DataKind.ACTIVITIES: self}
+
+    async def granted_kinds(self) -> frozenset[DataKind]:
+        return await granted_if_connected(self)
 
     def map_row(self, payload: dict, athlete_id: int) -> dict | None:
         return map_row(payload, athlete_id)

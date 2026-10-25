@@ -1,7 +1,7 @@
 """TrainingPulse — FastAPI application.
 
 Provides:
-- One connection flow per activity source (API key or OAuth)
+- One connection flow per provider (API key, session, or OAuth)
 - Status page showing sync progress and current metrics
 - Background scheduler for periodic syncing
 """
@@ -16,27 +16,18 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from trainingpulse_common.catalog import KINDS, PROVIDERS, AuthMethod, DataKind
 from trainingpulse_common.config import redacted_dump
 
 from config import config
 from database import async_session, engine
 from models import Activity, AthleteSettings, DailyMetrics
-from plugins.registry import dispose_plugins, enabled_plugin_names, load_plugins, setup_plugins
+from providers.records import RECORD_KINDS, STORES
+from providers.registry import build_all_providers
 from schema_migrate import ensure_schema
-from sources.registry import build_all_sources
 from sync import refresh_rate_limits, run_sync, sync_state
 
-_PLUGIN_LINKS: dict[str, tuple[str, str]] = {
-    "withings": ("Withings (body weight)", "/plugins/withings/"),
-    "fddb": ("FDDB (nutrition)", "/plugins/fddb/"),
-}
-
-SOURCE_LABELS: dict[str, str] = {
-    "icu": "intervals.icu",
-    "strava": "Strava",
-    "google_health": "Google Health",
-    "hammerhead": "Hammerhead",
-}
+PROVIDER_LABELS: dict[str, str] = {name: spec.label for name, spec in PROVIDERS.items()}
 
 APP_DISPLAY_NAME = "TrainingPulse"
 
@@ -49,28 +40,24 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 #: Built once at import so OAuth routes can be registered before startup.
-#: Includes disabled sources so the status page can explain why they are off.
-SOURCES = build_all_sources(config, async_session)
+#: Includes disabled providers so the status page can explain why they are off.
+PROVIDER_INSTANCES = build_all_providers(config, async_session)
 
 
 async def trigger_sync_task(force_resync: bool = False):
-    """Background task: sync activities from enabled providers."""
+    """Background task: sync every enabled provider."""
     async with async_session() as session:
         await run_sync(session, force_resync=force_resync)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: migrate schema, start scheduler, load plugins."""
+    """Application lifespan: migrate schema, start scheduler."""
     logger.info("Effective configuration:\n%s", redacted_dump(config))
 
     async with engine.begin() as conn:
-        await ensure_schema(conn)
+        await ensure_schema(conn, timezone=config.athlete.timezone)
     logger.info("Database tables created/verified")
-
-    app.state.scheduler = scheduler
-    plugins = load_plugins(config)
-    app.state.plugins = await setup_plugins(app, scheduler, plugins)
 
     scheduler.add_job(
         trigger_sync_task,
@@ -88,20 +75,20 @@ async def lifespan(app: FastAPI):
     yield
 
     scheduler.shutdown(wait=False)
-    await dispose_plugins(app.state.plugins)
-    for source in SOURCES:
-        await source.close()
+    for provider in PROVIDER_INSTANCES:
+        await provider.close()
     await engine.dispose()
 
 
 app = FastAPI(title=APP_DISPLAY_NAME, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Each source mounts its own authorization routes. API-key sources are no-ops.
-# Paths are owned by the source so already-registered OAuth redirect URIs (in
-# particular Google's /auth/google/callback) keep working unchanged.
-for _source in SOURCES:
-    _source.register_auth_routes(app)
+# Each provider mounts its own authorization routes; non-OAuth ones are no-ops.
+# Paths are owned by the provider so already-registered OAuth redirect URIs (in
+# particular Google's /auth/google/callback and Withings'
+# /plugins/withings/get_token) keep working unchanged.
+for _provider in PROVIDER_INSTANCES:
+    _provider.register_auth_routes(app)
 
 
 # ── Status helpers ───────────────────────────────────────────────────
@@ -183,58 +170,78 @@ async def _primary_athlete_id(session) -> int | None:
     return result.scalar_one_or_none()
 
 
-def _plugin_links_html(active_names: set[str]) -> str:
-    enabled = enabled_plugin_names(config)
-    if not enabled:
-        return ""
-    items: list[str] = []
-    for name in enabled:
-        label, path = _PLUGIN_LINKS[name]
-        if name in active_names:
-            items.append(f'<li><a href="{path}">{label}</a></li>')
-        else:
-            items.append(
-                f'<li>{label} <span class="fine-print">(not configured — see '
-                "config.yaml)</span></li>"
+async def _record_counts(session) -> dict[DataKind, dict]:
+    """Visible rows per provider, and hidden duplicates, for each record kind."""
+    counts: dict[DataKind, dict] = {}
+    for kind in RECORD_KINDS:
+        model = STORES[kind].model
+        rows = (
+            await session.execute(
+                select(
+                    model.provider,
+                    func.count(model.id).filter(model.superseded_by == None),  # noqa: E711
+                    func.count(model.id).filter(model.superseded_by != None),  # noqa: E711
+                ).group_by(model.provider)
             )
-    return f"""
-    <div class="card">
-        <h3>Plugins</h3>
-        <ul style="margin: 0.35rem 0 0 1.15rem; padding: 0;">
-            {"".join(items)}
-        </ul>
-    </div>
-    """
+        ).all()
+        by_provider = {provider: int(visible) for provider, visible, _ in rows if visible}
+        counts[kind] = {
+            "total": sum(by_provider.values()),
+            "by_provider": by_provider,
+            "superseded": sum(int(hidden) for _, _, hidden in rows),
+        }
+    return counts
+
+
+def _record_rows_html(counts: dict[DataKind, dict]) -> str:
+    """One row per record kind that has data or a provider importing it."""
+    rows: list[str] = []
+    for kind, data in counts.items():
+        if not data["total"] and not config.active_providers(kind):
+            continue
+        detail = _by_source_label(data["by_provider"], data["superseded"])
+        rows.append(
+            f"""
+            <tr><td>{KINDS[kind].label}</td><td>
+                {data['total']} total <span class="rl-meta">{detail}</span>
+            </td></tr>
+            """
+        )
+    return "".join(rows)
 
 
 async def _source_states(session) -> list[dict]:
-    """Enabled/configured/connected state for every known source."""
+    """Enabled/configured/connected state for every known provider."""
     states: list[dict] = []
-    for source in SOURCES:
-        section = config.sources.section(source.name)
+    for provider in PROVIDER_INSTANCES:
+        section = config.providers.section(provider.name)
         connected = False
-        if section.enabled and source.is_configured():
+        if section.enabled and provider.is_configured():
             try:
-                connected = await source.is_connected()
+                connected = await provider.is_connected()
             except Exception as exc:  # noqa: BLE001 - status page must render
-                logger.warning("%s connection check failed: %s", source.name, exc)
+                logger.warning("%s connection check failed: %s", provider.name, exc)
         states.append(
             {
-                "name": source.name,
-                "label": SOURCE_LABELS.get(source.name, source.name),
+                "name": provider.name,
+                "label": PROVIDER_LABELS.get(provider.name, provider.name),
+                "imports": [
+                    KINDS[kind].label.lower()
+                    for kind in config.providers.imports_of(provider.name)
+                ],
                 "enabled": section.enabled,
-                "configured": source.is_configured(),
+                "configured": provider.is_configured(),
                 "connected": connected,
-                "requires_authorization": source.requires_authorization,
-                "connect_path": source.connect_path,
-                "disconnect_path": source.disconnect_path,
+                "requires_authorization": provider.auth is AuthMethod.OAUTH,
+                "connect_path": provider.connect_path,
+                "disconnect_path": provider.disconnect_path,
             }
         )
     return states
 
 
 def _sources_card_html(states: list[dict]) -> str:
-    """One row per source, in precedence order."""
+    """One row per provider, with the data kinds it imports."""
     rows: list[str] = []
     for state in states:
         action = ""
@@ -260,16 +267,18 @@ def _sources_card_html(states: list[dict]) -> str:
         rows.append(
             f"""
         <div class="source-row">
-            <span class="source-name">{state['label']}</span>
+            <span class="source-name">{state['label']}
+                <span class="fine-print">{", ".join(state['imports'])}</span></span>
             <span class="source-meta">{status}{action}</span>
         </div>
         """
         )
     return f"""
     <div class="card sources-card">
-        <h3>Sources</h3>
-        <p class="fine-print">Listed highest precedence first. When two sources
-        report the same workout, the higher one wins.</p>
+        <h3>Providers</h3>
+        <p class="fine-print">When two providers report the same workout or
+        day, the one ranked higher in <code>data.&lt;kind&gt;.precedence</code>
+        wins.</p>
         {"".join(rows)}
     </div>
     """
@@ -280,7 +289,7 @@ def _by_source_label(by_source: dict[str, int], superseded: int = 0) -> str:
     if not by_source:
         return ""
     parts = [
-        f"{SOURCE_LABELS.get(name, name)} {count}"
+        f"{PROVIDER_LABELS.get(name, name)} {count}"
         for name, count in sorted(by_source.items(), key=lambda item: -item[1])
     ]
     if superseded:
@@ -335,7 +344,6 @@ def _rate_limit_rows_html(states: list[dict]) -> str:
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Status page showing sync state and current metrics."""
-    active_plugins = {p.name for p in getattr(request.app.state, "plugins", [])}
     async with async_session() as session:
         states = await _source_states(session)
         # A source is usable when it is enabled, configured, and (for OAuth)
@@ -367,6 +375,7 @@ async def home(request: Request):
 
         counts = await _progress_counts(session, athlete_id)
         activity_count = counts["total"]
+        record_counts = await _record_counts(session)
 
         latest_metrics = None
         if athlete_id is not None:
@@ -433,6 +442,7 @@ async def home(request: Request):
                     <progress id="sync-streams-bar" value="{streams_done_initial}" max="{max(streams_total_initial, 1)}"></progress>
                 </td>
             </tr>
+            {_record_rows_html(record_counts)}
             {rate_limit_rows}
             {error_row_initial}
         </table>
@@ -617,7 +627,6 @@ async def home(request: Request):
             {metrics_info}
             {_sources_card_html(states)}
             {sync_info}
-            {_plugin_links_html(active_plugins)}
             """,
         )
     )
@@ -633,7 +642,7 @@ async def _build_status_payload() -> dict:
         "phase": sync_state.phase,
         "active_source": sync_state.active_source,
         "activities_by_source": counts["by_source"],
-        "source_labels": SOURCE_LABELS,
+        "source_labels": PROVIDER_LABELS,
         "superseded": counts["superseded"],
         "details": {
             "fetched": counts["details_done"],
@@ -658,16 +667,16 @@ async def sync_status():
 
 @app.post("/sync/refresh-rate-limit")
 async def refresh_rate_limit():
-    """Refresh each connected source's published quota headers."""
+    """Refresh each connected provider's published quota headers."""
     if sync_state.is_running:
         return JSONResponse(
             status_code=409,
             content={"error": "A sync is already running; rate limits will update from that."},
         )
-    if not config.sources.enabled_names():
+    if not config.providers.enabled_names():
         return JSONResponse(
             status_code=400,
-            content={"error": "No activity source is enabled."},
+            content={"error": "No provider is enabled."},
         )
     try:
         await refresh_rate_limits()

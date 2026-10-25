@@ -9,8 +9,10 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from trainingpulse_common.catalog import AuthMethod, DataKind
 
 from models import Activity
+from providers.base import granted_if_connected
 from sources.base import (
     OAuthStateGuard,
     RateLimitSnapshot,
@@ -157,7 +159,8 @@ class StravaSource:
     supports_detail = True
     supports_streams = True
     supports_reconcile = True
-    requires_authorization = True
+    auth = AuthMethod.OAUTH
+    kind = DataKind.ACTIVITIES
     connect_path = CONNECT_PATH
     disconnect_path = DISCONNECT_PATH
 
@@ -330,6 +333,13 @@ class StravaSource:
             external_id(ID_PREFIX, activity.id)
         )
         return normalize_streams(raw)
+
+    def feeds(self) -> dict[DataKind, "StravaSource"]:
+        # Single-kind provider: the source is its own activities feed.
+        return {DataKind.ACTIVITIES: self}
+
+    async def granted_kinds(self) -> frozenset[DataKind]:
+        return await granted_if_connected(self)
 
     def map_row(self, payload: dict, athlete_id: int) -> dict | None:
         return map_row(payload, athlete_id)

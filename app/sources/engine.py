@@ -121,9 +121,11 @@ class EngineContext:
     session_factory: async_sessionmaker
     athlete_id: int
     state: SyncState
-    backfill_years: int
+    #: ``data.activities.history_days``: how far back a backfill lists.
+    history_days: int
     window_days: int
-    reconcile_days: int
+    #: ``data.activities.refresh_days``: how far back reconcile re-lists.
+    refresh_days: int
     detail_concurrency: int
     streams_concurrency: int
     hr_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
@@ -337,7 +339,7 @@ async def backfill(
     """Walk the full configured history in ``window_days`` chunks."""
     ctx.state.begin("backfilling", source.name)
     newest = date.today()
-    oldest = newest - timedelta(days=365 * ctx.backfill_years)
+    oldest = newest - timedelta(days=ctx.history_days)
     windows = date_windows(oldest, newest, ctx.window_days)
     logger.info(
         "%s backfill: %s → %s (%d windows)", source.name, oldest, newest, len(windows)
@@ -374,7 +376,7 @@ async def incremental(
     if latest is not None:
         oldest = (latest - timedelta(days=1)).date()
     else:
-        oldest = newest - timedelta(days=ctx.reconcile_days or 90)
+        oldest = newest - timedelta(days=ctx.refresh_days or 90)
 
     start, end = _as_window(oldest, newest)
     payloads = await source.list_activities(start, end)
@@ -390,12 +392,12 @@ async def reconcile(
     source: ActivitySource, session: AsyncSession, ctx: EngineContext
 ) -> int:
     """Re-list a recent window and re-queue anything edited upstream."""
-    if not source.supports_reconcile or ctx.reconcile_days <= 0:
+    if not source.supports_reconcile or ctx.refresh_days <= 0:
         return 0
 
     ctx.state.begin("reconciling", source.name)
     newest = date.today() + timedelta(days=1)
-    oldest = newest - timedelta(days=ctx.reconcile_days)
+    oldest = newest - timedelta(days=ctx.refresh_days)
     start, end = _as_window(oldest, newest)
     payloads = await source.list_activities(start, end)
     ctx.state.snapshot_rate_limits(source)

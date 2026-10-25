@@ -5,9 +5,9 @@
 # Two environment mechanisms sit on top of this file:
 #
 #   1. Structural overrides — TP_<SECTION>__<KEY>, e.g.
-#        TP_SYNC__RECONCILE_DAYS=7
-#        TP_SOURCES__STRAVA__CLIENT_SECRET=abc123
-#        TP_SOURCES__PRECEDENCE=icu,strava        (lists are comma-separated)
+#        TP_DATA__ACTIVITIES__REFRESH_DAYS=7
+#        TP_PROVIDERS__STRAVA__CLIENT_SECRET=abc123
+#        TP_DATA__BODY__PRECEDENCE=withings        (lists are comma-separated)
 #      An override always beats the value in this file.
 #
 #   2. Value interpolation — ${VAR} or ${VAR:-default} inside a value here,
@@ -37,17 +37,25 @@ athlete:
   max_hr: 190
   rest_hr: 60
   ftp: 250
+  # Assigns weigh-ins to calendar days, which is how body measurements from
+  # several providers are deduplicated. Any IANA zone name.
+  timezone: UTC
 
-sources:
-  # Highest precedence first. When two sources report the same workout, the
-  # higher one is shown and the others are stored but hidden. Only the winner
-  # spends detail and stream API calls.
-  #
-  # Precedence is positional and independent of `enabled`, so disabling a
-  # source does not silently promote another one's rows over its history.
-  # Sources you omit rank last.
-  precedence: [icu, strava, google_health, hammerhead]
+# ── Accounts ─────────────────────────────────────────────────────────
+#
+# One block per service you connect. `imports` picks which data kinds to take
+# from it; omit it to take everything the provider supports. Listing a kind a
+# provider cannot supply is a startup error that says what it can supply.
+#
+#   provider        can supply
+#   icu             activities
+#   strava          activities
+#   google_health   activities
+#   hammerhead      activities
+#   withings        body
+#   fddb            nutrition
 
+providers:
   # intervals.icu — API key from https://intervals.icu/settings
   icu:
     enabled: true
@@ -88,12 +96,63 @@ sources:
     client_secret: ${HAMMERHEAD_CLIENT_SECRET:-}
     api_base: https://api.hammerhead.io/v1/api
 
+  # Withings — body weight, fat %, and muscle mass from Withings scales.
+  # Create an app in the Withings Partner Hub; its callback URL must be
+  # {app.base_url}/plugins/withings/get_token (unchanged from earlier releases).
+  withings:
+    enabled: false
+    client_id: ""
+    client_secret: ${WITHINGS_CLIENT_SECRET:-}
+    # Blank uses the callback above. Set it only if Withings must reach the
+    # app on a different URL than app.base_url.
+    redirect_uri: ""
+
+  # FDDB — daily nutrition scraped from fddb.info. `cookie` is the value of the
+  # `fddb` session cookie (browser devtools → Network → any fddb.info
+  # request), without the `fddb=` prefix.
+  fddb:
+    enabled: false
+    user: ""
+    password: ${FDDB_PW:-}
+    cookie: ${FDDB_COOKIE:-}
+    base_url: https://fddb.info
+    lang: de
+    # Pause between scraped diary pages.
+    request_delay_ms: 300
+
+# ── What to keep, and who wins a duplicate ───────────────────────────
+#
+# Every provider's rows are stored; precedence decides which are visible.
+# Activities compete when their time ranges overlap. Body measurements and
+# nutrition compete per calendar day: the highest-ranked provider with any
+# data that day wins the whole day, so nothing is double-counted. Only the
+# winning activity spends detail and stream API calls.
+#
+# Precedence ignores `enabled`, so disabling a provider keeps its history
+# ranked where it was. Providers that can supply a kind but are left out of
+# its list rank last.
+#
+#   history_days  how far back the first sync of a provider lists
+#   refresh_days  how far back every later sync re-lists to pick up upstream
+#                 edits; 0 turns re-listing off
+
+data:
+  activities:
+    precedence: [icu, strava, google_health, hammerhead]
+    history_days: 3650
+    refresh_days: 90
+  body:
+    precedence: [withings]
+    history_days: 3650
+    refresh_days: 7
+  nutrition:
+    precedence: [fddb]
+    history_days: 365
+    refresh_days: 7
+
 sync:
   interval_minutes: 15
-  # Re-list this many recent days each run to pick up upstream edits. 0 = off.
-  reconcile_days: 90
-  backfill_years: 10
-  # Chunk size for backfill and reconcile listing.
+  # Chunk size for backfill and refresh listing.
   window_days: 90
   detail_concurrency: 5
   streams_concurrency: 5
@@ -105,27 +164,3 @@ mcp:
   allowed_hosts:
     - "localhost:*"
     - "127.0.0.1:*"
-
-plugins:
-  # Body weight from Withings.
-  withings:
-    enabled: false
-    client_id: ""
-    client_secret: ${WITHINGS_CLIENT_SECRET:-}
-    # Blank uses {app.base_url}/plugins/withings/get_token
-    redirect_uri: ""
-    sync_interval_minutes: 60
-    sync_lookback_days: 3650
-
-  # Nutrition from fddb.info. `cookie` is the value of the `fddb` session
-  # cookie, without the `fddb=` prefix.
-  fddb:
-    enabled: false
-    user: ""
-    password: ${FDDB_PW:-}
-    cookie: ${FDDB_COOKIE:-}
-    base_url: https://fddb.info
-    lang: de
-    sync_interval_minutes: 60
-    sync_lookback_days: 365
-    request_delay_ms: 300

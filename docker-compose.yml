@@ -45,9 +45,9 @@ services:
       # configurable here.
       - "${MCP_PORT:-8001}:8001"
     volumes:
-      # Shares the app's config file. To keep source and plugin credentials out
-      # of this container, point TP_CONFIG_FILE at a reduced file instead — the
-      # MCP server only needs mcp.*, database.url, and plugins.*.enabled.
+      # Shares the app's config file. To keep provider credentials out of this
+      # container, point TP_CONFIG_FILE at a reduced file instead — the MCP
+      # server only needs athlete.*, mcp.*, and database.url.
       - ./config.yaml:/config/config.yaml:ro
     environment:
       TP_CONFIG_FILE: /config/config.yaml

@@ -14,8 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import config
 from database import async_session
+from mcp_records import record_coverage, register_record_tools
 from models import Activity, ActivityStream, AthleteSettings, DailyMetrics
-from plugins.registry import load_plugins, register_plugin_mcp_tools
 
 APP_NAME = "TrainingPulse MCP"
 DEFAULT_LIMIT = 25
@@ -37,9 +37,9 @@ mcp = FastMCP(
     APP_NAME,
     instructions=(
         "Read-only access to TrainingPulse activity, training-load, gear, "
-        "and sync-health summaries. When Withings/FDDB plugins are enabled, "
-        "weight and nutrition tools are also available. Do not request OAuth "
-        "tokens or FDDB cookies."
+        "body-weight, nutrition, and sync-health summaries. Data from several "
+        "providers is deduplicated, so each workout or day is counted once. "
+        "Do not request OAuth tokens or FDDB cookies."
     ),
     stateless_http=True,
     json_response=True,
@@ -512,7 +512,8 @@ async def get_gear_usage(
 
 @mcp.tool()
 async def get_sync_health() -> dict[str, Any]:
-    """Report sync completeness, training load, and common activity-data gaps."""
+    """Report sync completeness, training load, common activity-data gaps, and
+    body/nutrition coverage."""
     activity_count = func.count(Activity.id)
     stmt = select(
         activity_count.label("activity_count"),
@@ -551,6 +552,7 @@ async def get_sync_health() -> dict[str, Any]:
         by_source = dict((await session.execute(by_source_stmt)).all())
         athlete_settings = (await session.scalars(settings_stmt)).first()
         latest_metrics = (await session.scalars(metrics_stmt)).first()
+        records = await record_coverage(session)
 
     # Derive tsb_current (post-training form) from stored CTL/ATL
     tsb_current = None
@@ -598,11 +600,12 @@ async def get_sync_health() -> dict[str, Any]:
             else None,
             "tsb_current": tsb_current,
         },
+        "body_measurements": records["body"],
+        "daily_nutrition": records["nutrition"],
     }
 
 
-_plugin_instances = load_plugins(config, for_mcp=True)
-register_plugin_mcp_tools(mcp, _plugin_instances)
+register_record_tools(mcp, _readonly_session)
 
 
 if __name__ == "__main__":

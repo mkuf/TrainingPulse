@@ -16,18 +16,24 @@ A run is deliberately two-pass:
 5. **Derive** — estimated FTP, power curves, and daily CTL/ATL/TSB.
 
 The second pass is what makes precedence reversible: flipping
-``sources.precedence`` re-queues the new winners for enrichment on the next run
-instead of requiring a re-backfill.
+``data.activities.precedence`` re-queues the new winners for enrichment on the
+next run instead of requiring a re-backfill.
+
+Then every other data kind (body, nutrition) is listed per provider and
+deduplicated per day by :mod:`providers.records`. Those kinds have no
+enrichment pass, so their order relative to activities does not matter.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from trainingpulse_common.catalog import DataKind
 
 from config import config
 from database import async_session
@@ -38,6 +44,13 @@ from metrics import (
     recalculate_daily_metrics,
 )
 from models import Activity, ActivityStream, AthleteSettings
+from providers.base import Provider
+from providers.records import (
+    RECORD_KINDS,
+    recompute_daily_supersessions,
+    sync_record_feed,
+)
+from providers.registry import build_enabled_providers
 from sources.base import ActivitySource, SourceRateLimitExceeded
 from sources.engine import (
     EngineContext,
@@ -46,7 +59,6 @@ from sources.engine import (
     run_enrich_phase,
     run_list_phase,
 )
-from sources.registry import build_enabled_sources
 from sources.state import SyncState, sync_state
 
 logger = logging.getLogger(__name__)
@@ -203,22 +215,144 @@ async def force_full_resync(session: AsyncSession, athlete_id: int) -> None:
 
 
 async def refresh_rate_limits() -> None:
-    """Ask every enabled source for its quota usage, outside a sync run."""
-    sources = build_enabled_sources(config, async_session)
+    """Ask every enabled provider for its quota usage, outside a sync run."""
+    providers = build_enabled_providers(config, async_session)
+    for provider in providers:
+        try:
+            if not await provider.is_connected():
+                continue
+            await provider.verify_credentials()
+        except Exception as exc:  # noqa: BLE001 - status page only
+            logger.warning("%s rate-limit refresh failed: %s", provider.name, exc)
+        finally:
+            sync_state.snapshot_rate_limits(provider)
+            await provider.close()
+
+
+def _in_precedence(providers: list[Provider], kind: DataKind) -> list[Provider]:
+    """The providers that import ``kind``, ordered by its precedence."""
+    by_name = {provider.name: provider for provider in providers}
+    return [by_name[name] for name in config.active_providers(kind) if name in by_name]
+
+
+async def _sync_activities(
+    session: AsyncSession, sources: list[ActivitySource], *, force_resync: bool
+) -> None:
+    """The two-pass activity sync described in the module docstring."""
+    athlete_id = await resolve_athlete_id(session, sources)
+    athlete_settings = await store_athlete_settings(session, athlete_id)
+
+    if force_resync:
+        await force_full_resync(session, athlete_id)
+
+    activities = config.data.activities
+    ctx = EngineContext(
+        session_factory=async_session,
+        athlete_id=athlete_id,
+        state=sync_state,
+        history_days=activities.history_days,
+        window_days=config.sync.window_days,
+        refresh_days=activities.refresh_days,
+        detail_concurrency=config.sync.detail_concurrency,
+        streams_concurrency=config.sync.streams_concurrency,
+        hr_zone_boundaries=get_hr_zone_boundaries(
+            athlete_settings.max_hr,
+            athlete_settings.rest_hr,
+            athlete_settings.hr_zones,
+        ),
+        power_zone_boundaries=get_power_zone_boundaries(athlete_settings.ftp),
+    )
+    precedence = activities.precedence
+
+    # Pass 1: list everything. A rate limit in one source must not stop the
+    # others, so each is isolated.
     for source in sources:
         try:
-            if not await source.is_connected():
+            await run_list_phase(source, session, ctx, force_resync=force_resync)
+        except SourceRateLimitExceeded as exc:
+            sync_state.last_error = (
+                f"{exc.source} rate limit while listing activities; "
+                "will resume next sync."
+            )
+            logger.warning(sync_state.last_error)
+        except Exception as exc:  # noqa: BLE001 - keep other sources alive
+            sync_state.last_error = f"{source.name} listing failed: {exc}"
+            logger.exception("%s listing failed", source.name)
+
+    # Pass 2: decide what is visible before spending any per-activity calls.
+    sync_state.begin("deduplicating")
+    changed = await recompute_supersessions(session, athlete_id, precedence)
+    if changed:
+        logger.info("Supersession updated for %d activities", changed)
+
+    # Pass 3: enrich only the winners.
+    for source in sources:
+        try:
+            await run_enrich_phase(source, session, ctx)
+        except SourceRateLimitExceeded as exc:
+            sync_state.last_error = (
+                f"{exc.source} rate limit while enriching activities; "
+                "will resume next sync."
+            )
+            logger.warning(sync_state.last_error)
+        except Exception as exc:  # noqa: BLE001 - keep other sources alive
+            sync_state.last_error = f"{source.name} enrichment failed: {exc}"
+            logger.exception("%s enrichment failed", source.name)
+
+    # Detail can change durations, which can change what overlaps.
+    sync_state.begin("deduplicating")
+    await recompute_supersessions(session, athlete_id, precedence)
+
+    sync_state.begin("finalizing")
+    await _recalculate_estimated_ftp(session, athlete_id)
+    await _backfill_power_curves(session, athlete_id)
+    await recalculate_daily_metrics(session, athlete_id)
+    await refresh_progress(session, athlete_id, sync_state)
+
+
+async def _sync_records(
+    session: AsyncSession, live: list[Provider], *, force_resync: bool
+) -> None:
+    """List and deduplicate every non-activity kind, provider by provider."""
+    tz = ZoneInfo(config.athlete.timezone)
+    for kind in RECORD_KINDS:
+        settings = config.data.kind(kind)
+        for provider in _in_precedence(live, kind):
+            feed = provider.feeds().get(kind)
+            if feed is None:
                 continue
-            await source.verify_credentials()
-        except Exception as exc:  # noqa: BLE001 - status page only
-            logger.warning("%s rate-limit refresh failed: %s", source.name, exc)
-        finally:
-            sync_state.snapshot_rate_limits(source)
-            await source.close()
+            try:
+                await sync_record_feed(
+                    provider.name,
+                    feed,
+                    session,
+                    history_days=settings.history_days,
+                    refresh_days=settings.refresh_days,
+                    window_days=config.sync.window_days,
+                    tz=tz,
+                    state=sync_state,
+                    force=force_resync,
+                )
+            except SourceRateLimitExceeded as exc:
+                sync_state.last_error = (
+                    f"{exc.source} rate limit while syncing {kind}; "
+                    "will resume next sync."
+                )
+                logger.warning(sync_state.last_error)
+            except Exception as exc:  # noqa: BLE001 - keep other providers alive
+                await session.rollback()
+                sync_state.last_error = f"{provider.name} {kind} sync failed: {exc}"
+                logger.exception("%s %s sync failed", provider.name, kind)
+            finally:
+                sync_state.snapshot_rate_limits(provider)
+
+        # Always recompute: a precedence change needs no new rows to matter.
+        sync_state.begin("deduplicating")
+        await recompute_daily_supersessions(session, kind, settings.precedence)
 
 
 async def run_sync(session: AsyncSession, *, force_resync: bool = False) -> None:
-    """Run one full sync across every enabled activity source."""
+    """Run one full sync across every enabled provider."""
     if sync_state.is_running:
         logger.info("Sync already running; skipping this trigger")
         return
@@ -227,121 +361,52 @@ async def run_sync(session: AsyncSession, *, force_resync: bool = False) -> None
     sync_state.last_error = None
     sync_state.begin("starting")
 
-    sources = build_enabled_sources(config, async_session)
-    if not sources:
+    providers = build_enabled_providers(config, async_session)
+    if not providers:
         sync_state.is_running = False
         sync_state.begin("idle")
         sync_state.last_error = (
-            "No activity source is enabled. Set sources.<name>.enabled in "
-            "config.yaml for intervals.icu, Strava, or Google Health."
+            "No provider is enabled. Set providers.<name>.enabled in config.yaml."
         )
         logger.warning(sync_state.last_error)
         return
 
     try:
-        # Only sources that can actually authenticate take part in this run.
-        # A configured-but-not-yet-authorized OAuth source is normal, not an
+        # Only providers that can actually authenticate take part in this run.
+        # A configured-but-not-yet-authorized OAuth provider is normal, not an
         # error: the user has simply not finished connecting it.
-        live: list[ActivitySource] = []
-        for source in sources:
+        live: list[Provider] = []
+        for provider in providers:
             try:
-                connected = await source.is_connected()
+                connected = await provider.is_connected()
             except Exception as exc:  # noqa: BLE001 - reported below
-                logger.warning("%s connection check failed: %s", source.name, exc)
+                logger.warning("%s connection check failed: %s", provider.name, exc)
                 connected = False
             if connected:
-                live.append(source)
+                live.append(provider)
             else:
-                logger.info("%s is enabled but not connected; skipping", source.name)
+                logger.info("%s is enabled but not connected; skipping", provider.name)
 
         if not live:
             sync_state.last_error = (
-                "No activity source is connected yet. Finish authorizing from "
-                "the home page."
+                "No provider is connected yet. Finish authorizing from the home page."
             )
             logger.warning(sync_state.last_error)
             return
 
-        athlete_id = await resolve_athlete_id(session, live)
-        athlete_settings = await store_athlete_settings(session, athlete_id)
-
-        if force_resync:
-            await force_full_resync(session, athlete_id)
-
-        ctx = EngineContext(
-            session_factory=async_session,
-            athlete_id=athlete_id,
-            state=sync_state,
-            backfill_years=config.sync.backfill_years,
-            window_days=config.sync.window_days,
-            reconcile_days=config.sync.reconcile_days,
-            detail_concurrency=config.sync.detail_concurrency,
-            streams_concurrency=config.sync.streams_concurrency,
-            hr_zone_boundaries=get_hr_zone_boundaries(
-                athlete_settings.max_hr,
-                athlete_settings.rest_hr,
-                athlete_settings.hr_zones,
-            ),
-            power_zone_boundaries=get_power_zone_boundaries(athlete_settings.ftp),
-        )
-
-        precedence = config.sources.precedence
-
-        # Pass 1: list everything. A rate limit in one source must not stop the
-        # others, so each is isolated.
-        for source in live:
-            try:
-                await run_list_phase(
-                    source, session, ctx, force_resync=force_resync
-                )
-            except SourceRateLimitExceeded as exc:
-                sync_state.last_error = (
-                    f"{exc.source} rate limit while listing activities; "
-                    "will resume next sync."
-                )
-                logger.warning(sync_state.last_error)
-            except Exception as exc:  # noqa: BLE001 - keep other sources alive
-                sync_state.last_error = f"{source.name} listing failed: {exc}"
-                logger.exception("%s listing failed", source.name)
-
-        # Pass 2: decide what is visible before spending any per-activity calls.
-        sync_state.begin("deduplicating")
-        changed = await recompute_supersessions(session, athlete_id, precedence)
-        if changed:
-            logger.info("Supersession updated for %d activities", changed)
-
-        # Pass 3: enrich only the winners.
-        for source in live:
-            try:
-                await run_enrich_phase(source, session, ctx)
-            except SourceRateLimitExceeded as exc:
-                sync_state.last_error = (
-                    f"{exc.source} rate limit while enriching activities; "
-                    "will resume next sync."
-                )
-                logger.warning(sync_state.last_error)
-            except Exception as exc:  # noqa: BLE001 - keep other sources alive
-                sync_state.last_error = f"{source.name} enrichment failed: {exc}"
-                logger.exception("%s enrichment failed", source.name)
-
-        # Detail can change durations, which can change what overlaps.
-        sync_state.begin("deduplicating")
-        await recompute_supersessions(session, athlete_id, precedence)
-
-        sync_state.begin("finalizing")
-        await _recalculate_estimated_ftp(session, athlete_id)
-        await _backfill_power_curves(session, athlete_id)
-        await recalculate_daily_metrics(session, athlete_id)
-        await refresh_progress(session, athlete_id, sync_state)
+        activity_sources = _in_precedence(live, DataKind.ACTIVITIES)
+        if activity_sources:
+            await _sync_activities(session, activity_sources, force_resync=force_resync)
+        await _sync_records(session, live, force_resync=force_resync)
 
         sync_state.last_sync = datetime.now(timezone.utc)
-        logger.info("Sync complete for athlete %d", athlete_id)
+        logger.info("Sync complete")
     finally:
-        for source in sources:
-            sync_state.snapshot_rate_limits(source)
+        for provider in providers:
+            sync_state.snapshot_rate_limits(provider)
             try:
-                await source.close()
+                await provider.close()
             except Exception as exc:  # noqa: BLE001 - shutdown best effort
-                logger.warning("Closing %s failed: %s", source.name, exc)
+                logger.warning("Closing %s failed: %s", provider.name, exc)
         sync_state.is_running = False
         sync_state.begin("idle")

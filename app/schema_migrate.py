@@ -1,4 +1,9 @@
-"""Detect Strava-era schema and migrate in-place, preserving activity history."""
+"""Migrate older schemas in place, preserving every stored row.
+
+Two generations of history are handled: the Strava-era activity tables, and
+the per-plugin ``withings`` / ``fddb`` schemas that body and nutrition data
+lived in before they became core data kinds.
+"""
 
 from __future__ import annotations
 
@@ -17,13 +22,15 @@ logger = logging.getLogger(__name__)
 _SUFFER_SCORE_BACKFILL_WINDOW_DAYS = 90
 
 
-async def _table_exists(conn: AsyncConnection, name: str) -> bool:
+async def _table_exists(
+    conn: AsyncConnection, name: str, *, schema: str = "public"
+) -> bool:
     result = await conn.execute(
         text(
             "SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema = 'public' AND table_name = :name"
+            "WHERE table_schema = :schema AND table_name = :name"
         ),
-        {"name": name},
+        {"schema": schema, "name": name},
     )
     return result.scalar_one_or_none() is not None
 
@@ -315,24 +322,122 @@ async def _restore_suffer_score(conn: AsyncConnection) -> None:
         )
 
 
-async def _ensure_active_activities_view(conn: AsyncConnection) -> None:
-    """Create the active_activities view, excluding superseded activities.
+#: View name → table. Each holds only the rows ``superseded_by`` leaves visible.
+_ACTIVE_VIEWS = {
+    "active_activities": "activities",
+    "active_body_measurements": "body_measurements",
+    "active_daily_nutrition": "daily_nutrition",
+}
 
-    Grafana dashboards and aggregate queries read this view so duplicated
-    activities from overlapping sources are filtered out automatically.
 
-    The view is dropped and rebuilt rather than replaced: it is a ``SELECT *``,
-    whose column list is fixed at creation time, and ``CREATE OR REPLACE VIEW``
-    can only *append* columns. Re-adding ``suffer_score`` puts a column back in
-    the middle of ``activities``, which a replace would reject.
+async def _ensure_active_views(conn: AsyncConnection) -> None:
+    """Create the views Grafana and aggregates read, excluding duplicates.
+
+    Each view is dropped and rebuilt rather than replaced: it is a
+    ``SELECT *``, whose column list is fixed at creation time, and
+    ``CREATE OR REPLACE VIEW`` can only *append* columns. Re-adding
+    ``suffer_score`` puts a column back in the middle of ``activities``, which
+    a replace would reject.
     """
-    await conn.execute(text("DROP VIEW IF EXISTS active_activities"))
-    await conn.execute(
-        text(
-            "CREATE VIEW active_activities AS "
-            "SELECT * FROM activities WHERE superseded_by IS NULL"
+    for view, table in _ACTIVE_VIEWS.items():
+        await conn.execute(text(f"DROP VIEW IF EXISTS {view}"))
+        await conn.execute(
+            text(
+                f"CREATE VIEW {view} AS "
+                f"SELECT * FROM {table} WHERE superseded_by IS NULL"
+            )
         )
+
+
+async def _drop_schema_if_empty(conn: AsyncConnection, schema: str) -> None:
+    result = await conn.execute(
+        text(
+            "SELECT count(*) FROM information_schema.tables "
+            "WHERE table_schema = :schema"
+        ),
+        {"schema": schema},
     )
+    if (result.scalar_one() or 0) == 0:
+        await conn.execute(text(f"DROP SCHEMA IF EXISTS {schema}"))
+        logger.info("Dropped empty %s schema", schema)
+    else:
+        # Something we did not create lives there; leave it alone.
+        logger.warning("Left %s schema in place: it still contains tables", schema)
+
+
+async def _migrate_withings_plugin(conn: AsyncConnection, timezone: str) -> None:
+    """Move ``withings.*`` into ``body_measurements`` and ``oauth_tokens``.
+
+    ``day`` is derived in ``timezone`` exactly as new rows are. Idempotent: the
+    source tables are dropped once copied, and ``ON CONFLICT DO NOTHING``
+    keeps any rows a newer sync already wrote.
+    """
+    if await _table_exists(conn, "weight_measurements", schema="withings"):
+        result = await conn.execute(
+            text(
+                "INSERT INTO body_measurements "
+                "(provider, external_id, measured_at, day, weight_kg, fat_pct, "
+                "device, synced_at) "
+                "SELECT 'withings', grpid::text, measured_at, "
+                "(measured_at AT TIME ZONE CAST(:tz AS text))::date, weight_kg, "
+                "fat_mass_pct, deviceid, synced_at "
+                "FROM withings.weight_measurements "
+                "ON CONFLICT (provider, external_id) DO NOTHING"
+            ),
+            {"tz": timezone},
+        )
+        logger.info(
+            "Moved %d Withings weigh-ins into body_measurements", result.rowcount or 0
+        )
+        await conn.execute(text("DROP TABLE withings.weight_measurements"))
+
+    if await _table_exists(conn, "withings_tokens", schema="withings"):
+        result = await conn.execute(
+            text(
+                "INSERT INTO oauth_tokens "
+                "(provider, access_token, refresh_token, expires_at, external_user_id) "
+                "SELECT 'withings', access_token, refresh_token, expires_at, "
+                "userid::text FROM withings.withings_tokens "
+                "ORDER BY updated_at DESC LIMIT 1 "
+                "ON CONFLICT (provider) DO NOTHING"
+            )
+        )
+        if result.rowcount:
+            logger.info("Moved the Withings OAuth token into oauth_tokens")
+        await conn.execute(text("DROP TABLE withings.withings_tokens"))
+
+    if await _schema_exists(conn, "withings"):
+        await _drop_schema_if_empty(conn, "withings")
+
+
+async def _migrate_fddb_plugin(conn: AsyncConnection) -> None:
+    """Move ``fddb.daily_nutrition`` into the core ``daily_nutrition`` table."""
+    if await _table_exists(conn, "daily_nutrition", schema="fddb"):
+        result = await conn.execute(
+            text(
+                "INSERT INTO daily_nutrition "
+                "(provider, day, kcal, protein_g, carbs_g, sugar_g, fat_g, "
+                "fiber_g, synced_at) "
+                "SELECT 'fddb', date, kcal, protein_g, carbs_g, sugar_g, fat_g, "
+                "fiber_g, synced_at FROM fddb.daily_nutrition "
+                "ON CONFLICT (provider, day) DO NOTHING"
+            )
+        )
+        logger.info(
+            "Moved %d FDDB diary days into daily_nutrition", result.rowcount or 0
+        )
+        await conn.execute(text("DROP TABLE fddb.daily_nutrition"))
+
+    if await _schema_exists(conn, "fddb"):
+        await _drop_schema_if_empty(conn, "fddb")
+
+
+async def _schema_exists(conn: AsyncConnection, schema: str) -> bool:
+    result = await conn.execute(
+        text("SELECT 1 FROM information_schema.schemata WHERE schema_name = :schema"),
+        {"schema": schema},
+    )
+    return result.scalar_one_or_none() is not None
 
 
 async def migrate_fitbit_labels(conn: AsyncConnection) -> None:
@@ -370,8 +475,13 @@ async def migrate_fitbit_labels(conn: AsyncConnection) -> None:
             )
 
 
-async def ensure_schema(conn: AsyncConnection) -> None:
-    """Migrate Strava-era tables in-place, then create_all for current models."""
+async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None:
+    """Migrate older tables in place, then create_all for current models.
+
+    Runs inside one transaction (the caller's ``engine.begin()``), so a failed
+    step leaves the database exactly as it was. ``timezone`` is
+    ``athlete.timezone``, used to assign migrated weigh-ins to a day.
+    """
     migrated = await _migrate_strava_era_schema(conn)
     if migrated:
         logger.info(
@@ -382,5 +492,7 @@ async def ensure_schema(conn: AsyncConnection) -> None:
     await _migrate_strava_tokens(conn)
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)
-    await _ensure_active_activities_view(conn)
+    await _migrate_withings_plugin(conn, timezone)
+    await _migrate_fddb_plugin(conn)
+    await _ensure_active_views(conn)
 

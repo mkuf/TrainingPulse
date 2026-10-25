@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from trainingpulse_common.catalog import AuthMethod, DataKind
 from fastapi import FastAPI
 
 from intervals_client import DEFAULT_API_BASE, IntervalsClient
 from models import Activity
+from providers.base import granted_if_connected
 from sources.base import RateLimitSnapshot, external_id, prefixed_id
 from sources.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
 
@@ -171,7 +173,8 @@ class IntervalsSource:
     supports_detail = True
     supports_streams = True
     supports_reconcile = True
-    requires_authorization = False
+    auth = AuthMethod.API_KEY
+    kind = DataKind.ACTIVITIES
     connect_path = ""
     disconnect_path = ""
 
@@ -242,6 +245,13 @@ class IntervalsSource:
             external_id(ID_PREFIX, activity.id)
         )
         return normalize_streams(raw)
+
+    def feeds(self) -> dict[DataKind, "IntervalsSource"]:
+        # Single-kind provider: the source is its own activities feed.
+        return {DataKind.ACTIVITIES: self}
+
+    async def granted_kinds(self) -> frozenset[DataKind]:
+        return await granted_if_connected(self)
 
     def map_row(self, payload: dict, athlete_id: int) -> dict | None:
         return map_row(payload, athlete_id)

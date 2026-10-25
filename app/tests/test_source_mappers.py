@@ -101,7 +101,8 @@ def test_sources_satisfy_the_protocol(source):
         "supports_detail",
         "supports_streams",
         "supports_reconcile",
-        "requires_authorization",
+        "auth",
+        "kind",
         "connect_path",
         "disconnect_path",
     ):

@@ -1,4 +1,8 @@
-"""FDDB.info client — fetch and parse daily nutrition HTML."""
+"""FDDB.info client — fetch and parse daily nutrition HTML.
+
+FDDB has no API: this scrapes the "my day" diary page, authenticated with the
+account's username, password, and ``fddb`` session cookie.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +17,6 @@ from zoneinfo import ZoneInfo
 import httpx
 from bs4 import BeautifulSoup
 
-from fddb_plugin.options import FddbOptions
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +88,7 @@ def parse_diary_html(html: str, day: date) -> DailyNutritionData:
     for link in quicklinks:
         if link.get_text(strip=True) in AUTH_LINK_TEXT:
             raise FddbAuthenticationError(
-                "FDDB login failed — check FDDB_USER, FDDB_PW, and FDDB_COOKIE"
+                "FDDB login failed — check providers.fddb user, password, and cookie"
             )
 
     rows = soup.select("table.myday-table-std tr")
@@ -146,10 +149,21 @@ def _find_summary_value(soup: BeautifulSoup, labels: tuple[str, ...]) -> float:
 
 
 class FddbClient:
-    def __init__(self, options: FddbOptions) -> None:
-        self.options = options
-        self._cookie = options.cookie.strip()
-        self._auth_header = self._basic_auth_header(options.user, options.password)
+    def __init__(
+        self,
+        *,
+        user: str,
+        password: str,
+        cookie: str,
+        base_url: str = "https://fddb.info",
+        lang: str = "de",
+        request_delay_ms: int = 300,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.lang = lang
+        self.request_delay_ms = request_delay_ms
+        self._cookie = cookie.strip()
+        self._auth_header = self._basic_auth_header(user, password)
 
     @staticmethod
     def _basic_auth_header(user: str, password: str) -> str:
@@ -166,8 +180,8 @@ class FddbClient:
     async def fetch_day(self, client: httpx.AsyncClient, day: date) -> DailyNutritionData:
         start_ts, end_ts = day_timeframe(day)
         url = (
-            f"{self.options.base_url}/db/i18n/myday20/"
-            f"?lang={self.options.lang}&p={start_ts}&q={end_ts}"
+            f"{self.base_url}/db/i18n/myday20/"
+            f"?lang={self.lang}&p={start_ts}&q={end_ts}"
         )
         response = await client.get(url, headers=self._headers(), follow_redirects=True)
         response.raise_for_status()
@@ -184,7 +198,7 @@ class FddbClient:
             raise ValueError("end_day must be on or after start_day")
 
         pause = (
-            delay_ms if delay_ms is not None else self.options.request_delay_ms
+            delay_ms if delay_ms is not None else self.request_delay_ms
         ) / 1000
         results: list[DailyNutritionData] = []
         parse_errors: list[FddbParseError] = []

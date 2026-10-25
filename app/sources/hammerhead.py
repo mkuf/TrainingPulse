@@ -21,10 +21,12 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from trainingpulse_common.catalog import AuthMethod, DataKind
 
 import fitfiles
 from hammerhead_client import DEFAULT_API_BASE, HammerheadClient
 from models import Activity
+from providers.base import granted_if_connected
 from sources.base import OAuthStateGuard, RateLimitSnapshot, external_id, prefixed_id
 from sources.mapping import as_float, as_int, clip_text, parse_dt
 
@@ -158,7 +160,8 @@ class HammerheadSource:
     supports_detail = True
     supports_streams = True
     supports_reconcile = False
-    requires_authorization = True
+    auth = AuthMethod.OAUTH
+    kind = DataKind.ACTIVITIES
     connect_path = CONNECT_PATH
     disconnect_path = DISCONNECT_PATH
 
@@ -450,6 +453,13 @@ class HammerheadSource:
                 session, activity_id=local_id, source=SOURCE_NAME, raw_data=raw
             )
         return raw
+
+    def feeds(self) -> dict[DataKind, "HammerheadSource"]:
+        # Single-kind provider: the source is its own activities feed.
+        return {DataKind.ACTIVITIES: self}
+
+    async def granted_kinds(self) -> frozenset[DataKind]:
+        return await granted_if_connected(self)
 
     def map_row(self, payload: dict, athlete_id: int) -> dict | None:
         return map_row(payload, athlete_id)
