@@ -88,6 +88,9 @@ app = FastAPI(title=APP_DISPLAY_NAME, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["num"] = lambda value: f"{value:,}"
+#: Appended to static asset URLs so browsers pick up new CSS, JS, and logos
+#: after an upgrade instead of serving cached copies.
+templates.env.globals["asset_version"] = str(int(datetime.now(timezone.utc).timestamp()))
 
 # Each provider mounts its own authorization routes; non-OAuth ones are no-ops.
 # Paths are owned by the provider so already-registered OAuth redirect URIs (in

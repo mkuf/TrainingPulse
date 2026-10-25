@@ -2,7 +2,7 @@
 
 {% block body %}
 <header class="page-header">
-    <img src="/static/assets/favicon.svg" width="44" height="44" alt="" class="logo">
+    <img src="/static/assets/favicon.svg?v={{ asset_version }}" width="44" height="44" alt="" class="logo">
     <div class="page-title">
         <h1>{{ app_name }}</h1>
         <p class="muted">Keeps your training data in sync for your dashboards</p>
@@ -46,5 +46,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/status.js" defer></script>
+<script src="/static/js/status.js?v={{ asset_version }}" defer></script>
 {% endblock %}

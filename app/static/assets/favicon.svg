@@ -1,10 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="TrainingPulse">
-  <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#67e8f9"/>
-      <stop offset="100%" stop-color="#0891b2"/>
-    </linearGradient>
-  </defs>
-  <rect width="32" height="32" rx="8" fill="#0a1628"/>
-  <path d="M4 18 L9 18 L11 10 L14 24 L17 8 L20 22 L23 14 L28 14" fill="none" stroke="url(#g)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <style>
+    .tile { fill: #ffffff; stroke: #dfe3e8; }
+    .pulse { stroke: #2f4a7a; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #1b2027; stroke: #2c333d; }
+      .pulse { stroke: #8ea6d6; }
+    }
+  </style>
+  <rect class="tile" x="0.5" y="0.5" width="31" height="31" rx="8.5" vector-effect="non-scaling-stroke"/>
+  <path class="pulse" d="M5 20h4l2.5-5 3.5 8 4-13 2.5 6 3.5-5" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
