@@ -321,7 +321,23 @@ Computed in [`app/metrics.py`](app/metrics.py) and stored alongside activities a
 
 The `mcp` Compose service runs [`app/mcp_server.py`](app/mcp_server.py) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…` / `hammerhead_…`).
 
-Every aggregate filters `superseded_by IS NULL` (via `_apply_activity_filters` for activities, and in [`app/mcp_records.py`](app/mcp_records.py) for the weight and nutrition tools), so data reported by several providers is not double-counted. Weight and nutrition dates are local days in `athlete.timezone`, and each row reports its `provider`. `get_activity_detail` still resolves a hidden duplicate when asked for it by id, and reports `superseded_by` so the caller can tell.
+Tools, by area:
+
+| Area | Tools | Module |
+| --- | --- | --- |
+| Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server.py`](app/mcp_server.py) |
+| Training load | `get_training_load` (daily CTL / ATL / TSB) | [`mcp_server.py`](app/mcp_server.py) |
+| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server.py`](app/mcp_server.py) |
+| Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_records.py`](app/mcp_records.py) |
+| Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_records.py`](app/mcp_records.py) |
+| Coverage | `get_data_coverage` (stored rows per kind and provider, gaps) | [`mcp_server.py`](app/mcp_server.py) |
+
+Conventions, shared through [`app/mcp_common.py`](app/mcp_common.py):
+
+- Every date argument and every returned `day` is a local calendar day in `athlete.timezone`, and ranges include both ends. Activities are filtered by local-midnight bounds, and `daily_metrics` buckets activities by the same local day, so a late-evening workout lands on the day it happened.
+- Timestamps are returned in `athlete.timezone` with their offset. Rows report the supplying `provider`.
+- `compare_*` tools treat period A as the baseline and return `delta_b_minus_a`.
+- Every aggregate reads only rows with `superseded_by IS NULL`, so data reported by several providers is not double-counted. `get_activity` still resolves a hidden duplicate when asked for it by id, and reports `superseded_by` so the caller can tell.
 
 The mcp container mounts the same `config.yaml` as the app. If you would rather it not see provider credentials, point its `TP_CONFIG_FILE` at a reduced file — it only needs `athlete.*`, `mcp.*`, and `database.url`.
 
@@ -337,6 +353,7 @@ docker compose exec app python -m pytest tests -q
 - `tests/test_source_mappers.py` — per-source mappers and stream normalizers against `tests/fixtures/payloads.py`, plus protocol conformance
 - `tests/test_fitfiles.py` — generic FIT-file analyzer: stream/summary derivation and message dispatch, against faked `fitdecode` frames
 - `tests/test_engine.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
+- `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
 
 ## Demo data
 
@@ -363,5 +380,5 @@ docker compose exec app python seed_demo_data.py --force
 - Metrics: [`app/metrics.py`](app/metrics.py)
 - Models: [`app/models.py`](app/models.py)
 - Config schema and loader: [`packages/trainingpulse_common/trainingpulse_common/config.py`](packages/trainingpulse_common/trainingpulse_common/config.py), [`app/config.py`](app/config.py)
-- MCP: [`app/mcp_server.py`](app/mcp_server.py), [`app/mcp_records.py`](app/mcp_records.py)
+- MCP: [`app/mcp_server.py`](app/mcp_server.py), [`app/mcp_records.py`](app/mcp_records.py), [`app/mcp_common.py`](app/mcp_common.py)
 - Grafana: [`grafana/`](grafana/)

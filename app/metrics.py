@@ -8,7 +8,8 @@ Implements:
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -209,9 +210,16 @@ def estimate_trimp_without_hr(sport_type: str, moving_time_seconds: int) -> floa
 
 
 async def recalculate_daily_metrics(
-    session: AsyncSession, athlete_id: int, from_date: date | None = None
+    session: AsyncSession,
+    athlete_id: int,
+    from_date: date | None = None,
+    *,
+    tz: ZoneInfo,
 ):
     """Recalculate CTL, ATL, TSB for all days from from_date to today.
+
+    Days are local calendar days in ``tz`` (``athlete.timezone``), the same
+    days body and nutrition rows and the MCP tools use.
 
     Uses an exponentially weighted moving average:
         CTL_today = CTL_yesterday + (TRIMP_today - CTL_yesterday) / 42
@@ -229,21 +237,24 @@ async def recalculate_daily_metrics(
         if earliest is None:
             logger.info("No activities found, skipping metric recalculation")
             return
-        from_date = earliest.date()
+        from_date = earliest.astimezone(tz).date()
 
-    today = date.today()
+    today = datetime.now(tz).date()
 
-    # Get all activities grouped by date (exclude superseded)
+    # Get all activities grouped by local date (exclude superseded)
+    activity_date = func.date(func.timezone(tz.key, Activity.start_date))
     result = await session.execute(
         select(
-            func.date(Activity.start_date).label("activity_date"),
+            activity_date.label("activity_date"),
             func.coalesce(func.sum(Activity.trimp), 0.0).label("daily_trimp"),
             func.count(Activity.id).label("activity_count"),
         )
         .where(Activity.athlete_id == athlete_id)
-        .where(Activity.start_date >= from_date)
+        .where(
+            Activity.start_date >= datetime.combine(from_date, time.min, tzinfo=tz)
+        )
         .where(Activity.superseded_by == None)  # noqa: E711
-        .group_by(func.date(Activity.start_date))
+        .group_by(activity_date)
     )
     daily_trimp_map: dict[date, tuple[float, int]] = {}
     for row in result:

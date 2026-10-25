@@ -1,25 +1,48 @@
 """TrainingPulse MCP server.
 
 Exposes read-only, training-aware tools over MCP for local/network clients.
+Activity, training-load, athlete, and coverage tools live here; body and
+nutrition tools in :mod:`mcp_records`. Shared conventions (local days,
+``b - a`` deltas) are in :mod:`mcp_common`.
 """
 
-from contextlib import asynccontextmanager
-from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, AsyncIterator
+from datetime import timedelta
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
-from sqlalchemy import Select, desc, func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import Select, desc, func, select
 
 from config import config
-from database import async_session
-from mcp_records import record_coverage, register_record_tools
-from models import Activity, ActivityStream, AthleteSettings, DailyMetrics
+from mcp_common import (
+    check_range,
+    clamp_limit,
+    iso_day,
+    local_day,
+    local_day_bounds,
+    local_time,
+    meters_to_km,
+    parse_date,
+    period_deltas,
+    readonly_session,
+    required_date,
+    round_or_none,
+    seconds_to_hours,
+    seconds_to_minutes,
+    today_local,
+)
+from mcp_records import register_record_tools
+from metrics import get_hr_zone_boundaries, get_power_zone_boundaries
+from models import (
+    Activity,
+    ActivityStream,
+    AthleteSettings,
+    BodyMeasurement,
+    DailyMetrics,
+    DailyNutrition,
+)
 
 APP_NAME = "TrainingPulse MCP"
-DEFAULT_LIMIT = 25
-MAX_LIMIT = 100
 
 
 def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
@@ -36,10 +59,13 @@ def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
 mcp = FastMCP(
     APP_NAME,
     instructions=(
-        "Read-only access to TrainingPulse activity, training-load, gear, "
-        "body-weight, nutrition, and sync-health summaries. Data from several "
-        "providers is deduplicated, so each workout or day is counted once. "
-        "Do not request OAuth tokens or FDDB cookies."
+        "Read-only access to TrainingPulse: activities, training load "
+        "(CTL/ATL/TSB), the athlete profile, gear, body measurements, "
+        "nutrition, and data coverage. Data from several providers is "
+        "deduplicated, so each workout or day is counted once. All dates are "
+        f"local calendar days in {config.athlete.timezone}, and date ranges "
+        "include both ends. compare_* tools treat period A as the baseline and "
+        "report deltas as B minus A. Credentials are never exposed."
     ),
     stateless_http=True,
     json_response=True,
@@ -51,194 +77,58 @@ mcp = FastMCP(
 )
 
 
-def _parse_date(value: str | None, field_name: str) -> date | None:
-    if value is None or value == "":
-        return None
-    try:
-        return date.fromisoformat(value)
-    except ValueError as exc:
-        raise ValueError(f"{field_name} must be an ISO date like YYYY-MM-DD") from exc
-
-
-def _required_date(value: str, field_name: str) -> date:
-    parsed = _parse_date(value, field_name)
-    if parsed is None:
-        raise ValueError(f"{field_name} is required")
-    return parsed
-
-
-def _start_datetime(value: date | None) -> datetime | None:
-    if value is None:
-        return None
-    return datetime.combine(value, time.min, tzinfo=timezone.utc)
-
-
-def _end_datetime(value: date | None) -> datetime | None:
-    if value is None:
-        return None
-    return datetime.combine(value, time.max, tzinfo=timezone.utc)
+# ── Activities ──────────────────────────────────────────────────────
 
 
 def _apply_activity_filters(
     stmt: Select,
     *,
-    start_date: date | None = None,
-    end_date: date | None = None,
+    start_date=None,
+    end_date=None,
     sport_type: str | None = None,
     gear_name: str | None = None,
-    include_superseded: bool = False,
 ) -> Select:
-    start_at = _start_datetime(start_date)
-    end_at = _end_datetime(end_date)
-
-    if not include_superseded:
-        # The same workout can arrive from several sources. Only the row that
-        # wins on precedence is visible, otherwise every aggregate here would
-        # double-count duplicated activities.
-        stmt = stmt.where(Activity.superseded_by == None)  # noqa: E711
-    if start_at is not None:
-        stmt = stmt.where(Activity.start_date >= start_at)
-    if end_at is not None:
-        stmt = stmt.where(Activity.start_date <= end_at)
+    # The same workout can arrive from several sources. Only the row that
+    # wins on precedence is visible, otherwise every aggregate here would
+    # double-count duplicated activities.
+    stmt = stmt.where(Activity.superseded_by == None)  # noqa: E711
+    lower, upper = local_day_bounds(start_date, end_date)
+    if lower is not None:
+        stmt = stmt.where(Activity.start_date >= lower)
+    if upper is not None:
+        stmt = stmt.where(Activity.start_date < upper)
     if sport_type:
         stmt = stmt.where(func.lower(Activity.sport_type) == sport_type.lower())
     if gear_name:
         stmt = stmt.where(func.lower(Activity.gear_name) == gear_name.lower())
-
     return stmt
 
 
-def _limit(value: int | None) -> int:
-    if value is None:
-        return DEFAULT_LIMIT
-    return min(max(1, value), MAX_LIMIT)
-
-
-def _round(value: Any, digits: int = 1) -> float | None:
-    if value is None:
-        return None
-    return round(float(value), digits)
-
-
-def _seconds_to_hours(value: Any) -> float:
-    return round(float(value or 0) / 3600.0, 2)
-
-
-def _meters_to_km(value: Any) -> float:
-    return round(float(value or 0) / 1000.0, 2)
-
-
-def _date(value: date | datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.isoformat()
+def _activity_row(activity: Activity) -> dict[str, Any]:
+    return {
+        "id": activity.id,
+        "name": activity.name,
+        "sport_type": activity.sport_type,
+        "start_time": local_time(activity.start_date),
+        "day": local_day(activity.start_date).isoformat(),
+        "distance_km": meters_to_km(activity.distance),
+        "moving_time_minutes": seconds_to_minutes(activity.moving_time),
+        "trimp": round_or_none(activity.trimp, 1),
+        "elevation_m": round_or_none(activity.total_elevation_gain, 0),
+        "calories": round_or_none(activity.calories, 0),
+        "average_heart_rate": round_or_none(activity.average_heartrate, 0),
+        "average_power": round_or_none(activity.average_watts, 0),
+        "gear_name": activity.gear_name,
+        "provider": activity.source,
+        "detail_synced": activity.detail_synced,
+        "streams_synced": activity.synced_streams,
+    }
 
 
 def _zone_seconds(value: dict | None) -> dict[str, int]:
     if not isinstance(value, dict):
         return {}
     return {str(zone): int(seconds or 0) for zone, seconds in value.items()}
-
-
-@asynccontextmanager
-async def _readonly_session() -> AsyncIterator[AsyncSession]:
-    async with async_session() as session:
-        await session.execute(text("SET TRANSACTION READ ONLY"))
-        yield session
-
-
-async def _training_summary(
-    *,
-    start_date: date,
-    end_date: date,
-    sport_type: str | None = None,
-) -> dict[str, Any]:
-    stmt = select(
-        func.count(Activity.id).label("activity_count"),
-        func.coalesce(func.sum(Activity.distance), 0).label("distance_m"),
-        func.coalesce(func.sum(Activity.moving_time), 0).label("moving_time_s"),
-        func.coalesce(func.sum(Activity.trimp), 0).label("trimp"),
-        func.coalesce(func.sum(Activity.total_elevation_gain), 0).label("elevation_m"),
-        func.coalesce(func.sum(Activity.calories), 0).label("calories"),
-        func.avg(Activity.average_heartrate).label("avg_hr"),
-        func.avg(Activity.average_watts).label("avg_power"),
-    )
-    stmt = _apply_activity_filters(
-        stmt,
-        start_date=start_date,
-        end_date=end_date,
-        sport_type=sport_type,
-    )
-
-    async with _readonly_session() as session:
-        row = (await session.execute(stmt)).one()
-
-    moving_hours = _seconds_to_hours(row.moving_time_s)
-    trimp = float(row.trimp or 0)
-    return {
-        "start_date": start_date.isoformat(),
-        "end_date": end_date.isoformat(),
-        "sport_type": sport_type,
-        "activity_count": int(row.activity_count or 0),
-        "distance_km": _meters_to_km(row.distance_m),
-        "moving_time_hours": moving_hours,
-        "trimp": round(trimp, 1),
-        "elevation_m": _round(row.elevation_m, 0),
-        "calories": _round(row.calories, 0),
-        "average_heart_rate": _round(row.avg_hr, 0),
-        "average_power": _round(row.avg_power, 0),
-        "trimp_per_hour": round(trimp / moving_hours, 1) if moving_hours else 0.0,
-    }
-
-
-@mcp.tool()
-async def get_training_summary(
-    start_date: str,
-    end_date: str,
-    sport_type: str | None = None,
-) -> dict[str, Any]:
-    """Summarize training volume and load for an ISO date range."""
-    return await _training_summary(
-        start_date=_required_date(start_date, "start_date"),
-        end_date=_required_date(end_date, "end_date"),
-        sport_type=sport_type,
-    )
-
-
-@mcp.tool()
-async def compare_periods(
-    period_a_start: str,
-    period_a_end: str,
-    period_b_start: str,
-    period_b_end: str,
-    sport_type: str | None = None,
-) -> dict[str, Any]:
-    """Compare two ISO date ranges side by side."""
-    period_a = await _training_summary(
-        start_date=_required_date(period_a_start, "period_a_start"),
-        end_date=_required_date(period_a_end, "period_a_end"),
-        sport_type=sport_type,
-    )
-    period_b = await _training_summary(
-        start_date=_required_date(period_b_start, "period_b_start"),
-        end_date=_required_date(period_b_end, "period_b_end"),
-        sport_type=sport_type,
-    )
-
-    delta_fields = [
-        "activity_count",
-        "distance_km",
-        "moving_time_hours",
-        "trimp",
-        "elevation_m",
-        "calories",
-        "trimp_per_hour",
-    ]
-    deltas = {
-        field: round(float(period_a[field] or 0) - float(period_b[field] or 0), 2)
-        for field in delta_fields
-    }
-    return {"period_a": period_a, "period_b": period_b, "delta_a_minus_b": deltas}
 
 
 @mcp.tool()
@@ -249,54 +139,41 @@ async def list_activities(
     gear_name: str | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """List recent or filtered activities with a capped result size."""
-    result_limit = _limit(limit)
-    stmt = select(Activity)
+    """List activities, newest first, optionally filtered by local date range,
+    sport type, or gear. Returns at most ``limit`` rows (default 25, max 100).
+    """
+    start = parse_date(start_date, "start_date")
+    end = parse_date(end_date, "end_date")
+    check_range(start, end)
+    result_limit = clamp_limit(limit)
     stmt = _apply_activity_filters(
-        stmt,
-        start_date=_parse_date(start_date, "start_date"),
-        end_date=_parse_date(end_date, "end_date"),
+        select(Activity),
+        start_date=start,
+        end_date=end,
         sport_type=sport_type,
         gear_name=gear_name,
     )
     stmt = stmt.order_by(desc(Activity.start_date)).limit(result_limit)
 
-    async with _readonly_session() as session:
+    async with readonly_session() as session:
         activities = (await session.scalars(stmt)).all()
 
     return {
         "limit": result_limit,
-        "activities": [
-            {
-                "id": activity.id,
-                "name": activity.name,
-                "sport_type": activity.sport_type,
-                "start_date": _date(activity.start_date),
-                "distance_km": _meters_to_km(activity.distance),
-                "moving_time_minutes": round(activity.moving_time / 60.0, 1),
-                "trimp": _round(activity.trimp, 1),
-                "elevation_m": _round(activity.total_elevation_gain, 0),
-                "calories": _round(activity.calories, 0),
-                "average_heart_rate": _round(activity.average_heartrate, 0),
-                "average_power": _round(activity.average_watts, 0),
-                "gear_name": activity.gear_name,
-                "has_heart_rate": activity.has_heartrate,
-                "has_power": activity.average_watts is not None,
-                "source": activity.source,
-                "detail_synced": activity.detail_synced,
-                "streams_synced": activity.synced_streams,
-            }
-            for activity in activities
-        ],
+        "count": len(activities),
+        "activities": [_activity_row(activity) for activity in activities],
     }
 
 
 @mcp.tool()
-async def get_activity_detail(activity_id: str) -> dict[str, Any]:
-    """Get a single activity summary, zones, and stream availability.
+async def get_activity(activity_id: str) -> dict[str, Any]:
+    """Get one activity: summary, HR/power zone seconds, power curve, stream
+    availability, and the training load of the day it falls on.
 
-    Activity ids are provider-prefixed strings, e.g. ``icu:i55610271`` or
-    ``ghealth_<datapointId>``.
+    Activity ids are provider-prefixed strings, e.g. ``icu_i55610271``,
+    ``strava_123``, ``ghealth_<id>``, or ``hammerhead_<id>``. A duplicate
+    hidden behind another provider's copy is still returned when asked for by
+    id; ``superseded_by`` then names the visible copy.
     """
     stmt = (
         select(Activity, ActivityStream)
@@ -304,96 +181,89 @@ async def get_activity_detail(activity_id: str) -> dict[str, Any]:
         .where(Activity.id == activity_id)
     )
 
-    async with _readonly_session() as session:
+    async with readonly_session() as session:
         row = (await session.execute(stmt)).first()
+        if row is None:
+            return {"activity_id": activity_id, "found": False}
+        activity, stream = row
+        day = local_day(activity.start_date)
+        metrics_rows = (
+            await session.scalars(
+                select(DailyMetrics).where(
+                    DailyMetrics.athlete_id == activity.athlete_id,
+                    DailyMetrics.date.in_([day - timedelta(days=1), day]),
+                )
+            )
+        ).all()
 
-    if row is None:
-        return {"activity_id": activity_id, "found": False}
-
-    activity, stream = row
     stream_types = []
     if stream is not None and stream.stream_types:
         stream_types = [item for item in stream.stream_types.split(",") if item]
 
-    # Fetch daily metrics for load impact
-    activity_date = activity.start_date.date()
-    prior_date = activity_date - timedelta(days=1)
-    
-    metrics_stmt = select(DailyMetrics).where(
-        DailyMetrics.athlete_id == activity.athlete_id,
-        DailyMetrics.date.in_([prior_date, activity_date])
-    )
-    
-    async with _readonly_session() as session:
-        metrics_rows = (await session.execute(metrics_stmt)).scalars().all()
-        
-    metrics_by_date = {m.date: m for m in metrics_rows}
-    prior_metrics = metrics_by_date.get(prior_date)
-    after_metrics = metrics_by_date.get(activity_date)
-
-    load_impact = None
-    if after_metrics is not None:
-        load_impact = {
-            "activity_trimp": _round(activity.trimp, 1),
-            "day_trimp": _round(after_metrics.daily_trimp, 1),
-            "ctl_before": _round(prior_metrics.ctl, 1) if prior_metrics else None,
-            "ctl_after": _round(after_metrics.ctl, 1),
-            "atl_before": _round(prior_metrics.atl, 1) if prior_metrics else None,
-            "atl_after": _round(after_metrics.atl, 1),
-            "tsb_before": _round(prior_metrics.ctl - prior_metrics.atl, 1) if prior_metrics else None,
-            "tsb_after": _round(after_metrics.ctl - after_metrics.atl, 1),
+    by_date = {m.date: m for m in metrics_rows}
+    prior, current = by_date.get(day - timedelta(days=1)), by_date.get(day)
+    day_training_load = None
+    if current is not None:
+        # CTL/ATL are daily values: with several workouts on one day, the
+        # "after" values include all of them, not just this activity.
+        day_training_load = {
+            "day": day.isoformat(),
+            "day_trimp": round_or_none(current.daily_trimp, 1),
+            "day_activity_count": current.activity_count,
+            "ctl_before": round_or_none(prior.ctl, 1) if prior else None,
+            "ctl_after": round_or_none(current.ctl, 1),
+            "atl_before": round_or_none(prior.atl, 1) if prior else None,
+            "atl_after": round_or_none(current.atl, 1),
+            "tsb_before": round_or_none(current.tsb, 1),
+            "tsb_after": round_or_none(current.ctl - current.atl, 1),
         }
 
+    average_speed_kmh = (
+        round(activity.average_speed * 3.6, 1)
+        if activity.average_speed is not None
+        else None
+    )
     return {
         "found": True,
-        "id": activity.id,
-        "name": activity.name,
-        "sport_type": activity.sport_type,
-        "start_date": _date(activity.start_date),
-        "distance_km": _meters_to_km(activity.distance),
-        "elapsed_time_minutes": round(activity.elapsed_time / 60.0, 1),
-        "moving_time_minutes": round(activity.moving_time / 60.0, 1),
-        "trimp": _round(activity.trimp, 1),
-        "elevation_m": _round(activity.total_elevation_gain, 0),
-        "calories": _round(activity.calories, 0),
-        "kilojoules": _round(activity.kilojoules, 0),
-        "average_heart_rate": _round(activity.average_heartrate, 0),
-        "max_heart_rate": _round(activity.max_heartrate, 0),
-        "average_power": _round(activity.average_watts, 0),
-        "weighted_average_power": _round(activity.weighted_average_watts, 0),
-        "max_power": _round(activity.max_watts, 0),
-        "best_20min_power": _round(activity.best_20min_power, 0),
-        "gear_name": activity.gear_name,
+        **_activity_row(activity),
+        "description": activity.description,
+        "elapsed_time_minutes": seconds_to_minutes(activity.elapsed_time),
+        "average_speed_kmh": average_speed_kmh,
+        "kilojoules": round_or_none(activity.kilojoules, 0),
+        "max_heart_rate": round_or_none(activity.max_heartrate, 0),
+        "weighted_average_power": round_or_none(activity.weighted_average_watts, 0),
+        "max_power": round_or_none(activity.max_watts, 0),
+        "best_20min_power": round_or_none(activity.best_20min_power, 0),
+        "provider_training_load": round_or_none(activity.training_load, 0),
         "device_name": activity.device_name,
         "hr_zone_seconds": _zone_seconds(activity.hr_zone_seconds),
         "power_zone_seconds": _zone_seconds(activity.power_zone_seconds),
-        "source": activity.source,
-        # Direct id lookups deliberately still resolve a hidden duplicate, so
-        # the caller needs to be told that it is one.
+        # Best average watts keyed by duration in seconds.
+        "power_curve": activity.power_curve or {},
         "superseded_by": activity.superseded_by,
-        "detail_synced": activity.detail_synced,
-        "streams_synced": activity.synced_streams,
         "stream_types": stream_types,
         "stream_sample_count": stream.sample_count if stream is not None else 0,
-        "load_impact": load_impact,
+        "day_training_load": day_training_load,
     }
 
 
 DEFAULT_MAX_POINTS = 500
 ABSOLUTE_MAX_POINTS = 2000
-DEFAULT_STREAM_TYPES = {"time", "heartrate", "watts"}
-ALL_STREAM_TYPES = {
-    "time",
-    "heartrate",
-    "watts",
-    "cadence",
-    "altitude",
-    "velocity_smooth",
-    "grade_smooth",
-    "distance",
-    "latlng",
-    "temp",
-}
+DEFAULT_STREAM_TYPES = frozenset({"time", "heartrate", "watts"})
+ALL_STREAM_TYPES = frozenset(
+    {
+        "time",
+        "heartrate",
+        "watts",
+        "cadence",
+        "altitude",
+        "velocity_smooth",
+        "grade_smooth",
+        "distance",
+        "latlng",
+        "temp",
+    }
+)
 
 
 def _downsample(data: list, max_points: int) -> list:
@@ -417,16 +287,16 @@ async def get_activity_streams(
     """Return raw time-series streams (HR, power, etc.) for an activity.
 
     Use this to analyze the full workout profile beyond zone buckets.
-    Available stream types: time, heartrate, watts, cadence, altitude,
-    velocity_smooth, grade_smooth, distance, latlng, temp.
-    Defaults to time, heartrate, and watts if not specified.
+    ``stream_types`` is a comma-separated list of: time, heartrate, watts,
+    cadence, altitude, velocity_smooth, grade_smooth, distance, latlng, temp.
+    Defaults to time, heartrate, and watts; time is always included.
     Large streams are downsampled to max_points (default 500, max 2000).
     """
     if max_points is None:
         max_points = DEFAULT_MAX_POINTS
-    max_points = min(max(1, max_points), ABSOLUTE_MAX_POINTS)
+    max_points = min(max(2, max_points), ABSOLUTE_MAX_POINTS)
 
-    requested: set[str] = DEFAULT_STREAM_TYPES
+    requested: set[str] = set(DEFAULT_STREAM_TYPES)
     if stream_types:
         parsed = {s.strip().lower() for s in stream_types.split(",") if s.strip()}
         valid = parsed & ALL_STREAM_TYPES
@@ -436,22 +306,19 @@ async def get_activity_streams(
                 "error": f"No valid stream types in '{stream_types}'. "
                 f"Available: {', '.join(sorted(ALL_STREAM_TYPES))}",
             }
-        requested = valid
-        requested.add("time")  # always include time axis
+        requested = valid | {"time"}
 
     stmt = select(ActivityStream).where(ActivityStream.activity_id == activity_id)
 
-    async with _readonly_session() as session:
+    async with readonly_session() as session:
         stream = (await session.scalars(stmt)).first()
 
     if stream is None:
         return {"activity_id": activity_id, "found": False, "streams": {}}
 
     result_streams: dict[str, list] = {}
-    sample_count = stream.sample_count
     returned_count = 0
-
-    for stype in requested:
+    for stype in sorted(requested):
         raw = stream.data.get(stype)
         if raw is None:
             continue
@@ -462,10 +329,109 @@ async def get_activity_streams(
     return {
         "activity_id": activity_id,
         "found": True,
-        "sample_count": sample_count,
+        "sample_count": stream.sample_count,
         "returned_count": returned_count,
-        "downsampled": sample_count > returned_count,
+        "downsampled": stream.sample_count > returned_count,
         "streams": result_streams,
+    }
+
+
+# ── Training volume ─────────────────────────────────────────────────
+
+
+TRAINING_DELTA_FIELDS = [
+    "activity_count",
+    "distance_km",
+    "moving_time_hours",
+    "trimp",
+    "elevation_m",
+    "calories",
+    "average_heart_rate",
+    "average_power",
+    "trimp_per_hour",
+]
+
+
+async def _training_summary(
+    *, start_date, end_date, sport_type: str | None = None
+) -> dict[str, Any]:
+    check_range(start_date, end_date)
+    stmt = select(
+        func.count(Activity.id).label("activity_count"),
+        func.coalesce(func.sum(Activity.distance), 0).label("distance_m"),
+        func.coalesce(func.sum(Activity.moving_time), 0).label("moving_time_s"),
+        func.coalesce(func.sum(Activity.trimp), 0).label("trimp"),
+        func.coalesce(func.sum(Activity.total_elevation_gain), 0).label("elevation_m"),
+        func.coalesce(func.sum(Activity.calories), 0).label("calories"),
+        func.avg(Activity.average_heartrate).label("avg_hr"),
+        func.avg(Activity.average_watts).label("avg_power"),
+    )
+    stmt = _apply_activity_filters(
+        stmt, start_date=start_date, end_date=end_date, sport_type=sport_type
+    )
+
+    async with readonly_session() as session:
+        row = (await session.execute(stmt)).one()
+
+    moving_hours = seconds_to_hours(row.moving_time_s)
+    trimp = float(row.trimp or 0)
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "sport_type": sport_type,
+        "activity_count": int(row.activity_count or 0),
+        "distance_km": meters_to_km(row.distance_m),
+        "moving_time_hours": moving_hours,
+        "trimp": round(trimp, 1),
+        "elevation_m": round_or_none(row.elevation_m, 0),
+        "calories": round_or_none(row.calories, 0),
+        "average_heart_rate": round_or_none(row.avg_hr, 0),
+        "average_power": round_or_none(row.avg_power, 0),
+        "trimp_per_hour": round(trimp / moving_hours, 1) if moving_hours else 0.0,
+    }
+
+
+@mcp.tool()
+async def get_training_summary(
+    start_date: str,
+    end_date: str,
+    sport_type: str | None = None,
+) -> dict[str, Any]:
+    """Summarize training volume and load (count, distance, time, TRIMP,
+    elevation, calories, average HR and power) for a local date range."""
+    return await _training_summary(
+        start_date=required_date(start_date, "start_date"),
+        end_date=required_date(end_date, "end_date"),
+        sport_type=sport_type,
+    )
+
+
+@mcp.tool()
+async def compare_training_periods(
+    period_a_start: str,
+    period_a_end: str,
+    period_b_start: str,
+    period_b_end: str,
+    sport_type: str | None = None,
+) -> dict[str, Any]:
+    """Compare training volume and load between two local date ranges.
+
+    Period A is the baseline; ``delta_b_minus_a`` is B minus A per field.
+    """
+    period_a = await _training_summary(
+        start_date=required_date(period_a_start, "period_a_start"),
+        end_date=required_date(period_a_end, "period_a_end"),
+        sport_type=sport_type,
+    )
+    period_b = await _training_summary(
+        start_date=required_date(period_b_start, "period_b_start"),
+        end_date=required_date(period_b_end, "period_b_end"),
+        sport_type=sport_type,
+    )
+    return {
+        "period_a": period_a,
+        "period_b": period_b,
+        "delta_b_minus_a": period_deltas(period_a, period_b, TRAINING_DELTA_FIELDS),
     }
 
 
@@ -473,8 +439,13 @@ async def get_activity_streams(
 async def get_gear_usage(
     start_date: str | None = None,
     end_date: str | None = None,
+    sport_type: str | None = None,
 ) -> dict[str, Any]:
-    """Group activity volume and load by gear name."""
+    """Group activity volume and load by gear name, optionally within a local
+    date range or for one sport type."""
+    start = parse_date(start_date, "start_date")
+    end = parse_date(end_date, "end_date")
+    check_range(start, end)
     gear_label = func.coalesce(Activity.gear_name, "Unspecified gear").label("gear_name")
     distance_m = func.coalesce(func.sum(Activity.distance), 0).label("distance_m")
     stmt = select(
@@ -486,13 +457,11 @@ async def get_gear_usage(
         func.coalesce(func.sum(Activity.total_elevation_gain), 0).label("elevation_m"),
     )
     stmt = _apply_activity_filters(
-        stmt,
-        start_date=_parse_date(start_date, "start_date"),
-        end_date=_parse_date(end_date, "end_date"),
+        stmt, start_date=start, end_date=end, sport_type=sport_type
     )
     stmt = stmt.group_by(gear_label).order_by(desc(distance_m))
 
-    async with _readonly_session() as session:
+    async with readonly_session() as session:
         rows = (await session.execute(stmt)).all()
 
     return {
@@ -500,112 +469,242 @@ async def get_gear_usage(
             {
                 "gear_name": row.gear_name,
                 "activity_count": int(row.activity_count or 0),
-                "distance_km": _meters_to_km(row.distance_m),
-                "moving_time_hours": _seconds_to_hours(row.moving_time_s),
-                "trimp": _round(row.trimp, 1),
-                "elevation_m": _round(row.elevation_m, 0),
+                "distance_km": meters_to_km(row.distance_m),
+                "moving_time_hours": seconds_to_hours(row.moving_time_s),
+                "trimp": round_or_none(row.trimp, 1),
+                "elevation_m": round_or_none(row.elevation_m, 0),
             }
             for row in rows
         ]
     }
 
 
-@mcp.tool()
-async def get_sync_health() -> dict[str, Any]:
-    """Report sync completeness, training load, common activity-data gaps, and
-    body/nutrition coverage."""
-    activity_count = func.count(Activity.id)
-    stmt = select(
-        activity_count.label("activity_count"),
-        activity_count.filter(Activity.detail_synced == False).label(  # noqa: E712
-            "missing_details"
-        ),
-        activity_count.filter(Activity.synced_streams == False).label(  # noqa: E712
-            "missing_streams"
-        ),
-        activity_count.filter(Activity.has_heartrate == False).label(  # noqa: E712
-            "without_heart_rate"
-        ),
-        activity_count.filter(Activity.average_watts.is_(None)).label("without_power"),
-        func.max(Activity.start_date).label("latest_activity_date"),
-    ).where(
-        # Superseded duplicates are never shown and never enriched, so counting
-        # them here would permanently report a sync that looks incomplete.
-        Activity.superseded_by == None  # noqa: E711
-    )
-    superseded_stmt = select(func.count(Activity.id)).where(
-        Activity.superseded_by != None  # noqa: E711
-    )
-    by_source_stmt = (
-        select(Activity.source, func.count(Activity.id))
-        .where(Activity.superseded_by == None)  # noqa: E711
-        .group_by(Activity.source)
-    )
-    settings_stmt = (
-        select(AthleteSettings).order_by(desc(AthleteSettings.updated_at)).limit(1)
-    )
-    metrics_stmt = select(DailyMetrics).order_by(desc(DailyMetrics.date)).limit(1)
+# ── Training load ───────────────────────────────────────────────────
 
-    async with _readonly_session() as session:
-        row = (await session.execute(stmt)).one()
-        superseded = (await session.execute(superseded_stmt)).scalar_one()
-        by_source = dict((await session.execute(by_source_stmt)).all())
-        athlete_settings = (await session.scalars(settings_stmt)).first()
-        latest_metrics = (await session.scalars(metrics_stmt)).first()
-        records = await record_coverage(session)
 
-    # Derive tsb_current (post-training form) from stored CTL/ATL
-    tsb_current = None
-    if latest_metrics is not None:
-        tsb_current = _round(latest_metrics.ctl - latest_metrics.atl, 1)
+DEFAULT_LOAD_DAYS = 42
+MAX_LOAD_DAYS = 366
 
+
+def _load_day(row: DailyMetrics) -> dict[str, Any]:
     return {
-        "activity_count": int(row.activity_count or 0),
-        "activities_by_source": {
-            str(source or "unknown"): int(count or 0)
-            for source, count in by_source.items()
-        },
-        "superseded_duplicates": int(superseded or 0),
-        "missing_detail_sync": int(row.missing_details or 0),
-        "missing_stream_sync": int(row.missing_streams or 0),
-        "activities_without_heart_rate": int(row.without_heart_rate or 0),
-        "activities_without_power": int(row.without_power or 0),
-        "latest_activity_date": _date(row.latest_activity_date),
-        "athlete_settings": {
-            "available": athlete_settings is not None,
-            "athlete_id": athlete_settings.athlete_id if athlete_settings else None,
-            "max_hr": athlete_settings.max_hr if athlete_settings else None,
-            "rest_hr": athlete_settings.rest_hr if athlete_settings else None,
-            "ftp": athlete_settings.ftp if athlete_settings else None,
-            "estimated_ftp": (
-                athlete_settings.estimated_ftp if athlete_settings else None
-            ),
-            "updated_at": _date(
-                athlete_settings.updated_at if athlete_settings else None
-            ),
-        },
-        "training_load": {
-            "available": latest_metrics is not None,
-            "date": _date(latest_metrics.date if latest_metrics else None),
-            "metrics_as_of": _date(
-                latest_metrics.updated_at if latest_metrics else None
-            ),
-            "daily_trimp": _round(latest_metrics.daily_trimp, 1)
-            if latest_metrics
-            else None,
-            "ctl": _round(latest_metrics.ctl, 1) if latest_metrics else None,
-            "atl": _round(latest_metrics.atl, 1) if latest_metrics else None,
-            "tsb_start_of_day": _round(latest_metrics.tsb, 1)
-            if latest_metrics
-            else None,
-            "tsb_current": tsb_current,
-        },
-        "body_measurements": records["body"],
-        "daily_nutrition": records["nutrition"],
+        "day": row.date.isoformat(),
+        "trimp": round_or_none(row.daily_trimp, 1),
+        "activity_count": row.activity_count,
+        "ctl": round_or_none(row.ctl, 1),
+        "atl": round_or_none(row.atl, 1),
+        # Start-of-day form (yesterday's CTL - ATL), as on the dashboards.
+        "tsb": round_or_none(row.tsb, 1),
+        "tsb_end_of_day": round_or_none(row.ctl - row.atl, 1),
     }
 
 
-register_record_tools(mcp, _readonly_session)
+@mcp.tool()
+async def get_training_load(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """Daily fitness (CTL), fatigue (ATL), and form (TSB) for a local date
+    range, plus the change over it. Defaults to the last 42 days; at most 366.
+
+    CTL and ATL are end-of-day values. ``tsb`` is start-of-day form;
+    ``tsb_end_of_day`` includes that day's training.
+    """
+    end = parse_date(end_date, "end_date") or today_local()
+    start = parse_date(start_date, "start_date") or end - timedelta(
+        days=DEFAULT_LOAD_DAYS - 1
+    )
+    check_range(start, end)
+    if (end - start).days + 1 > MAX_LOAD_DAYS:
+        raise ValueError(
+            f"date range is limited to {MAX_LOAD_DAYS} days; split the request"
+        )
+
+    stmt = (
+        select(DailyMetrics)
+        .where(DailyMetrics.date >= start, DailyMetrics.date <= end)
+        .order_by(DailyMetrics.date)
+    )
+    async with readonly_session() as session:
+        rows = (await session.scalars(stmt)).all()
+
+    days = [_load_day(row) for row in rows]
+    summary = None
+    if rows:
+        first, last = rows[0], rows[-1]
+        peak = max(rows, key=lambda r: r.ctl)
+        lowest_form = min(rows, key=lambda r: r.tsb)
+        summary = {
+            "ctl_change": round(last.ctl - first.ctl, 1),
+            "atl_change": round(last.atl - first.atl, 1),
+            "total_trimp": round(sum(r.daily_trimp for r in rows), 1),
+            "peak_ctl": round_or_none(peak.ctl, 1),
+            "peak_ctl_day": peak.date.isoformat(),
+            "lowest_tsb": round_or_none(lowest_form.tsb, 1),
+            "lowest_tsb_day": lowest_form.date.isoformat(),
+            "metrics_as_of": local_time(max(r.updated_at for r in rows)),
+        }
+    return {
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "summary": summary,
+        "days": days,
+    }
+
+
+# ── Athlete ─────────────────────────────────────────────────────────
+
+
+def _zones(bounds: list[tuple[float, float]], unit: str) -> list[dict[str, Any]]:
+    zones = []
+    for index, (low, high) in enumerate(bounds, start=1):
+        zones.append(
+            {
+                # Same keys as hr_zone_seconds / power_zone_seconds.
+                "zone": f"zone_{index}",
+                f"min_{unit}": round(low),
+                # The top zone is open-ended.
+                f"max_{unit}": round(high) if index < len(bounds) else None,
+            }
+        )
+    return zones
+
+
+@mcp.tool()
+async def get_athlete_profile() -> dict[str, Any]:
+    """Return the athlete's max/resting HR, FTP (configured and estimated),
+    time zone, and the HR and power zone boundaries used for zone seconds."""
+    async with readonly_session() as session:
+        settings = (
+            await session.scalars(
+                select(AthleteSettings).order_by(desc(AthleteSettings.updated_at)).limit(1)
+            )
+        ).first()
+
+    athlete = config.athlete
+    max_hr = settings.max_hr if settings else athlete.max_hr
+    rest_hr = settings.rest_hr if settings else athlete.rest_hr
+    ftp = settings.ftp if settings else athlete.ftp
+    hr_bounds = get_hr_zone_boundaries(
+        max_hr, rest_hr, settings.hr_zones if settings else None
+    )
+    return {
+        "max_hr": max_hr,
+        "rest_hr": rest_hr,
+        "ftp": ftp,
+        "estimated_ftp": settings.estimated_ftp if settings else None,
+        "timezone": athlete.timezone,
+        "hr_zones": _zones(hr_bounds, "bpm"),
+        "power_zones": _zones(get_power_zone_boundaries(ftp), "watts"),
+        "updated_at": local_time(settings.updated_at) if settings else None,
+    }
+
+
+# ── Coverage ────────────────────────────────────────────────────────
+
+
+async def _record_coverage(session, model) -> dict[str, Any]:
+    visible, hidden, earliest, latest = (
+        await session.execute(
+            select(
+                func.count(model.id).filter(model.superseded_by == None),  # noqa: E711
+                func.count(model.id).filter(model.superseded_by != None),  # noqa: E711
+                func.min(model.day).filter(model.superseded_by == None),  # noqa: E711
+                func.max(model.day).filter(model.superseded_by == None),  # noqa: E711
+            )
+        )
+    ).one()
+    by_provider = (
+        await session.execute(
+            select(model.provider, func.count(model.id))
+            .where(model.superseded_by == None)  # noqa: E711
+            .group_by(model.provider)
+        )
+    ).all()
+    return {
+        "count": int(visible or 0),
+        "by_provider": {name: int(count) for name, count in by_provider},
+        "superseded_duplicates": int(hidden or 0),
+        "earliest_day": iso_day(earliest),
+        "latest_day": iso_day(latest),
+    }
+
+
+@mcp.tool()
+async def get_data_coverage() -> dict[str, Any]:
+    """Report what data is stored, per kind: visible row counts per provider,
+    hidden duplicates, the first and last day, and for activities how many
+    still lack detail, streams, or heart rate. Use it to tell missing data
+    from a quiet period."""
+    visible = Activity.superseded_by == None  # noqa: E711
+    activity_count = func.count(Activity.id)
+    # Superseded duplicates are never enriched, so counting them would
+    # permanently report missing detail and streams.
+    activity_stmt = select(
+        activity_count.filter(visible).label("count"),
+        activity_count.filter(Activity.superseded_by != None).label(  # noqa: E711
+            "superseded"
+        ),
+        func.min(Activity.start_date).filter(visible).label("earliest"),
+        func.max(Activity.start_date).filter(visible).label("latest"),
+        activity_count.filter(visible, Activity.detail_synced == False).label(  # noqa: E712
+            "missing_detail"
+        ),
+        activity_count.filter(visible, Activity.synced_streams == False).label(  # noqa: E712
+            "missing_streams"
+        ),
+        activity_count.filter(visible, Activity.has_heartrate == False).label(  # noqa: E712
+            "without_heart_rate"
+        ),
+        activity_count.filter(visible, Activity.average_watts != None).label(  # noqa: E711
+            "with_power"
+        ),
+    )
+    by_source_stmt = (
+        select(Activity.source, func.count(Activity.id))
+        .where(visible)
+        .group_by(Activity.source)
+    )
+    load_stmt = select(
+        func.count(DailyMetrics.date),
+        func.min(DailyMetrics.date),
+        func.max(DailyMetrics.date),
+        func.max(DailyMetrics.updated_at),
+    )
+
+    async with readonly_session() as session:
+        act = (await session.execute(activity_stmt)).one()
+        by_source = (await session.execute(by_source_stmt)).all()
+        load = (await session.execute(load_stmt)).one()
+        body = await _record_coverage(session, BodyMeasurement)
+        nutrition = await _record_coverage(session, DailyNutrition)
+
+    return {
+        "activities": {
+            "count": int(act.count or 0),
+            "by_provider": {
+                str(source or "unknown"): int(count or 0) for source, count in by_source
+            },
+            "superseded_duplicates": int(act.superseded or 0),
+            "earliest_day": iso_day(local_day(act.earliest) if act.earliest else None),
+            "latest_day": iso_day(local_day(act.latest) if act.latest else None),
+            "missing_detail": int(act.missing_detail or 0),
+            "missing_streams": int(act.missing_streams or 0),
+            "without_heart_rate": int(act.without_heart_rate or 0),
+            "with_power": int(act.with_power or 0),
+        },
+        "training_load": {
+            "days": int(load[0] or 0),
+            "earliest_day": iso_day(load[1]),
+            "latest_day": iso_day(load[2]),
+            "metrics_as_of": local_time(load[3]),
+        },
+        "body": body,
+        "nutrition": nutrition,
+    }
+
+
+register_record_tools(mcp)
 
 
 if __name__ == "__main__":

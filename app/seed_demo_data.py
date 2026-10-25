@@ -869,7 +869,9 @@ async def _seed(args: argparse.Namespace) -> None:
             )
 
         logger.info("Recalculating daily metrics (CTL / ATL / TSB)...")
-        await recalculate_daily_metrics(session, profile.athlete_id)
+        await recalculate_daily_metrics(
+            session, profile.athlete_id, tz=ZoneInfo(config.athlete.timezone)
+        )
 
         await _seed_records(session, args, plan, rng)
 

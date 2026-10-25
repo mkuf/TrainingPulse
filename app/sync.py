@@ -291,7 +291,9 @@ async def _sync_activities(
     sync_state.begin("finalizing")
     await _recalculate_estimated_ftp(session, athlete_id)
     await _backfill_power_curves(session, athlete_id)
-    await recalculate_daily_metrics(session, athlete_id)
+    await recalculate_daily_metrics(
+        session, athlete_id, tz=ZoneInfo(config.athlete.timezone)
+    )
     await refresh_progress(session, athlete_id, sync_state)
 
 
