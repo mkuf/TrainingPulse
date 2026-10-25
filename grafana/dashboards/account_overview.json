@@ -524,7 +524,7 @@
       "options": {
         "basemap": {
           "name": "Basemap",
-          "type": "default",
+          "type": "osm-standard",
           "config": {}
         },
         "controls": {

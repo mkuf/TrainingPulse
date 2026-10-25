@@ -604,7 +604,7 @@
         "basemap": {
           "config": {},
           "name": "Basemap",
-          "type": "default"
+          "type": "osm-standard"
         },
         "controls": {
           "mouseWheelZoom": true,
