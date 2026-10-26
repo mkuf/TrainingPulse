@@ -442,3 +442,99 @@ def test_list_upsert_fields_do_not_include_derived_or_detail_columns():
 
 def test_list_upsert_fields_include_suffer_score():
     assert "suffer_score" in LIST_UPSERT_FIELDS
+
+
+# ── Stream application ──────────────────────────────────────────────
+
+
+class _FakeSession:
+    """Records ``update(Activity)`` values; mimics no real database."""
+
+    def __init__(self):
+        self.updates: list[dict] = []
+        self.rolled_back = False
+
+    async def execute(self, stmt):
+        if getattr(stmt, "is_update", False):
+            self.updates.append(
+                {col.key: val.value for col, val in stmt._values.items()}
+            )
+
+    async def commit(self):
+        pass
+
+    async def rollback(self):
+        self.rolled_back = True
+
+
+class _FakeSource:
+    name = "hammerhead"
+
+    def __init__(self, streams):
+        self._streams = streams
+
+    async def fetch_streams(self, activity):
+        if isinstance(self._streams, Exception):
+            raise self._streams
+        return self._streams
+
+
+def _stream_activity():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id="hammerhead_1",
+        has_heartrate=True,
+        device_watts=True,
+        sport_type="Ride",
+        moving_time=1500,
+    )
+
+
+def _stream_ctx():
+    from types import SimpleNamespace
+
+    from metrics import get_power_zone_boundaries
+
+    return SimpleNamespace(
+        hr_zone_boundaries=[(0, 120), (120, 140), (140, 160), (160, 175), (175, 250)],
+        power_zone_boundaries=get_power_zone_boundaries(200),
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_tolerates_none_gaps_in_fit_streams():
+    from sources.engine import _apply_streams
+
+    n = 1500
+    power = [200] * n
+    hr = [150] * n
+    power[10] = None
+    hr[20] = None
+    streams = {"time": list(range(n)), "watts": power, "heartrate": hr}
+    session = _FakeSession()
+
+    await _apply_streams(session, _FakeSource(streams), _stream_activity(), _stream_ctx())
+
+    assert not session.rolled_back
+    (values,) = session.updates
+    assert values["synced_streams"] is True
+    assert values["best_20min_power"] == pytest.approx(200.0)
+    assert values["power_curve"]["1200"] == pytest.approx(200.0)
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_fallback_does_not_reload_activity_after_rollback():
+    from sources.engine import _apply_streams
+
+    session = _FakeSession()
+
+    await _apply_streams(
+        session, _FakeSource(RuntimeError("boom")), _stream_activity(), _stream_ctx()
+    )
+
+    assert session.rolled_back
+    (values,) = session.updates
+    assert values["synced_streams"] is True
+    assert values["trimp"] > 0
+

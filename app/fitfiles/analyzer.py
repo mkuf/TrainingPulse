@@ -110,6 +110,10 @@ def _as_number(value: object) -> float | None:
         return None
 
 
+def _as_int(value: float | None) -> int | None:
+    return None if value is None else round(value)
+
+
 def _mean(values: list[float | None]) -> float | None:
     numeric = [v for v in values if v is not None]
     if not numeric:
@@ -233,9 +237,11 @@ def _build_streams(records: list[dict]) -> dict[str, list]:
         if any(v is not None for v in values):
             streams[key] = values
 
-    maybe_add(STREAM_HEARTRATE, lambda r: r["heart_rate"])
-    maybe_add(STREAM_WATTS, lambda r: r["power"])
-    maybe_add(STREAM_CADENCE, lambda r: r["cadence"])
+    # HR, power and cadence are whole numbers in FIT and in Strava streams;
+    # keep them as ints so consumers (e.g. Grafana's ``::int`` casts) agree.
+    maybe_add(STREAM_HEARTRATE, lambda r: _as_int(r["heart_rate"]))
+    maybe_add(STREAM_WATTS, lambda r: _as_int(r["power"]))
+    maybe_add(STREAM_CADENCE, lambda r: _as_int(r["cadence"]))
     maybe_add(STREAM_DISTANCE, lambda r: r["distance"])
     maybe_add(STREAM_ALTITUDE, lambda r: r["altitude"])
     maybe_add(STREAM_VELOCITY, lambda r: r["speed"])

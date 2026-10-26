@@ -843,7 +843,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  h.val::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  h.val::numeric::int AS \"Heart Rate\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'heartrate') WITH ORDINALITY AS h(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'heartrate'\n  AND t.idx = h.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1229,7 +1229,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  p.val::int AS \"Power\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'watts') WITH ORDINALITY AS p(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'watts'\n  AND t.idx = p.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  p.val::numeric::int AS \"Power\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'watts') WITH ORDINALITY AS p(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'watts'\n  AND t.idx = p.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1483,7 +1483,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  c.val::int AS \"Cadence\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'cadence') WITH ORDINALITY AS c(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'cadence'\n  AND t.idx = c.idx2\nORDER BY t.idx",
+          "rawSql": "SELECT\n  a.start_date + (t.val::float * INTERVAL '1 second') AS time,\n  c.val::numeric::int AS \"Cadence\"\nFROM activity_streams s\nJOIN activities a ON a.id = s.activity_id,\nLATERAL jsonb_array_elements_text(s.data->'time') WITH ORDINALITY AS t(val, idx),\nLATERAL jsonb_array_elements_text(s.data->'cadence') WITH ORDINALITY AS c(val, idx2)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'cadence'\n  AND t.idx = c.idx2\nORDER BY t.idx",
           "format": "time_series",
           "refId": null
         }
@@ -1617,7 +1617,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT MAX(c.val::int) AS \"Max Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = '${activity_id}' AND s.data ? 'cadence'",
+          "rawSql": "SELECT MAX(c.val::numeric::int) AS \"Max Cadence\" FROM activity_streams s, LATERAL jsonb_array_elements_text(s.data->'cadence') AS c(val) WHERE s.activity_id = '${activity_id}' AND s.data ? 'cadence'",
           "format": "table",
           "refId": null
         }

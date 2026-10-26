@@ -820,6 +820,12 @@ async def _apply_streams(
 ) -> None:
     """Fetch streams for one activity and derive its training metrics."""
     wants_hr_power = activity_needs_streams(activity)
+    # Snapshot what the fallback needs: a rollback expires ORM attributes and
+    # reloading them lazily is not allowed under asyncio.
+    activity_id = activity.id
+    fallback_trimp = estimate_trimp_without_hr(
+        activity.sport_type, activity.moving_time
+    )
     try:
         streams = await source.fetch_streams(activity)
         stream_types = list(streams.keys())
@@ -861,8 +867,10 @@ async def _apply_streams(
             return
 
         time_stream = streams.get("time") or []
-        hr_stream = streams.get("heartrate") or []
-        power_stream = streams.get("watts") or []
+        # FIT-derived streams carry None for dropped samples; the metric
+        # helpers already skip non-positive readings, so treat gaps as 0.
+        hr_stream = [v or 0 for v in streams.get("heartrate") or []]
+        power_stream = [v or 0 for v in streams.get("watts") or []]
 
         if (
             activity.has_heartrate
@@ -910,16 +918,14 @@ async def _apply_streams(
     except SourceRateLimitExceeded:
         raise
     except Exception as exc:  # noqa: BLE001 - fall back to an estimate
-        logger.warning("%s streams for %s failed: %s", source.name, activity.id, exc)
+        logger.warning("%s streams for %s failed: %s", source.name, activity_id, exc)
         # A failed write leaves the session unusable until rolled back.
         await session.rollback()
         await session.execute(
             update(Activity)
-            .where(Activity.id == activity.id)
+            .where(Activity.id == activity_id)
             .values(
-                trimp=estimate_trimp_without_hr(
-                    activity.sport_type, activity.moving_time
-                ),
+                trimp=fallback_trimp,
                 synced_streams=True,
             )
         )

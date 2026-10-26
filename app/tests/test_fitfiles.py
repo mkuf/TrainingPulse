@@ -64,6 +64,8 @@ def test_build_streams_extracts_time_relative_to_first_record():
     assert streams[analyzer.STREAM_HEARTRATE] == [120.0, 125.0]
     assert streams[analyzer.STREAM_WATTS] == [200.0, 210.0]
     assert streams[analyzer.STREAM_CADENCE] == [80.0, 82.0]
+    for key in (analyzer.STREAM_HEARTRATE, analyzer.STREAM_WATTS, analyzer.STREAM_CADENCE):
+        assert all(type(v) is int for v in streams[key])
     assert streams[analyzer.STREAM_DISTANCE] == [0.0, 25.0]
     assert streams[analyzer.STREAM_ALTITUDE] == [100.0, 101.0]
     assert streams[analyzer.STREAM_VELOCITY] == [5.0, 5.2]
