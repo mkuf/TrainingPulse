@@ -195,7 +195,8 @@ def test_icu_map_row_reads_icu_prefixed_aliases():
     assert row["gear_id"] == "b999"
     assert row["device_name"] == "Garmin Edge"
     assert row["training_load"] == pytest.approx(44.0)
-    # icu_joules is work in joules, never calories.
+    # icu_joules is work in joules: kilojoules, never calories.
+    assert row["kilojoules"] == pytest.approx(306.0)
     assert row["calories"] is None
 
 
@@ -421,6 +422,7 @@ def test_hammerhead_map_row_list_phase_only():
     assert row["average_heartrate"] is None
     assert row["has_heartrate"] is False
     assert row["device_watts"] is False
+    assert row["kilojoules"] is None
     assert row["gear_id"] is None
     assert row["provider_updated_at"] is None
 
@@ -442,6 +444,8 @@ def test_hammerhead_map_row_merges_fit_summary():
     assert row["has_heartrate"] is True
     assert row["average_watts"] == pytest.approx(212.4)
     assert row["device_watts"] is True
+    # Derived like Strava: average power x moving time.
+    assert row["kilojoules"] == pytest.approx(212.4 * 3600 / 1000)
     assert row["weighted_average_watts"] == pytest.approx(228.9)
     assert row["total_elevation_gain"] == pytest.approx(312.0)
     assert row["calories"] == pytest.approx(820.0)

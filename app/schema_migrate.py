@@ -337,6 +337,44 @@ async def _add_deleted_upstream_at(conn: AsyncConnection) -> None:
     logger.info("Added activities.deleted_upstream_at column")
 
 
+async def _add_estimated_calories(conn: AsyncConnection) -> None:
+    """Add the calorie-estimate columns to databases that predate them.
+
+    The values are filled by the next sync's finalizing pass.
+    """
+    if not await _table_exists(conn, "activities"):
+        return
+    for column, sql_type in (
+        ("estimated_calories", "FLOAT"),
+        ("estimated_calories_method", "VARCHAR(16)"),
+    ):
+        if await _column_exists(conn, "activities", column):
+            continue
+        await conn.execute(
+            text(f"ALTER TABLE activities ADD COLUMN {column} {sql_type}")
+        )
+        logger.info("Added activities.%s column", column)
+
+
+async def _backfill_hammerhead_kilojoules(conn: AsyncConnection) -> None:
+    """Derive ``kilojoules`` for Hammerhead rides mapped before it was.
+
+    Same rule as ``hammerhead.map_row``; rows that already have a value are
+    left alone, so this is a no-op after the first run.
+    """
+    if not await _table_exists(conn, "activities"):
+        return
+    result = await conn.execute(
+        text(
+            "UPDATE activities SET kilojoules = average_watts * moving_time / 1000.0 "
+            "WHERE source = 'hammerhead' AND kilojoules IS NULL AND device_watts "
+            "AND average_watts > 0 AND moving_time > 0"
+        )
+    )
+    if result.rowcount:
+        logger.info("Derived kilojoules for %d Hammerhead activities", result.rowcount)
+
+
 #: View name → (table, condition). Each holds only the visible rows.
 _ACTIVE_VIEWS = {
     "active_activities": (
@@ -508,6 +546,8 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)
     await _add_deleted_upstream_at(conn)
+    await _add_estimated_calories(conn)
+    await _backfill_hammerhead_kilojoules(conn)
     await _migrate_withings_plugin(conn, timezone)
     await _migrate_fddb_plugin(conn)
     await _ensure_active_views(conn)

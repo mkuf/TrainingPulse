@@ -113,6 +113,15 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
 
     sport = _ACTIVITY_TYPE_SPORT_MAP.get(payload.get("activityType"), "")
 
+    # FIT files carry no work total; derive it the way Strava does.
+    average_watts = as_float(fit.get("average_watts"))
+    device_watts = bool(fit.get("device_watts"))
+    kilojoules = (
+        average_watts * moving / 1000.0
+        if device_watts and average_watts and moving
+        else None
+    )
+
     return {
         "id": activity_id(raw_id),
         "source": SOURCE_NAME,
@@ -128,13 +137,13 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "average_heartrate": as_float(fit.get("average_heartrate")),
         "max_heartrate": as_float(fit.get("max_heartrate")),
         "has_heartrate": bool(fit.get("has_heartrate")),
-        "average_watts": as_float(fit.get("average_watts")),
+        "average_watts": average_watts,
         "max_watts": as_float(fit.get("max_watts")),
         "average_speed": as_float(fit.get("average_speed")),
         "total_elevation_gain": as_float(fit.get("total_elevation_gain")),
-        "kilojoules": None,
+        "kilojoules": kilojoules,
         "calories": as_float(fit.get("calories")),
-        "device_watts": bool(fit.get("device_watts")),
+        "device_watts": device_watts,
         "device_name": clip_text(fit.get("device_name"), 255),
         "gear_id": None,
         "gear_name": None,

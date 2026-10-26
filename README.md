@@ -95,6 +95,17 @@ Example views from the bundled dashboards.
 
 Heart-rate zones are computed from `max_hr` and `rest_hr` using the standard five-zone percentage model. A changed value applies to activities synced from then on. If a value was wrong from the start, open **Full resync** under the athlete settings on the status page to recalculate your whole history with the corrected value.
 
+### Calories
+
+An activity keeps the calories its source reports. When the source reports none (Hammerhead, for example), TrainingPulse estimates them and marks the value with `~` on the activity page:
+
+- **Measured power:** intervals.icu's rule, kcal = work (kJ) / (4.184 × 0.22), with work = average watts × moving time (s) / 1000. This assumes 22% gross efficiency; Strava's factor (× 1.115) comes out 2.6% higher.
+- **Cycling with heart rate only:** heart rate is turned into power via `ftp` (power ≈ `ftp` × heart-rate reserve / 0.88), then the power rule applies. A wrong `ftp` shows up here directly.
+- **Walk, hike, run with a distance:** the ACSM metabolic equations from distance, elevation gain, moving time and body weight.
+- **Other sports:** a MET value from the Compendium of Physical Activities × body weight × time.
+
+Body weight comes from the weigh-in closest to the activity date; set the optional `athlete.weight_kg` to cover activities when no body data is imported. Cycling without power or heart rate, and sports TrainingPulse does not know, get no estimate. Estimates are refreshed at the end of every sync, so a changed `ftp` or a new weigh-in reaches older activities too.
+
 ## Providers and data kinds
 
 Your data may be spread over services differently from anyone else's, so TrainingPulse treats every service the same way: a **provider** is an account you connect, and it supplies one or more **data kinds** (`activities`, `body`, `nutrition`). Each provider block in `config.yaml` takes an optional `imports` list to choose which kinds to take from it; leave it out to take everything the provider supports.

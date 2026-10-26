@@ -165,6 +165,9 @@ class AthleteSection(_Section):
     max_hr: int = Field(..., gt=0, le=300)
     rest_hr: int = Field(..., gt=0, le=300)
     ftp: int = Field(..., gt=0, le=2000)
+    #: Fallback body weight for calorie estimates, used only when no weigh-in
+    #: (e.g. from Withings) has been imported.
+    weight_kg: float | None = Field(None, gt=0, le=400)
     #: IANA zone used to assign timestamps to calendar days. Body measurements
     #: are deduplicated per day, and a 00:30 weigh-in in Berlin belongs to the
     #: previous day in UTC.

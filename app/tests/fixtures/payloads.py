@@ -51,7 +51,7 @@ ICU_LIST_ACTIVITY_ALIASES = {
     "icu_gear_id": "b999",
     "icu_device": "Garmin Edge",
     "training_load": 44,
-    "icu_joules": 500,
+    "icu_joules": 306000,
 }
 
 ICU_ACTIVITY_NO_START = {"id": "i1", "name": "Broken"}

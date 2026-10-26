@@ -109,6 +109,11 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     )
     training_load = payload.get("icu_training_load") or payload.get("training_load")
 
+    kilojoules = as_float(payload.get("kilojoules"))
+    if kilojoules is None:
+        joules = as_float(payload.get("icu_joules"))
+        kilojoules = joules / 1000.0 if joules is not None else None
+
     return {
         "id": activity_id(raw_id),
         "source": SOURCE_NAME,
@@ -128,8 +133,8 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "max_watts": as_float(max_watts),
         "average_speed": as_float(payload.get("average_speed")),
         "total_elevation_gain": as_float(payload.get("total_elevation_gain")),
-        "kilojoules": as_float(payload.get("kilojoules")),
-        # Not ``icu_joules``: that is mechanical work in joules, not kcal.
+        # ``icu_joules`` is the mechanical work in joules: kJ, never kcal.
+        "kilojoules": kilojoules,
         "calories": as_float(payload.get("calories")),
         "device_watts": device_watts,
         "device_name": clip_text(

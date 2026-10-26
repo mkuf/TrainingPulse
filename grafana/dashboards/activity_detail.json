@@ -414,7 +414,7 @@
     {
       "id": 201,
       "title": "Work (kcal, kJ)",
-      "description": "**Calories** (kcal) and **kilojoules** (kJ) from the detailed activity after sync. Parentheses: rounded kJ.",
+      "description": "**Calories** (kcal) and **kilojoules** (kJ) from the detailed activity after sync. A `~` marks calories TrainingPulse estimated (from power, else heart rate and weight) because the source reported none. Parentheses: rounded kJ.",
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -467,7 +467,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT CASE\n  WHEN calories IS NULL AND kilojoules IS NULL THEN '— (—)'\n  ELSE concat(\n    CASE WHEN calories IS NULL THEN '—' ELSE ROUND(calories::numeric, 0)::text END,\n    ' (',\n    CASE WHEN kilojoules IS NULL THEN '—' ELSE ROUND(kilojoules::numeric, 0)::text END,\n    ')'\n  )\nEND AS \"Work\"\nFROM activities WHERE id = '${activity_id}'",
+          "rawSql": "SELECT CASE\n  WHEN calories IS NULL AND estimated_calories IS NULL AND kilojoules IS NULL THEN '\u2014 (\u2014)'\n  ELSE concat(\n    CASE\n      WHEN calories IS NOT NULL THEN ROUND(calories::numeric, 0)::text\n      WHEN estimated_calories IS NOT NULL THEN '~' || ROUND(estimated_calories::numeric, 0)::text\n      ELSE '\u2014'\n    END,\n    ' (',\n    CASE WHEN kilojoules IS NULL THEN '\u2014' ELSE ROUND(kilojoules::numeric, 0)::text END,\n    ')'\n  )\nEND AS \"Work\"\nFROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": "A"
         }

@@ -86,6 +86,14 @@ class Activity(Base):
     total_elevation_gain: Mapped[float | None] = mapped_column(Float, nullable=True)
     kilojoules: Mapped[float | None] = mapped_column(Float, nullable=True)
     calories: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Our estimate (see ``calories.py``) for when the source reports no
+    #: ``calories``. Kept apart so provider upserts never clobber it; read
+    #: ``COALESCE(calories, estimated_calories)``.
+    estimated_calories: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Rule behind ``estimated_calories``: power, hr_power, acsm or met.
+    estimated_calories_method: Mapped[str | None] = mapped_column(
+        String(16), nullable=True
+    )
     device_watts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     device_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     gear_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

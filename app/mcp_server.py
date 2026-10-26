@@ -116,7 +116,15 @@ def _activity_row(activity: Activity) -> dict[str, Any]:
         "moving_time_minutes": seconds_to_minutes(activity.moving_time),
         "trimp": round_or_none(activity.trimp, 1),
         "elevation_m": round_or_none(activity.total_elevation_gain, 0),
-        "calories": round_or_none(activity.calories, 0),
+        "calories": round_or_none(
+            activity.calories if activity.calories is not None else activity.estimated_calories,
+            0,
+        ),
+        "calories_estimated": activity.calories is None
+        and activity.estimated_calories is not None,
+        "calories_method": activity.estimated_calories_method
+        if activity.calories is None
+        else None,
         "average_heart_rate": round_or_none(activity.average_heartrate, 0),
         "average_power": round_or_none(activity.average_watts, 0),
         "gear_name": activity.gear_name,
@@ -370,7 +378,9 @@ async def _training_summary(
         func.coalesce(func.sum(Activity.moving_time), 0).label("moving_time_s"),
         func.coalesce(func.sum(Activity.trimp), 0).label("trimp"),
         func.coalesce(func.sum(Activity.total_elevation_gain), 0).label("elevation_m"),
-        func.coalesce(func.sum(Activity.calories), 0).label("calories"),
+        func.coalesce(
+            func.sum(func.coalesce(Activity.calories, Activity.estimated_calories)), 0
+        ).label("calories"),
         func.avg(Activity.average_heartrate).label("avg_hr"),
         func.avg(Activity.average_watts).label("avg_power"),
     )

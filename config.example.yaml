@@ -40,6 +40,9 @@ athlete:
   max_hr: 190
   rest_hr: 60
   ftp: 250
+  # Optional. Body weight for calorie estimates of activities whose source
+  # reports none. Imported weigh-ins (e.g. Withings) take precedence.
+  # weight_kg: 75
   # Assigns weigh-ins to calendar days, which is how body measurements from
   # several providers are deduplicated. Any IANA zone name.
   timezone: UTC

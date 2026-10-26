@@ -296,6 +296,14 @@ On startup the effective configuration is logged at INFO with every field marked
 
 Changing an athlete value only affects activities processed afterwards. A full resync re-downloads everything and recalculates all history with the current values, which is only right when the old value was wrong rather than outdated.
 
+### Calorie estimates
+
+`calories.py` fills `activities.estimated_calories` (and `estimated_calories_method`: `power`, `hr_power`, `acsm`, `met`) for every activity whose source left `calories` NULL. It runs in the sync's finalizing step and recomputes all such rows each time, so it never depends on stream-phase state, and provider upserts, which may rewrite `calories`, never touch the estimate. Readers use `COALESCE(calories, estimated_calories)`.
+
+The power rule is intervals.icu's (kcal = kJ / (4.184 × 0.22)), checked against its reported calories to within 0.5 kcal on every ride; `hr_power` converts heart rate to watts and then applies the same rule. intervals.icu's work comes from `icu_joules` (joules, mapped to `kilojoules`), never from `calories`.
+
+The rules only need config (`ftp`, `max_hr`, `rest_hr`, optional `weight_kg`) and the nearest visible weigh-in, so they work for a new athlete with no history and no power meter. Weight-based heart-rate formulas (Keytel, %HRR × VO2max) are deliberately not used for cycling: on a bike energy follows power rather than body mass, and those formulas overshoot heavier riders by 1.8–2.7× against measured power.
+
 **Upgrading from the old `.env`-only setup:** earlier releases fell back to generic HR/FTP defaults (190/60/200) when `MAX_HR`/`REST_HR`/`FTP` were unset. That fallback is gone — the process now exits non-zero if `athlete.*` is missing. Add `athlete.max_hr`/`rest_hr`/`ftp` to `config.yaml`, or set `TP_ATHLETE__MAX_HR` / `TP_ATHLETE__REST_HR` / `TP_ATHLETE__FTP` as environment variables (the structural-override mechanism creates the section even if `config.yaml` omits it entirely) before restarting.
 
 ## Schema upgrades
