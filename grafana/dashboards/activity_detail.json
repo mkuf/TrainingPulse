@@ -414,7 +414,7 @@
     {
       "id": 201,
       "title": "Work (kcal, kJ)",
-      "description": "**Calories** (kcal) and **kilojoules** (kJ) from the detailed activity after sync. A `~` marks calories TrainingPulse estimated (from power, else heart rate and weight) because the source reported none. Parentheses: rounded kJ.",
+      "description": "**Calories** (kcal) and, in parentheses, **kilojoules** (kJ) of work. TrainingPulse computes them when the activity is processed: from measured power (kcal = kJ / (4.184 \u00d7 0.22)), else ACSM for walks and runs, else heart rate converted to power via FTP. A `~` marks values not derived from measured power. Where the device or provider reported a different calorie value, it is shown as *imported*. Activities processed before this existed show their imported values.",
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -467,7 +467,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT CASE\n  WHEN calories IS NULL AND estimated_calories IS NULL AND kilojoules IS NULL THEN '\u2014 (\u2014)'\n  ELSE concat(\n    CASE\n      WHEN calories IS NOT NULL THEN ROUND(calories::numeric, 0)::text\n      WHEN estimated_calories IS NOT NULL THEN '~' || ROUND(estimated_calories::numeric, 0)::text\n      ELSE '\u2014'\n    END,\n    ' (',\n    CASE WHEN kilojoules IS NULL THEN '\u2014' ELSE ROUND(kilojoules::numeric, 0)::text END,\n    ')'\n  )\nEND AS \"Work\"\nFROM activities WHERE id = '${activity_id}'",
+          "rawSql": "SELECT CASE\n  WHEN COALESCE(computed_calories, calories) IS NULL\n   AND COALESCE(computed_kilojoules, kilojoules) IS NULL THEN '\u2014 (\u2014)'\n  ELSE concat(\n    CASE\n      WHEN computed_calories IS NOT NULL THEN\n        CASE WHEN computed_calories_method = 'power' THEN '' ELSE '~' END\n        || ROUND(computed_calories::numeric, 0)::text\n      WHEN calories IS NOT NULL THEN ROUND(calories::numeric, 0)::text\n      ELSE '\u2014'\n    END,\n    ' (',\n    COALESCE(ROUND(COALESCE(computed_kilojoules, kilojoules)::numeric, 0)::text, '\u2014'),\n    ')',\n    CASE\n      WHEN computed_calories IS NOT NULL AND calories IS NOT NULL\n       AND ROUND(calories::numeric, 0) <> ROUND(computed_calories::numeric, 0)\n      THEN ' \u00b7 imported ' || ROUND(calories::numeric, 0)::text\n      ELSE ''\n    END\n  )\nEND AS \"Work\"\nFROM activities WHERE id = '${activity_id}'",
           "format": "table",
           "refId": "A"
         }

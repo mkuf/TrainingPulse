@@ -86,12 +86,14 @@ class Activity(Base):
     total_elevation_gain: Mapped[float | None] = mapped_column(Float, nullable=True)
     kilojoules: Mapped[float | None] = mapped_column(Float, nullable=True)
     calories: Mapped[float | None] = mapped_column(Float, nullable=True)
-    #: Our estimate (see ``calories.py``) for when the source reports no
-    #: ``calories``. Kept apart so provider upserts never clobber it; read
-    #: ``COALESCE(calories, estimated_calories)``.
-    estimated_calories: Mapped[float | None] = mapped_column(Float, nullable=True)
-    #: Rule behind ``estimated_calories``: power, hr_power, acsm or met.
-    estimated_calories_method: Mapped[str | None] = mapped_column(
+    #: Computed by TrainingPulse when the streams are processed (see
+    #: ``calories.py``); ``calories``/``kilojoules`` keep the imported values.
+    #: Read ``COALESCE(computed_calories, calories)``.
+    computed_calories: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Mechanical work, only for measured power.
+    computed_kilojoules: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Rule behind ``computed_calories``: power, acsm, hr_power or met.
+    computed_calories_method: Mapped[str | None] = mapped_column(
         String(16), nullable=True
     )
     device_watts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

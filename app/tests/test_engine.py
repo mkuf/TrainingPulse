@@ -450,9 +450,13 @@ def test_list_upsert_fields_include_suffer_score():
 class _FakeSession:
     """Records ``update(Activity)`` values; mimics no real database."""
 
-    def __init__(self):
+    def __init__(self, weight_kg: float | None = 80.0):
         self.updates: list[dict] = []
         self.rolled_back = False
+        self.weight_kg = weight_kg
+
+    async def scalar(self, stmt):
+        return self.weight_kg
 
     async def execute(self, stmt):
         if getattr(stmt, "is_update", False):
@@ -479,26 +483,38 @@ class _FakeSource:
         return self._streams
 
 
-def _stream_activity():
+def _stream_activity(**overrides):
     from types import SimpleNamespace
 
-    return SimpleNamespace(
+    fields = dict(
         id="hammerhead_1",
         has_heartrate=True,
         device_watts=True,
         sport_type="Ride",
         moving_time=1500,
+        start_date=BASE,
+        distance=12000.0,
+        total_elevation_gain=50.0,
+        average_watts=200.0,
+        average_heartrate=150.0,
+        calories=None,
     )
+    fields.update(overrides)
+    return SimpleNamespace(**fields)
 
 
 def _stream_ctx():
     from types import SimpleNamespace
 
+    from calories import AthleteEnergyInputs
     from metrics import get_power_zone_boundaries
 
     return SimpleNamespace(
         hr_zone_boundaries=[(0, 120), (120, 140), (140, 160), (160, 175), (175, 250)],
         power_zone_boundaries=get_power_zone_boundaries(200),
+        energy_athlete=AthleteEnergyInputs(
+            ftp=200, max_hr=190, rest_hr=60, weight_kg=None
+        ),
     )
 
 
@@ -538,3 +554,86 @@ async def test_apply_streams_fallback_does_not_reload_activity_after_rollback():
     assert values["synced_streams"] is True
     assert values["trimp"] > 0
 
+
+
+# ── Computed energy in the stream phase ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_computes_kilojoules_from_the_power_stream():
+    from calories import KCAL_PER_KJ
+    from sources.engine import _apply_streams
+
+    n = 1501
+    streams = {"time": list(range(n)), "watts": [200] * n, "heartrate": [150] * n}
+    session = _FakeSession()
+    # The summary average disagrees with the stream; the stream is the work.
+    activity = _stream_activity(average_watts=150.0, calories=999.0)
+
+    await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+
+    (values,) = session.updates
+    assert values["computed_kilojoules"] == pytest.approx(300.0)
+    assert values["computed_calories"] == pytest.approx(300.0 * KCAL_PER_KJ)
+    assert values["computed_calories_method"] == "power"
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_computes_hr_power_for_gym_sessions():
+    from sources.engine import _apply_streams
+
+    streams = {"time": list(range(600)), "heartrate": [140] * 600}
+    session = _FakeSession()
+    activity = _stream_activity(
+        sport_type="Crossfit", device_watts=False, average_watts=None, calories=900.0
+    )
+
+    await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+
+    (values,) = session.updates
+    assert values["computed_calories_method"] == "hr_power"
+    assert values["computed_kilojoules"] is None
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_without_hr_or_power_uses_acsm_and_weigh_in():
+    from calories import ACSM_WALK, KCAL_PER_LITRE_O2, RESTING_VO2
+    from sources.engine import _apply_streams
+
+    session = _FakeSession(weight_kg=90.0)
+    activity = _stream_activity(
+        sport_type="Walk",
+        has_heartrate=False,
+        device_watts=False,
+        average_watts=None,
+        average_heartrate=None,
+        distance=4000.0,
+        total_elevation_gain=0.0,
+        moving_time=3000,
+    )
+
+    await _apply_streams(session, _FakeSource({}), activity, _stream_ctx())
+
+    (values,) = session.updates
+    oxygen = RESTING_VO2 * 50 + ACSM_WALK[0] * 4000
+    assert values["computed_calories_method"] == "acsm"
+    assert values["computed_calories"] == pytest.approx(
+        oxygen * 90 / 1000 * KCAL_PER_LITRE_O2
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_failure_still_computes_from_summary():
+    from calories import KCAL_PER_KJ
+    from sources.engine import _apply_streams
+
+    session = _FakeSession()
+
+    await _apply_streams(
+        session, _FakeSource(RuntimeError("boom")), _stream_activity(), _stream_ctx()
+    )
+
+    (values,) = session.updates
+    assert values["computed_calories_method"] == "power"
+    assert values["computed_kilojoules"] == pytest.approx(200 * 1500 / 1000)
+    assert values["computed_calories"] == pytest.approx(300.0 * KCAL_PER_KJ)

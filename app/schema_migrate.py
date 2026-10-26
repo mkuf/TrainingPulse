@@ -337,23 +337,31 @@ async def _add_deleted_upstream_at(conn: AsyncConnection) -> None:
     logger.info("Added activities.deleted_upstream_at column")
 
 
-async def _add_estimated_calories(conn: AsyncConnection) -> None:
-    """Add the calorie-estimate columns to databases that predate them.
+async def _add_computed_energy(conn: AsyncConnection) -> None:
+    """Add the ``computed_*`` energy columns, renaming the ``estimated_*`` ones.
 
-    The values are filled by the next sync's finalizing pass.
+    Activities are only computed when their streams are processed, so older
+    rows keep NULL and show their imported values.
     """
     if not await _table_exists(conn, "activities"):
         return
-    for column, sql_type in (
-        ("estimated_calories", "FLOAT"),
-        ("estimated_calories_method", "VARCHAR(16)"),
+    for old, new, sql_type in (
+        ("estimated_calories", "computed_calories", "FLOAT"),
+        ("estimated_calories_method", "computed_calories_method", "VARCHAR(16)"),
+        (None, "computed_kilojoules", "FLOAT"),
     ):
-        if await _column_exists(conn, "activities", column):
+        if await _column_exists(conn, "activities", new):
             continue
-        await conn.execute(
-            text(f"ALTER TABLE activities ADD COLUMN {column} {sql_type}")
-        )
-        logger.info("Added activities.%s column", column)
+        if old and await _column_exists(conn, "activities", old):
+            await conn.execute(
+                text(f"ALTER TABLE activities RENAME COLUMN {old} TO {new}")
+            )
+            logger.info("Renamed activities.%s to %s", old, new)
+        else:
+            await conn.execute(
+                text(f"ALTER TABLE activities ADD COLUMN {new} {sql_type}")
+            )
+            logger.info("Added activities.%s column", new)
 
 
 async def _backfill_hammerhead_kilojoules(conn: AsyncConnection) -> None:
@@ -546,7 +554,7 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)
     await _add_deleted_upstream_at(conn)
-    await _add_estimated_calories(conn)
+    await _add_computed_energy(conn)
     await _backfill_hammerhead_kilojoules(conn)
     await _migrate_withings_plugin(conn, timezone)
     await _migrate_fddb_plugin(conn)

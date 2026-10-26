@@ -116,15 +116,16 @@ def _activity_row(activity: Activity) -> dict[str, Any]:
         "moving_time_minutes": seconds_to_minutes(activity.moving_time),
         "trimp": round_or_none(activity.trimp, 1),
         "elevation_m": round_or_none(activity.total_elevation_gain, 0),
+        # Computed by TrainingPulse where it could; see calories.py.
         "calories": round_or_none(
-            activity.calories if activity.calories is not None else activity.estimated_calories,
+            activity.computed_calories
+            if activity.computed_calories is not None
+            else activity.calories,
             0,
         ),
-        "calories_estimated": activity.calories is None
-        and activity.estimated_calories is not None,
-        "calories_method": activity.estimated_calories_method
-        if activity.calories is None
-        else None,
+        "calories_method": activity.computed_calories_method
+        or ("imported" if activity.calories is not None else None),
+        "imported_calories": round_or_none(activity.calories, 0),
         "average_heart_rate": round_or_none(activity.average_heartrate, 0),
         "average_power": round_or_none(activity.average_watts, 0),
         "gear_name": activity.gear_name,
@@ -240,7 +241,12 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
         "description": activity.description,
         "elapsed_time_minutes": seconds_to_minutes(activity.elapsed_time),
         "average_speed_kmh": average_speed_kmh,
-        "kilojoules": round_or_none(activity.kilojoules, 0),
+        "kilojoules": round_or_none(
+            activity.computed_kilojoules
+            if activity.computed_kilojoules is not None
+            else activity.kilojoules,
+            0,
+        ),
         "max_heart_rate": round_or_none(activity.max_heartrate, 0),
         "weighted_average_power": round_or_none(activity.weighted_average_watts, 0),
         "max_power": round_or_none(activity.max_watts, 0),
@@ -379,7 +385,7 @@ async def _training_summary(
         func.coalesce(func.sum(Activity.trimp), 0).label("trimp"),
         func.coalesce(func.sum(Activity.total_elevation_gain), 0).label("elevation_m"),
         func.coalesce(
-            func.sum(func.coalesce(Activity.calories, Activity.estimated_calories)), 0
+            func.sum(func.coalesce(Activity.computed_calories, Activity.calories)), 0
         ).label("calories"),
         func.avg(Activity.average_heartrate).label("avg_hr"),
         func.avg(Activity.average_watts).label("avg_power"),

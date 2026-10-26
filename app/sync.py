@@ -35,7 +35,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from trainingpulse_common.catalog import DataKind
 
-from calories import recalculate_estimated_calories
+from calories import AthleteEnergyInputs
 from config import config
 from database import async_session
 from metrics import (
@@ -247,6 +247,12 @@ async def _sync_activities(
             athlete_settings.hr_zones,
         ),
         power_zone_boundaries=get_power_zone_boundaries(athlete_settings.ftp),
+        energy_athlete=AthleteEnergyInputs(
+            ftp=athlete_settings.ftp,
+            max_hr=athlete_settings.max_hr,
+            rest_hr=athlete_settings.rest_hr,
+            weight_kg=config.athlete.weight_kg,
+        ),
     )
     precedence = activities.precedence
 
@@ -294,14 +300,6 @@ async def _sync_activities(
     sync_state.begin("finalizing")
     await _recalculate_estimated_ftp(session, athlete_id)
     await _backfill_power_curves(session, athlete_id)
-    await recalculate_estimated_calories(
-        session,
-        athlete_id,
-        ftp=config.athlete.ftp,
-        max_hr=config.athlete.max_hr,
-        rest_hr=config.athlete.rest_hr,
-        fallback_weight_kg=config.athlete.weight_kg,
-    )
     await recalculate_daily_metrics(
         session, athlete_id, tz=ZoneInfo(config.athlete.timezone)
     )

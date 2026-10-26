@@ -17,6 +17,7 @@ requests on activities that are hidden behind a higher-precedence source.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -26,6 +27,12 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from calories import (
+    ActivityEnergyInputs,
+    AthleteEnergyInputs,
+    compute_energy,
+    kilojoules_from_stream,
+)
 from metrics import (
     calculate_best_interval,
     calculate_power_curve,
@@ -33,7 +40,7 @@ from metrics import (
     calculate_trimp_from_streams,
     estimate_trimp_without_hr,
 )
-from models import ACTIVITY_VISIBLE, Activity, ActivityStream
+from models import ACTIVITY_VISIBLE, Activity, ActivityStream, BodyMeasurement
 from sources.base import ActivitySource, SourceRateLimitExceeded, external_id
 from sources.state import SyncState
 
@@ -134,6 +141,9 @@ class EngineContext:
     streams_concurrency: int
     hr_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
     power_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
+    #: Athlete values for computed calories; ``weight_kg`` is the configured
+    #: fallback, replaced per activity by the nearest weigh-in.
+    energy_athlete: AthleteEnergyInputs | None = None
 
 
 # ── Concurrency ─────────────────────────────────────────────────────
@@ -812,6 +822,46 @@ async def drain_detail_queue(
             break
 
 
+def _energy_inputs(activity: Activity) -> ActivityEnergyInputs:
+    return ActivityEnergyInputs(
+        sport_type=activity.sport_type,
+        moving_time=activity.moving_time,
+        distance=activity.distance,
+        elevation_gain=activity.total_elevation_gain,
+        average_watts=activity.average_watts,
+        device_watts=activity.device_watts,
+        average_heartrate=activity.average_heartrate,
+        imported_calories=activity.calories,
+    )
+
+
+async def _computed_energy(
+    session: AsyncSession,
+    ctx: EngineContext,
+    inputs: ActivityEnergyInputs,
+    day: date,
+    stream_kilojoules: float | None = None,
+) -> dict:
+    """``computed_*`` column values for one activity, see ``calories.py``."""
+    athlete = ctx.energy_athlete
+    if athlete is None:
+        return {}
+    weight = await session.scalar(
+        select(BodyMeasurement.weight_kg)
+        .where(BodyMeasurement.superseded_by.is_(None))
+        .order_by(func.abs(BodyMeasurement.day - day))
+        .limit(1)
+    )
+    if weight is not None:
+        athlete = dataclasses.replace(athlete, weight_kg=weight)
+    energy = compute_energy(inputs, athlete, stream_kilojoules=stream_kilojoules)
+    return {
+        "computed_calories": energy.kcal,
+        "computed_kilojoules": energy.kilojoules,
+        "computed_calories_method": energy.method,
+    }
+
+
 async def _apply_streams(
     session: AsyncSession,
     source: ActivitySource,
@@ -826,6 +876,8 @@ async def _apply_streams(
     fallback_trimp = estimate_trimp_without_hr(
         activity.sport_type, activity.moving_time
     )
+    energy_inputs = _energy_inputs(activity)
+    activity_day = activity.start_date.date()
     try:
         streams = await source.fetch_streams(activity)
         stream_types = list(streams.keys())
@@ -861,6 +913,9 @@ async def _apply_streams(
                     best_20min_power=None,
                     power_curve=None,
                     synced_streams=True,
+                    **await _computed_energy(
+                        session, ctx, energy_inputs, activity_day
+                    ),
                 )
             )
             await session.commit()
@@ -902,11 +957,22 @@ async def _apply_streams(
                         ctx.power_zone_boundaries,
                     )
 
+        energy = await _computed_energy(
+            session,
+            ctx,
+            energy_inputs,
+            activity_day,
+            kilojoules_from_stream(time_stream, power_stream)
+            if activity.device_watts
+            else None,
+        )
+
         await session.execute(
             update(Activity)
             .where(Activity.id == activity.id)
             .values(
                 trimp=trimp,
+                **energy,
                 hr_zone_seconds=hr_zones,
                 power_zone_seconds=power_zones,
                 best_20min_power=best_20min,
@@ -927,6 +993,7 @@ async def _apply_streams(
             .values(
                 trimp=fallback_trimp,
                 synced_streams=True,
+                **await _computed_energy(session, ctx, energy_inputs, activity_day),
             )
         )
         await session.commit()

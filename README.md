@@ -97,14 +97,17 @@ Heart-rate zones are computed from `max_hr` and `rest_hr` using the standard fiv
 
 ### Calories
 
-An activity keeps the calories its source reports. When the source reports none (Hammerhead, for example), TrainingPulse estimates them and marks the value with `~` on the activity page:
+TrainingPulse computes calories itself instead of trusting the device: at the same heart rate, a Fitbit reported about 1.9× what a Galaxy Watch did, and Strava's heart-rate formula about 1.7× what measured power implies. The first rule that applies wins:
 
-- **Measured power:** intervals.icu's rule, kcal = work (kJ) / (4.184 × 0.22), with work = average watts × moving time (s) / 1000. This assumes 22% gross efficiency; Strava's factor (× 1.115) comes out 2.6% higher.
-- **Cycling with heart rate only:** heart rate is turned into power via `ftp` (power ≈ `ftp` × heart-rate reserve / 0.88), then the power rule applies. A wrong `ftp` shows up here directly.
-- **Walk, hike, run with a distance:** the ACSM metabolic equations from distance, elevation gain, moving time and body weight.
-- **Other sports:** a MET value from the Compendium of Physical Activities × body weight × time.
+1. **Measured power:** kcal = work (kJ) / (4.184 × 0.22), intervals.icu's rule at 22% gross efficiency. Work is the sum of the power stream (else average watts × moving time). Strava's factor (× 1.115) comes out 2.6% higher.
+2. **Walk, hike, run with a distance:** the ACSM metabolic equations from distance, elevation gain, moving time and body weight.
+3. **Heart rate, any other sport:** heart rate is turned into power via `ftp` (power ≈ `ftp` × heart-rate reserve / 0.88), then rule 1 applies. A wrong `ftp` shows up here directly.
+4. **Otherwise the imported value**, if the source has one.
+5. **Last resort:** a MET value from the Compendium of Physical Activities × body weight × time.
 
-Body weight comes from the weigh-in closest to the activity date; set the optional `athlete.weight_kg` to cover activities when no body data is imported. Cycling without power or heart rate, and sports TrainingPulse does not know, get no estimate. Estimates are refreshed at the end of every sync, so a changed `ftp` or a new weigh-in reaches older activities too.
+On the activity page a `~` marks values not derived from measured power, and a differing imported value is shown next to it. Body weight comes from the weigh-in closest to the activity date; set the optional `athlete.weight_kg` to cover activities when no body data is imported.
+
+Calories are computed once, when an activity is processed, with the athlete values configured at that time, like TRIMP. Changing `ftp` or `weight_kg` does not rewrite older activities, and activities processed before this feature keep their imported values. A **Full resync** recomputes all history with the current values.
 
 ## Providers and data kinds
 

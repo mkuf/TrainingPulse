@@ -1,35 +1,32 @@
-"""Calorie estimates for activities whose source reports none.
+"""Calories and kilojoules computed by TrainingPulse.
 
-Every rule works from the first activity: it needs only the configured athlete
-values (``ftp``, ``max_hr``, ``rest_hr``) and, for weight-bearing sports, body
-weight. No history and no power meter are required. Rules, first match wins:
+Computed once, when an activity's streams are processed, with the athlete
+values configured at that time (like TRIMP): a later FTP or weight change does
+not rewrite history, and a full resync recomputes it with current values.
+Readers show ``COALESCE(computed_calories, calories)``, so the imported value
+only appears where nothing is computed.
 
-1. ``power``: any activity with measured power, using intervals.icu's rule.
-2. ``hr_power``: cycling with heart rate. Heart rate is turned into an
-   estimated power via FTP, then rule 1 applies. Energy on a bike follows
-   power, not body mass, which is why weight-based HR formulas overshoot for
-   heavier riders.
-3. ``acsm``: walking, hiking and running with a distance, from the ACSM
-   metabolic equations (horizontal, vertical and resting oxygen cost).
-4. ``met``: everything else listed in ``SPORT_METS``, as MET x weight x time.
+Computed values replace imported ones because devices disagree wildly at the
+same effort: a Fitbit reported ~1.9x what a Galaxy Watch did for identical
+heart rates, and Strava's HR formula ~1.7x what measured power implies.
+Rules, first match wins:
 
-Cycling without power or heart rate, and unknown sports, get no estimate:
-a guess there would be presented as data.
+1. ``power``: measured power. Work is the stream sum (else average watts x
+   moving time); kcal = kJ / (4.184 x 0.22), intervals.icu's rule.
+2. ``acsm``: walk, hike, run with a distance, from the ACSM metabolic
+   equations (horizontal, vertical and resting oxygen cost) and body weight.
+3. ``hr_power``: heart rate in any other sport. Heart rate is turned into
+   power via FTP, then rule 1 applies. Metabolic rate follows heart rate
+   reserve across sports, and unlike weight-based formulas this does not
+   overshoot heavier athletes.
+4. The imported value, when the source has one: nothing is computed.
+5. ``met``: MET x weight x time for sports listed in ``SPORT_METS``. Last,
+   because MET formulas scale with body weight and overshoot heavy athletes.
 """
 
 from __future__ import annotations
 
-import bisect
-import logging
 from dataclasses import dataclass
-from datetime import date
-
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from models import Activity, BodyMeasurement
-
-logger = logging.getLogger(__name__)
 
 #: intervals.icu's rule: kcal = kJ / (4.184 x 0.22), i.e. 22% gross
 #: efficiency. Strava uses x 1.115 (~21.4%), 2.6% higher.
@@ -44,6 +41,10 @@ KCAL_PER_LITRE_O2 = 5.0
 #: ACSM oxygen cost per metre travelled, ml/kg: (horizontal, vertical).
 ACSM_WALK = (0.1, 1.8)
 ACSM_RUN = (0.2, 0.9)
+#: Longest gap a power sample is credited for; recorders sampling sparser
+#: than 1 Hz stay well below it. After a longer gap (auto-pause, dropout) the
+#: sample counts as one second, like intervals.icu's ``icu_joules``.
+MAX_SAMPLE_GAP_SECONDS = 5
 
 
 def _key(sport_type: str | None) -> str:
@@ -51,14 +52,6 @@ def _key(sport_type: str | None) -> str:
     return "".join(ch for ch in (sport_type or "").lower() if ch.isalnum())
 
 
-CYCLING = {
-    _key(s)
-    for s in (
-        "Ride", "GravelRide", "MountainBikeRide", "VirtualRide", "EBikeRide",
-        "EMountainBikeRide", "Velomobile", "Handcycle", "Biking", "Cycling",
-        "IndoorCycling", "Spinning", "BikingStationary", "MountainBiking",
-    )
-}
 WALKING = {_key(s) for s in ("Walk", "Hike", "Walking", "Hiking")}
 RUNNING = {
     _key(s)
@@ -93,152 +86,94 @@ SPORT_METS = {
 
 
 @dataclass(frozen=True)
-class CalorieEstimate:
-    kcal: float
-    method: str
+class ActivityEnergyInputs:
+    """The activity fields the rules read, captured before any DB rollback."""
+
+    sport_type: str | None
+    moving_time: int
+    distance: float | None
+    elevation_gain: float | None
+    average_watts: float | None
+    device_watts: bool
+    average_heartrate: float | None
+    imported_calories: float | None
 
 
-def kcal_from_power(average_watts: float, moving_time: int) -> float:
-    return KCAL_PER_KJ * average_watts * moving_time / 1000.0
+@dataclass(frozen=True)
+class AthleteEnergyInputs:
+    ftp: int
+    max_hr: int
+    rest_hr: int
+    weight_kg: float | None
 
 
-def estimate_calories(
+@dataclass(frozen=True)
+class Energy:
+    kcal: float | None = None
+    kilojoules: float | None = None
+    method: str | None = None
+
+
+def kilojoules_from_stream(time_data: list, watts_data: list) -> float | None:
+    """Mechanical work from a power stream; ``None`` samples count as 0 W.
+
+    For 1 Hz recordings this is the plain sum of the samples, which is exactly
+    how intervals.icu reports ``icu_joules``.
+    """
+    if not watts_data or not time_data or len(time_data) != len(watts_data):
+        return None
+    joules = 0.0
+    for i in range(1, len(watts_data)):
+        dt = time_data[i] - time_data[i - 1]
+        if dt <= 0:
+            continue
+        seconds = dt if dt <= MAX_SAMPLE_GAP_SECONDS else 1
+        joules += max(watts_data[i] or 0, 0) * seconds
+    return joules / 1000.0 if joules > 0 else None
+
+
+def compute_energy(
+    activity: ActivityEnergyInputs,
+    athlete: AthleteEnergyInputs,
     *,
-    sport_type: str | None,
-    moving_time: int,
-    distance: float | None,
-    elevation_gain: float | None,
-    average_watts: float | None,
-    device_watts: bool,
-    average_heartrate: float | None,
-    weight_kg: float | None,
-    ftp: int,
-    max_hr: int,
-    rest_hr: int,
-) -> CalorieEstimate | None:
-    """kcal for one activity, or None when nothing sound supports a number."""
-    if not moving_time or moving_time <= 0:
-        return None
-    sport = _key(sport_type)
+    stream_kilojoules: float | None = None,
+) -> Energy:
+    """kcal (and kJ for measured power) by the first rule that applies."""
+    moving = activity.moving_time or 0
+    if moving <= 0:
+        return Energy()
+    sport = _key(activity.sport_type)
+    weight = athlete.weight_kg
 
-    if device_watts and average_watts and average_watts > 0:
-        return CalorieEstimate(kcal_from_power(average_watts, moving_time), "power")
+    if activity.device_watts:
+        kj = stream_kilojoules
+        if kj is None and activity.average_watts and activity.average_watts > 0:
+            kj = activity.average_watts * moving / 1000.0
+        if kj:
+            return Energy(kj * KCAL_PER_KJ, kj, "power")
 
-    if sport in CYCLING:
-        if not average_heartrate or max_hr <= rest_hr:
-            return None
-        hrr = min(max((average_heartrate - rest_hr) / (max_hr - rest_hr), 0.0), 1.0)
-        watts = ftp * hrr / HRR_AT_FTP
-        if watts <= 0:
-            return None
-        return CalorieEstimate(kcal_from_power(watts, moving_time), "hr_power")
-
-    if not weight_kg:
-        return None
-
-    if (sport in WALKING or sport in RUNNING) and distance and distance > 0:
+    is_foot = sport in WALKING or sport in RUNNING
+    if is_foot and weight and activity.distance and activity.distance > 0:
         horizontal, vertical = ACSM_RUN if sport in RUNNING else ACSM_WALK
         oxygen_ml_per_kg = (
-            RESTING_VO2 * moving_time / 60.0
-            + horizontal * distance
-            + vertical * max(elevation_gain or 0.0, 0.0)
+            RESTING_VO2 * moving / 60.0
+            + horizontal * activity.distance
+            + vertical * max(activity.elevation_gain or 0.0, 0.0)
         )
-        kcal = oxygen_ml_per_kg * weight_kg / 1000.0 * KCAL_PER_LITRE_O2
-        return CalorieEstimate(kcal, "acsm")
+        kcal = oxygen_ml_per_kg * weight / 1000.0 * KCAL_PER_LITRE_O2
+        return Energy(kcal, None, "acsm")
+
+    hr = activity.average_heartrate
+    if hr and athlete.max_hr > athlete.rest_hr:
+        hrr = min(max((hr - athlete.rest_hr) / (athlete.max_hr - athlete.rest_hr), 0.0), 1.0)
+        watts = athlete.ftp * hrr / HRR_AT_FTP
+        if watts > 0:
+            return Energy(watts * moving / 1000.0 * KCAL_PER_KJ, None, "hr_power")
+
+    if activity.imported_calories is not None:
+        return Energy()
 
     met = SPORT_METS.get(sport)
-    if met is None:
-        return None
-    return CalorieEstimate(met * weight_kg * moving_time / 3600.0, "met")
-
-
-class _Weights:
-    """Nearest weigh-in by day, falling back to the configured weight."""
-
-    def __init__(self, rows: list[tuple[date, float]], fallback: float | None):
-        rows.sort()
-        self._days = [day for day, _ in rows]
-        self._kg = [kg for _, kg in rows]
-        self._fallback = fallback
-
-    def near(self, day: date) -> float | None:
-        if not self._days:
-            return self._fallback
-        i = bisect.bisect_left(self._days, day)
-        candidates = [j for j in (i - 1, i) if 0 <= j < len(self._days)]
-        best = min(candidates, key=lambda j: abs((self._days[j] - day).days))
-        return self._kg[best]
-
-
-async def recalculate_estimated_calories(
-    session: AsyncSession,
-    athlete_id: int,
-    *,
-    ftp: int,
-    max_hr: int,
-    rest_hr: int,
-    fallback_weight_kg: float | None,
-) -> int:
-    """Refresh estimates for every activity without source calories.
-
-    Recomputed each sync rather than once, so a changed FTP, HR range or a
-    later weigh-in reaches older activities too. Returns rows changed.
-    """
-    weights = _Weights(
-        [
-            (day, kg)
-            for day, kg in (
-                await session.execute(
-                    select(BodyMeasurement.day, BodyMeasurement.weight_kg).where(
-                        BodyMeasurement.superseded_by.is_(None)
-                    )
-                )
-            ).all()
-        ],
-        fallback_weight_kg,
-    )
-    activities = (
-        await session.execute(
-            select(Activity).where(
-                Activity.athlete_id == athlete_id,
-                Activity.deleted_upstream_at.is_(None),
-            )
-        )
-    ).scalars()
-
-    changes = []
-    for activity in activities:
-        estimate = None
-        if activity.calories is None:
-            estimate = estimate_calories(
-                sport_type=activity.sport_type,
-                moving_time=activity.moving_time,
-                distance=activity.distance,
-                elevation_gain=activity.total_elevation_gain,
-                average_watts=activity.average_watts,
-                device_watts=activity.device_watts,
-                average_heartrate=activity.average_heartrate,
-                weight_kg=weights.near(activity.start_date.date()),
-                ftp=ftp,
-                max_hr=max_hr,
-                rest_hr=rest_hr,
-            )
-        kcal = round(estimate.kcal, 1) if estimate else None
-        method = estimate.method if estimate else None
-        if (activity.estimated_calories, activity.estimated_calories_method) != (
-            kcal,
-            method,
-        ):
-            changes.append(
-                {
-                    "id": activity.id,
-                    "estimated_calories": kcal,
-                    "estimated_calories_method": method,
-                }
-            )
-
-    if changes:
-        await session.execute(update(Activity), changes)
-        await session.commit()
-        logger.info("Updated estimated calories for %d activities", len(changes))
-    return len(changes)
+    if met is None or not weight:
+        return Energy()
+    return Energy(met * weight * moving / 3600.0, None, "met")
