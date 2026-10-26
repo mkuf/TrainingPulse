@@ -202,12 +202,13 @@ GOOGLE_HEALTH_HR_POINTS = [
 
 #: List-phase summaries carry no sport, HR, power, or elevation data at all —
 #: only the detail-phase merge (with a downloaded and analyzed .fit file) adds
-#: that, via the private "_fit_summary" key.
+#: that, via the private "_fit_summary" key. As in the real API, ``duration``
+#: is in milliseconds and ``createdAt`` is when the ride ended.
 HAMMERHEAD_LIST_ACTIVITY = {
     "id": "1000.activity.abcd",
     "name": "My Epic Ride",
-    "createdAt": "2026-03-14T17:05:00.000Z",
-    "duration": 3720,
+    "createdAt": "2026-03-14T18:08:00.000Z",
+    "duration": 3720000,
     "distance": 41234.5,
 }
 

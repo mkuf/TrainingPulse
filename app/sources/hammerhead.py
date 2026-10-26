@@ -76,8 +76,8 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     """Map a Hammerhead activity payload onto ``activities`` columns.
 
     Pure and synchronous. ``payload`` is either a bare list-phase
-    ``ActivitySummary`` (``id``, ``name``, ``createdAt``, ``duration``,
-    ``distance``) or a detail-phase payload that additionally carries
+    ``ActivitySummary`` (``id``, ``name``, ``createdAt`` = end time,
+    ``duration`` in ms, ``distance``) or a detail-phase payload that additionally carries
     ``activityType``, ``description``, ``updatedAt``, and a private
     ``_fit_summary`` dict (populated by :meth:`HammerheadSource.fetch_detail`
     from the downloaded FIT file). Everything HR/power/elevation-related comes
@@ -93,12 +93,18 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
 
     fit = payload.get("_fit_summary") or {}
 
-    start = parse_dt(fit.get("start_date")) or parse_dt(payload.get("createdAt"))
+    # The summary's ``duration`` is in milliseconds and ``createdAt`` is when
+    # the ride was saved, i.e. its end. Superseded rows never get a detail
+    # merge, so these provisional values must be right on their own.
+    duration = round(as_float(payload.get("duration")) or 0.0) // 1000
+    created = parse_dt(payload.get("createdAt"))
+    list_start = created - timedelta(seconds=duration) if created else None
+
+    start = parse_dt(fit.get("start_date")) or list_start
     if start is None:
         logger.warning("Hammerhead activity %s has no start date; skipping", raw_id)
         return None
 
-    duration = as_int(payload.get("duration"))
     fit_elapsed = fit.get("elapsed_time")
     elapsed = as_int(fit_elapsed) if fit_elapsed is not None else duration
     fit_moving = fit.get("moving_time")

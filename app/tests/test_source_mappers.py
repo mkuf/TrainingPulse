@@ -415,7 +415,8 @@ def test_hammerhead_map_row_list_phase_only():
     assert row["name"] == "My Epic Ride"
     # activityType is a detail-only field.
     assert row["sport_type"] == ""
-    assert row["start_date"] == _utc("2026-03-14T17:05:00Z")
+    # createdAt is the end; duration is milliseconds.
+    assert row["start_date"] == _utc("2026-03-14T17:06:00Z")
     assert row["elapsed_time"] == 3720
     assert row["moving_time"] == 3720
     assert row["distance"] == pytest.approx(41234.5)
@@ -425,6 +426,30 @@ def test_hammerhead_map_row_list_phase_only():
     assert row["kilojoules"] is None
     assert row["gear_id"] is None
     assert row["provider_updated_at"] is None
+
+
+def test_hammerhead_list_phase_matches_a_real_summary():
+    """Values from a real Karoo ride (2026-10-24, started 12:12:23 UTC).
+
+    ``duration`` is the moving time in ms, so the derived start lands within
+    the pauses of the true start, well inside the dedup start tolerance.
+    """
+    from sources.engine import START_TOLERANCE_SECONDS
+
+    row = hammerhead.map_row(
+        {
+            "id": "78106.activity.ff5cea5de16d",
+            "createdAt": "2026-10-24T13:16:40.966Z",
+            "duration": 3615000,
+            "distance": 30394.09,
+        },
+        ATHLETE_ID,
+    )
+
+    assert row["elapsed_time"] == 3615
+    assert row["moving_time"] == 3615
+    true_start = _utc("2026-10-24T12:12:23Z")
+    assert 0 <= (row["start_date"] - true_start).total_seconds() < START_TOLERANCE_SECONDS
 
 
 def test_hammerhead_map_row_merges_fit_summary():
