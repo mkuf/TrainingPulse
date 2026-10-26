@@ -344,6 +344,52 @@
       }
     },
     {
+      "id": 208,
+      "title": "Source",
+      "description": "Provider this activity was imported from.",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
+        "content": "## ${source_label_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      }
+    },
+    {
+      "id": 209,
+      "title": "Also recorded by",
+      "description": "Other sources that recorded the same activity. Their copies are hidden as duplicates of this one.",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
+        "content": "## ${duplicate_sources_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      }
+    },
+    {
       "id": 205,
       "title": "Equipment",
       "type": "text",
@@ -520,10 +566,10 @@
       },
       "targets": [],
       "gridPos": {
-        "h": 6,
+        "h": 5,
         "w": 12,
         "x": 12,
-        "y": 1
+        "y": 4
       }
     },
     {
@@ -549,10 +595,10 @@
       },
       "targets": [],
       "gridPos": {
-        "h": 6,
+        "h": 4,
         "w": 12,
         "x": 12,
-        "y": 7
+        "y": 9
       }
     },
     {
@@ -2328,6 +2374,32 @@
         "includeAll": false,
         "name": "gear_label_var",
         "query": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '\u2014') FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END FROM activities WHERE id = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "source_label_var",
+        "query": "SELECT CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT COALESCE(string_agg(DISTINCT CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END, ', '), '\u2014') FROM activities WHERE superseded_by = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "duplicate_sources_var",
+        "query": "SELECT COALESCE(string_agg(DISTINCT CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END, ', '), '\u2014') FROM activities WHERE superseded_by = '${activity_id}'",
         "refresh": 2,
         "type": "query"
       }

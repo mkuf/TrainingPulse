@@ -720,7 +720,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  id AS \"ID\",\n  source AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  training_load AS \"Load\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  id AS \"ID\",\n  CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  training_load AS \"Load\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }
@@ -794,7 +794,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 64 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 64 },
       "id": 8,
       "options": {
         "reduceOptions": {
@@ -834,7 +834,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 64 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 64 },
       "id": 9,
       "options": {
         "reduceOptions": {
@@ -855,6 +855,47 @@
             "uid": "${DS_POSTGRESQL}"
           },
           "rawSql": "SELECT\n  sport_type AS metric,\n  COUNT(*) AS value\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY sport_type\nORDER BY value DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Source of each visible activity. Duplicates recorded by several sources count once, under the source that won.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 64 },
+      "id": 14,
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": ["sum"],
+          "fields": ""
+        },
+        "pieType": "donut",
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] }
+      },
+      "title": "Activity Count by Source",
+      "type": "piechart",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  CASE source\n    WHEN 'icu' THEN 'intervals.icu'\n    WHEN 'strava' THEN 'Strava'\n    WHEN 'google_health' THEN 'Google Health'\n    WHEN 'hammerhead' THEN 'Hammerhead'\n    ELSE source\n  END AS metric,\n  COUNT(*) AS value\nFROM active_activities\nWHERE $__timeFilter(start_date)\nGROUP BY 1\nORDER BY value DESC",
           "format": "table",
           "refId": "A"
         }
