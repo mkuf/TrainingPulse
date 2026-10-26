@@ -78,7 +78,7 @@ The `Provider` contract is in [`app/providers/base.py`](app/providers/base.py) a
 
 A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each payload to a canonical record (`map_record`, pure). [`app/providers/records.py`](app/providers/records.py) does the rest identically for every provider:
 
-- **Window.** The first sync walks `data.<kind>.history_days`. Later syncs re-list from `min(newest stored day, today − refresh_days)`, so a provider that was unreachable catches up instead of leaving a gap. Windows are whole local days in `athlete.timezone`, chunked by `sync.window_days`.
+- **Window.** The first sync walks `data.<kind>.history_days`. Later syncs re-list from `min(caught-up day, today − refresh_days)`, so a provider that was unreachable catches up instead of leaving a gap. The caught-up day is the later of the newest stored day and `record_sync_cursors.synced_through`, which is written only after every window listed successfully, so days that simply had no data are not re-listed on every run. Windows are whole local days in `athlete.timezone`, chunked by `sync.window_days`.
 - **Upsert** on `(provider, external_id)` for body and `(provider, day)` for nutrition, deduplicating within a batch.
 - **Dedup.** `choose_daily_winners` is a pure function over `(day, provider)` pairs. `recompute_daily_supersessions` writes only the changes, grouped by target, and sets `superseded_by` to the winning *provider name*.
 
@@ -123,7 +123,7 @@ Each activity provider implements `ActivitySource` in [`app/sources/base.py`](ap
 | `list_activities(start, end)` | Provider payloads for a half-open window; the source owns its own pagination |
 | `fetch_detail(external_id)` | One activity's detail; `None` means gone upstream (the row is hidden via `deleted_upstream_at`, never deleted, and restored if listed again) |
 | `fetch_streams(activity)` | Canonical `{stream: [samples]}` |
-| `map_row(payload, athlete_id)` | **Pure and synchronous** — provider payload to column dict |
+| `map_row(payload, athlete_id)` | **Pure and synchronous** — provider payload to column dict. For a source with detail, a re-listed row whose detail is already merged is not overwritten, so the list mapping may omit detail-only columns |
 | `rate_limits()` | Quota snapshot for the status page |
 | `feeds()`, `granted_kinds()` | `{ACTIVITIES: self}`; the provider-level view |
 
@@ -207,7 +207,7 @@ The activity part of a run is two-pass, and the ordering is load-bearing:
 
 1. **List** — each enabled source, in precedence order, lists its window and upserts summary rows.
 2. **Supersede** — `recompute_supersessions` recomputes `superseded_by` across *every* stored row.
-3. **Enrich** — each source drains its detail and stream queues, filtered to `superseded_by IS NULL`.
+3. **Enrich** — each source drains its detail queue, fetching each activity's streams right after its detail (while anything derived for both, such as Hammerhead's parsed FIT file, is still at hand), then drains the remaining stream queue. Both are limited to visible activities, and each activity is attempted at most once per sync, so one that keeps failing costs one request per run.
 4. **Supersede again** — detail can change `elapsed_time`, which can change what overlaps. Idempotent.
 5. **Derive** — estimated FTP, power curves, daily CTL/ATL/TSB.
 
@@ -220,9 +220,15 @@ Two properties worth preserving:
 - **Precedence is positional and ignores `enabled`.** Preserved `strava` rows must keep outranking Google Health after Strava is disabled, or reordering the list silently rewrites history. A startup warning fires, per kind, when an inactive provider outranks an active one.
 - **Losers are stored, not dropped.** That is what makes reordering `data.<kind>.precedence` reversible without a re-backfill. Hidden rows never spend detail or stream calls.
 
+### Activities gone upstream
+
+When `fetch_detail` returns `None` (the provider answered 404/410), the row is soft-deleted: `deleted_upstream_at` is set and the row, its streams, and its FIT file are kept. "Gone" can also mean a retention limit or a lost scope, and stored streams and FIT files cannot be fetched again. A gone activity takes no part in supersession, so it neither stays hidden behind another copy nor keeps suppressing the copies other sources hold. If a later listing includes it again, `upsert_rows` clears the mark and re-queues its detail.
+
+`ACTIVITY_VISIBLE` in [`app/models.py`](app/models.py) (`superseded_by IS NULL AND deleted_upstream_at IS NULL`) is the one condition every query, metric, and queue uses for "shown".
+
 After activities, each record kind is synced provider by provider in its precedence order, each isolated so one failure does not stop the others, and then deduplicated per day.
 
-The `active_activities`, `active_body_measurements`, and `active_daily_nutrition` views (`superseded_by IS NULL`) are what Grafana reads. They are dropped and recreated on migration rather than replaced, because `CREATE OR REPLACE VIEW` can only append columns to a `SELECT *` view.
+The `active_activities` (`ACTIVITY_VISIBLE`), `active_body_measurements`, and `active_daily_nutrition` (`superseded_by IS NULL`) views are what Grafana reads. They are dropped and recreated on migration rather than replaced, because `CREATE OR REPLACE VIEW` can only append columns to a `SELECT *` view.
 
 ## HTTP API
 
@@ -300,6 +306,7 @@ On startup [`app/schema_migrate.py`](app/schema_migrate.py) migrates **in place 
 - `strava_detail_synced` → `detail_synced`, `strava_updated_at` → `provider_updated_at`; `source` and `superseded_by` are added.
 - `suffer_score` is re-added if missing, and in the same guarded branch preserved `strava` rows are re-queued for a detail fetch. Streams are deliberately left alone because the earlier migration kept them, and refetching them would waste Strava's read budget. The guard is the column's absence, so this runs exactly once per database.
 - `strava_tokens` is dropped; Strava OAuth lives in `oauth_tokens` now, so Strava must be reconnected once.
+- `activities.deleted_upstream_at` is added if missing (`create_all` never adds columns to existing tables). New tables such as `record_sync_cursors` are created by `create_all`.
 - Short-lived `fitbit` labels are renamed to `google_health`, including the `fitbit_` id prefix.
 - Withings plugin data in `withings.weight_measurements` is copied into `body_measurements` (`provider=withings`, `external_id` = `grpid`, `day` computed in `athlete.timezone`), and `withings.withings_tokens` into `oauth_tokens`. FDDB plugin data in `fddb.daily_nutrition` is copied into `daily_nutrition` (`provider=fddb`). The source tables are dropped, then each schema is dropped if nothing else is left in it. `ON CONFLICT DO NOTHING` keeps rows a newer sync already wrote.
 
@@ -330,14 +337,14 @@ Tools, by area:
 | Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server.py`](app/mcp_server.py) |
 | Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_records.py`](app/mcp_records.py) |
 | Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_records.py`](app/mcp_records.py) |
-| Coverage | `get_data_coverage` (stored rows per kind and provider, gaps) | [`mcp_server.py`](app/mcp_server.py) |
+| Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server.py`](app/mcp_server.py) |
 
 Conventions, shared through [`app/mcp_common.py`](app/mcp_common.py):
 
 - Every date argument and every returned `day` is a local calendar day in `athlete.timezone`, and ranges include both ends. Activities are filtered by local-midnight bounds, and `daily_metrics` buckets activities by the same local day, so a late-evening workout lands on the day it happened.
 - Timestamps are returned in `athlete.timezone` with their offset. Rows report the supplying `provider`.
 - `compare_*` tools treat period A as the baseline and return `delta_b_minus_a`.
-- Every aggregate reads only rows with `superseded_by IS NULL`, so data reported by several providers is not double-counted. `get_activity` still resolves a hidden duplicate when asked for it by id, and reports `superseded_by` so the caller can tell.
+- Every aggregate reads only visible rows (`ACTIVITY_VISIBLE` for activities, `superseded_by IS NULL` for records), so data reported by several providers is not double-counted and activities gone upstream are left out. `get_activity` still resolves a hidden activity when asked for it by id, and reports `superseded_by` and `deleted_upstream_at` so the caller can tell.
 
 The mcp container mounts the same `config.yaml` as the app. If you would rather it not see provider credentials, point its `TP_CONFIG_FILE` at a reduced file — it only needs `athlete.*`, `mcp.*`, and `database.url`.
 
@@ -357,7 +364,7 @@ docker compose exec app python -m pytest tests -q
 
 ## Demo data
 
-[`app/seed_demo_data.py`](app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities for Grafana screenshots (athlete `99999999`), including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`) and weigh-ins (`provider=withings`, `external_id` `demo…`). OAuth token tables are never touched.
+[`app/seed_demo_data.py`](app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`) and weigh-ins (`provider=withings`, `external_id` `demo…`). OAuth token tables are never touched.
 
 ```bash
 docker compose exec app python seed_demo_data.py --force

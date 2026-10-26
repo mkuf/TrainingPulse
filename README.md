@@ -110,6 +110,8 @@ The same workout, weigh-in, or diary day often lands in more than one service. `
 
 Hidden rows keep `superseded_by` pointing at the winner. The `active_activities`, `active_body_measurements`, and `active_daily_nutrition` views and every Grafana dashboard and MCP tool read only the visible rows, so nothing is double-counted.
 
+An activity that a provider stops serving (deleted there, or past a retention limit) is hidden too, but never deleted: its row, streams, and FIT file stay in the database with `deleted_upstream_at` set, it no longer hides other providers' copies of the same workout, and it reappears if the provider lists it again.
+
 Hidden activities do not spend API calls on detail or stream fetches. That is what keeps a tight-budget provider like Strava from burning its quota on workouts you will never see.
 
 Precedence is reversible: reorder a kind's `precedence`, restart, and the next sync recomputes which rows are visible and fetches whatever the new winners are missing. No re-backfill is needed. Precedence is positional and independent of the `enabled` flag, so disabling a provider does not silently promote another provider's rows over its history.
@@ -122,6 +124,7 @@ Precedence is reversible: reorder a kind's `precedence`, restart, and the next s
 - Activity streams (HR, power, GPS when available) for maps and zone/TRIMP calculations
 - Strava's "relative effort" as `suffer_score` (Strava only; NULL elsewhere)
 - For Hammerhead: the raw `.fit` file itself, downloaded once per activity and permanently stored — it backs both the activity summary and its streams, since Hammerhead's API returns no HR/power/elevation data on its own
+- Activities that have since disappeared upstream, hidden but kept (see [Multiple providers and duplicates](#multiple-providers-and-duplicates))
 - Body measurements (weight, fat %, muscle mass) and daily nutrition totals, tagged with the provider they came from
 - OAuth tokens for Strava, Google Health, Hammerhead, and Withings (auto-refreshed); intervals.icu and FDDB use their configured credentials
 - Athlete settings, projected from `config.yaml` — **no provider profile, zone, or FTP data is ever requested**
