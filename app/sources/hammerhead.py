@@ -19,7 +19,6 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from trainingpulse_common.catalog import AuthMethod, DataKind
 
@@ -62,9 +61,9 @@ _LIST_SAFETY_MARGIN_DAYS = 14
 _PER_PAGE = 100
 
 #: Bounds the fetch_detail → fetch_streams handoff cache (see
-#: ``_cache_analysis``). Small on purpose: it only needs to survive the gap
-#: between the detail and stream phases processing the *same* activity within
-#: one enrich pass, not to accumulate across a whole backfill.
+#: ``_cache_analysis``). The engine streams each activity right after merging
+#: its detail, so the cache only has to cover the activities in flight at
+#: once (``sync.detail_concurrency``), not a whole backfill.
 _ANALYSIS_CACHE_MAX = 32
 
 
@@ -323,48 +322,9 @@ class HammerheadSource:
                 break
             page += 1
 
-        candidates = [
-            item for item in out if not _at_or_past(item.get("createdAt"), end)
-        ]
-        return await self._drop_already_detailed(candidates)
-
-    async def _drop_already_detailed(self, payloads: list[dict]) -> list[dict]:
-        """Skip re-listing activities whose FIT-derived detail is already merged.
-
-        Hammerhead's list summary never changes after an activity is created
-        and carries none of the HR/power/elevation/time-split data the FIT
-        merge adds. ``map_row`` has no way to tell "leave these columns alone"
-        apart from omitting them, but ``engine.upsert_rows`` unconditionally
-        overwrites every ``LIST_UPSERT_FIELDS`` column with whatever the list
-        payload produced — so re-listing an already-detailed activity would
-        silently null its enriched columns back out on every subsequent
-        incremental sync. Since there is nothing left to learn from re-listing
-        it, drop it here instead.
-        """
-        ids = [
-            activity_id(item["id"]) for item in payloads if item.get("id") is not None
-        ]
-        if not ids:
-            return payloads
-
-        async with self._session_factory() as session:
-            result = await session.execute(
-                select(Activity.id).where(
-                    Activity.id.in_(ids),
-                    Activity.source == SOURCE_NAME,
-                    Activity.detail_synced.is_(True),
-                )
-            )
-            already_detailed = set(result.scalars().all())
-
-        if not already_detailed:
-            return payloads
-        return [
-            item
-            for item in payloads
-            if item.get("id") is None
-            or activity_id(item["id"]) not in already_detailed
-        ]
+        # Re-listing an already-detailed activity is harmless:
+        # ``engine.upsert_rows`` leaves detail-merged rows untouched.
+        return [item for item in out if not _at_or_past(item.get("createdAt"), end)]
 
     async def fetch_detail(self, activity_external_id: str) -> dict | None:
         """Fetch detail JSON and merge in the FIT-derived summary.

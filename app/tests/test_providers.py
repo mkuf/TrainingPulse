@@ -120,6 +120,39 @@ def test_a_stale_provider_catches_up_from_its_newest_day():
     ) == date(2026, 9, 1)
 
 
+def test_days_without_data_are_not_relisted_once_synced():
+    today = date(2026, 10, 25)
+    assert first_day_to_list(
+        today=today,
+        latest_stored=date(2026, 7, 1),
+        history_days=365,
+        refresh_days=7,
+        synced_through=date(2026, 10, 24),
+    ) == date(2026, 10, 18)
+
+
+def test_a_provider_with_no_data_yet_does_not_rewalk_history():
+    today = date(2026, 10, 25)
+    assert first_day_to_list(
+        today=today,
+        latest_stored=None,
+        history_days=365,
+        refresh_days=7,
+        synced_through=date(2026, 10, 24),
+    ) == date(2026, 10, 18)
+
+
+def test_a_cursor_behind_the_newest_stored_day_does_not_rewind():
+    today = date(2026, 10, 25)
+    assert first_day_to_list(
+        today=today,
+        latest_stored=date(2026, 10, 1),
+        history_days=365,
+        refresh_days=7,
+        synced_through=date(2026, 9, 1),
+    ) == date(2026, 10, 1)
+
+
 def test_refresh_zero_still_relists_the_newest_stored_day():
     today = date(2026, 10, 25)
     assert first_day_to_list(

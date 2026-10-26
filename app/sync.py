@@ -43,7 +43,7 @@ from metrics import (
     get_power_zone_boundaries,
     recalculate_daily_metrics,
 )
-from models import Activity, ActivityStream, AthleteSettings
+from models import ACTIVITY_VISIBLE, Activity, ActivityStream, AthleteSettings
 from providers.base import Provider
 from providers.records import (
     RECORD_KINDS,
@@ -145,7 +145,7 @@ async def _recalculate_estimated_ftp(session: AsyncSession, athlete_id: int) -> 
     result = await session.execute(
         select(func.max(Activity.best_20min_power)).where(
             Activity.athlete_id == athlete_id,
-            Activity.superseded_by == None,  # noqa: E711
+            ACTIVITY_VISIBLE,
         )
     )
     best_20min = result.scalar_one_or_none()
@@ -261,6 +261,7 @@ async def _sync_activities(
             )
             logger.warning(sync_state.last_error)
         except Exception as exc:  # noqa: BLE001 - keep other sources alive
+            await session.rollback()
             sync_state.last_error = f"{source.name} listing failed: {exc}"
             logger.exception("%s listing failed", source.name)
 
@@ -281,6 +282,7 @@ async def _sync_activities(
             )
             logger.warning(sync_state.last_error)
         except Exception as exc:  # noqa: BLE001 - keep other sources alive
+            await session.rollback()
             sync_state.last_error = f"{source.name} enrichment failed: {exc}"
             logger.exception("%s enrichment failed", source.name)
 

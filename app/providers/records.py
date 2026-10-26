@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from trainingpulse_common.catalog import DataKind
 
-from models import BodyMeasurement, DailyNutrition
+from models import BodyMeasurement, DailyNutrition, RecordSyncCursor
 from providers.feeds import BodyRecord, NutritionRecord, RecordFeed
 from sources.engine import date_windows
 from sources.state import SyncState
@@ -107,18 +107,22 @@ def first_day_to_list(
     latest_stored: date | None,
     history_days: int,
     refresh_days: int,
+    synced_through: date | None = None,
     force: bool = False,
 ) -> date:
     """Oldest local day the next sync should list for one provider and kind.
 
     A first sync (or a forced one) walks the full history. Later syncs re-list
-    the last ``refresh_days`` to pick up edits, and never start after the
-    newest stored day, so a provider that was unreachable for a while catches
-    up instead of leaving a gap.
+    the last ``refresh_days`` to pick up edits, and never start after the day
+    the provider was last caught up to, so a provider that was unreachable
+    for a while catches up instead of leaving a gap. "Caught up" is the later
+    of its newest stored day and ``synced_through`` (the last fully listed
+    day), so days that simply had no data are not re-listed on every run.
     """
-    if force or latest_stored is None:
+    if force or (latest_stored is None and synced_through is None):
         return today - timedelta(days=history_days)
-    return min(latest_stored, today - timedelta(days=refresh_days))
+    caught_up = max(day for day in (latest_stored, synced_through) if day is not None)
+    return min(caught_up, today - timedelta(days=refresh_days))
 
 
 # ── Upserting ───────────────────────────────────────────────────────
@@ -173,6 +177,31 @@ async def upsert_records(
     return len(rows)
 
 
+async def _synced_through(
+    session: AsyncSession, provider: str, kind: DataKind
+) -> date | None:
+    result = await session.execute(
+        select(RecordSyncCursor.synced_through).where(
+            RecordSyncCursor.provider == provider, RecordSyncCursor.kind == str(kind)
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _store_synced_through(
+    session: AsyncSession, provider: str, kind: DataKind, day: date
+) -> None:
+    stmt = pg_insert(RecordSyncCursor).values(
+        provider=provider, kind=str(kind), synced_through=day
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["provider", "kind"],
+        set_={"synced_through": stmt.excluded.synced_through, "updated_at": func.now()},
+    )
+    await session.execute(stmt)
+    await session.commit()
+
+
 async def _latest_day(session: AsyncSession, store: RecordStore, provider: str) -> date | None:
     result = await session.execute(
         select(func.max(store.model.day)).where(store.model.provider == provider)
@@ -196,11 +225,13 @@ async def sync_record_feed(
     store = STORES[feed.kind]
     today = datetime.now(tz).date()
     latest = await _latest_day(session, store, provider)
+    synced_through = await _synced_through(session, provider, feed.kind)
     oldest = first_day_to_list(
         today=today,
         latest_stored=latest,
         history_days=history_days,
         refresh_days=refresh_days,
+        synced_through=synced_through,
         force=force,
     )
     state.begin(
@@ -215,6 +246,9 @@ async def sync_record_feed(
         stored += await upsert_records(
             session, store, provider, map_records(feed, provider, payloads), tz
         )
+    # Only reached when every window listed, so a failure mid-way retries the
+    # whole range next time.
+    await _store_synced_through(session, provider, feed.kind, today)
     logger.info(
         "%s %s: %d records stored (%s → %s)", provider, feed.kind, stored, oldest, today
     )

@@ -24,7 +24,7 @@ from trainingpulse_common.config import redacted_dump
 
 from config import config
 from database import async_session, engine
-from models import Activity, AthleteSettings
+from models import ACTIVITY_VISIBLE, Activity, AthleteSettings
 from providers.records import RECORD_KINDS, STORES
 from providers.registry import build_all_providers
 from schema_migrate import ensure_schema
@@ -223,7 +223,7 @@ async def _pending_counts(session, athlete_id: int | None) -> dict:
                 ),
             ).where(
                 Activity.athlete_id == athlete_id,
-                Activity.superseded_by == None,  # noqa: E711
+                ACTIVITY_VISIBLE,
             )
         )
     ).one()

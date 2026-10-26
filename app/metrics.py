@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Activity, AthleteSettings, DailyMetrics
+from models import ACTIVITY_VISIBLE, Activity, AthleteSettings, DailyMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +241,7 @@ async def recalculate_daily_metrics(
 
     today = datetime.now(tz).date()
 
-    # Get all activities grouped by local date (exclude superseded)
+    # Get all visible activities grouped by local date
     activity_date = func.date(func.timezone(tz.key, Activity.start_date))
     result = await session.execute(
         select(
@@ -253,7 +253,7 @@ async def recalculate_daily_metrics(
         .where(
             Activity.start_date >= datetime.combine(from_date, time.min, tzinfo=tz)
         )
-        .where(Activity.superseded_by == None)  # noqa: E711
+        .where(ACTIVITY_VISIBLE)
         .group_by(activity_date)
     )
     daily_trimp_map: dict[date, tuple[float, int]] = {}

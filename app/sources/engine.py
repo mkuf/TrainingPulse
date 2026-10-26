@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Awaitable, Callable, Iterable, Sequence, TypeVar
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -33,7 +33,7 @@ from metrics import (
     calculate_trimp_from_streams,
     estimate_trimp_without_hr,
 )
-from models import Activity, ActivityStream
+from models import ACTIVITY_VISIBLE, Activity, ActivityStream
 from sources.base import ActivitySource, SourceRateLimitExceeded, external_id
 from sources.state import SyncState
 
@@ -103,6 +103,10 @@ _FLOAT_FIELDS = {
     "weighted_average_watts",
     "training_load",
 }
+
+#: Rows per INSERT. An activity row has ~30 columns, so this keeps a busy
+#: window well under Postgres' bind parameter limit.
+_UPSERT_BATCH = 500
 
 #: Detail-only columns merged from a detail payload.
 _DETAIL_ONLY_FIELDS = (
@@ -228,13 +232,33 @@ def map_rows(
 async def upsert_rows(
     session: AsyncSession, source: ActivitySource, rows: list[dict]
 ) -> int:
-    """Insert or refresh summary rows for one source."""
+    """Insert or refresh summary rows for one source.
+
+    For a source with a detail endpoint, rows whose detail is already merged
+    are left alone: the list payload is a subset of the detail payload, so
+    overwriting would null out enriched columns. Reconcile and a forced
+    resync clear ``detail_synced`` first when a row really needs refreshing.
+
+    A row marked gone upstream that is listed again is restored: the mark is
+    cleared and, for a detail source, its detail is re-queued.
+    """
     if not rows:
         return 0
 
-    values = [dict(row) for row in rows]
+    # One INSERT cannot update the same row twice, so keep the last
+    # occurrence of an id listed twice in one window.
+    values = list({row["id"]: dict(row) for row in rows}.values())
     fields = list(LIST_UPSERT_FIELDS)
-    if not source.supports_detail:
+    restore: dict = {"deleted_upstream_at": None}
+    where = None
+    if source.supports_detail:
+        existing = Activity.__table__.c
+        where = or_(
+            existing.detail_synced.is_(False),
+            existing.deleted_upstream_at.is_not(None),
+        )
+        restore["detail_synced"] = False
+    else:
         # The list payload is all there is, and there is no later detail-merge
         # step (drain_detail_queue never runs for these sources) to ever
         # refresh detail-only columns afterwards. Refresh them from the list
@@ -244,12 +268,17 @@ async def upsert_rows(
         fields.append("detail_synced")
         fields.extend(_DETAIL_ONLY_FIELDS)
 
-    stmt = pg_insert(Activity).values(values)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["id"],
-        set_={name: getattr(stmt.excluded, name) for name in fields},
-    )
-    await session.execute(stmt)
+    for offset in range(0, len(values), _UPSERT_BATCH):
+        stmt = pg_insert(Activity).values(values[offset : offset + _UPSERT_BATCH])
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["id"],
+            set_={
+                **{name: getattr(stmt.excluded, name) for name in fields},
+                **restore,
+            },
+            where=where,
+        )
+        await session.execute(stmt)
     await session.commit()
     return len(values)
 
@@ -558,8 +587,9 @@ async def recompute_supersessions(
     """Recompute ``superseded_by`` for every stored activity.
 
     Idempotent and complete, so it copes with a precedence change, a newly
-    connected source, or an activity disappearing upstream without any special
-    cases. Only differences are written.
+    connected source, or an activity disappearing upstream (see
+    ``deleted_upstream_at``) without any special cases. Only differences are
+    written.
     """
     result = await session.execute(
         select(
@@ -568,6 +598,7 @@ async def recompute_supersessions(
             Activity.start_date,
             Activity.elapsed_time,
             Activity.superseded_by,
+            Activity.deleted_upstream_at,
         ).where(Activity.athlete_id == athlete_id)
     )
     records = result.all()
@@ -582,10 +613,16 @@ async def recompute_supersessions(
             elapsed=record.elapsed_time or 0,
         )
         for record in records
-        if record.start_date is not None
+        # An activity gone upstream neither competes nor stays hidden behind
+        # another: it is out of the picture entirely, so it cannot keep
+        # suppressing the copies other sources hold.
+        if record.start_date is not None and record.deleted_upstream_at is None
     ]
     current = {record.id: record.superseded_by for record in records}
     winners = choose_winners(keys, precedence)
+    for record in records:
+        if record.deleted_upstream_at is not None:
+            winners[record.id] = None
 
     changed = 0
     changes_by_winner: dict[str | None, list[str]] = {}
@@ -639,10 +676,7 @@ async def refresh_progress(
                 func.count(Activity.id).filter(
                     Activity.synced_streams == False  # noqa: E712
                 ),
-            ).where(
-                Activity.athlete_id == athlete_id,
-                Activity.superseded_by == None,  # noqa: E711
-            )
+            ).where(Activity.athlete_id == athlete_id, ACTIVITY_VISIBLE)
         )
     ).one()
     total, details_pending, streams_pending = (int(value or 0) for value in row)
@@ -669,19 +703,28 @@ async def _apply_detail(
         return False
 
     if payload is None:
-        # Gone upstream: stop asking, but keep the row and its history. The
-        # UPDATE's rowcount (rather than a preceding SELECT) tells us whether
-        # the row still exists, which the caller's athlete_id already known
-        # from the queue query makes unnecessary to re-fetch here.
+        # Only hidden, never deleted: "gone" may also mean a retention limit or
+        # a lost scope, and the stored streams and FIT file are irreplaceable.
+        # Stop asking; a later listing that includes it again restores it.
+        logger.info("%s activity %s is gone upstream; hiding it", source.name, activity_id)
         result = await session.execute(
             update(Activity)
             .where(Activity.id == activity_id)
-            .values(detail_synced=True)
+            .values(detail_synced=True, deleted_upstream_at=func.now())
         )
         await session.commit()
         return result.rowcount > 0
 
-    row = source.map_row(payload, athlete_id)
+    try:
+        row = source.map_row(payload, athlete_id)
+    except Exception as exc:  # noqa: BLE001 - one bad payload must not stop a sync
+        logger.warning(
+            "%s detail for %s is unusable, keeping list data: %s",
+            source.name,
+            activity_id,
+            exc,
+        )
+        row = None
     if row is None:
         result = await session.execute(
             update(Activity)
@@ -710,6 +753,11 @@ async def drain_detail_queue(
 
     Superseded activities are skipped on purpose: their data is never shown, so
     spending a request on them wastes budget that a visible activity needs.
+
+    Streams for an activity are fetched right after its detail, while anything
+    the source derived for both (Hammerhead's parsed FIT file) is still at hand.
+    Each activity is attempted at most once per drain, so one that keeps
+    failing costs one request per sync rather than one per batch.
     """
     if not source.supports_detail:
         return
@@ -719,38 +767,40 @@ async def drain_detail_queue(
 
     concurrency = ctx.detail_concurrency
     counter_lock = asyncio.Lock()
-    idle_batches = 0
+    attempted: set[str] = set()
+
+    async def _worker(activity_id: str) -> None:
+        async with ctx.session_factory() as worker_session:
+            progressed = await _apply_detail(
+                worker_session, source, activity_id, ctx.athlete_id
+            )
+        if not progressed:
+            return
+        async with counter_lock:
+            ctx.state.details_fetched += 1
+            if ctx.state.details_pending > 0:
+                ctx.state.details_pending -= 1
+        if source.supports_streams:
+            await _stream_one(source, activity_id, ctx, counter_lock)
 
     while True:
-        result = await session.execute(
+        query = (
             select(Activity.id)
             .where(
                 Activity.athlete_id == ctx.athlete_id,
                 Activity.source == source.name,
                 Activity.detail_synced == False,  # noqa: E712
-                Activity.superseded_by == None,  # noqa: E711
+                ACTIVITY_VISIBLE,
             )
             .order_by(Activity.start_date.desc())
             .limit(max(100, concurrency * 20))
         )
-        ids = [row[0] for row in result.all()]
+        if attempted:
+            query = query.where(Activity.id.not_in(attempted))
+        ids = [row[0] for row in (await session.execute(query)).all()]
         if not ids:
             break
-
-        merged = 0
-
-        async def _worker(activity_id: str) -> None:
-            nonlocal merged
-            async with ctx.session_factory() as worker_session:
-                progressed = await _apply_detail(
-                    worker_session, source, activity_id, ctx.athlete_id
-                )
-            if progressed:
-                async with counter_lock:
-                    merged += 1
-                    ctx.state.details_fetched += 1
-                    if ctx.state.details_pending > 0:
-                        ctx.state.details_pending -= 1
+        attempted.update(ids)
 
         completed = await run_with_concurrency(ids, _worker, concurrency)
         ctx.state.snapshot_rate_limits(source)
@@ -760,12 +810,6 @@ async def drain_detail_queue(
                 "will resume next sync."
             )
             break
-        if merged == 0:
-            idle_batches += 1
-            if idle_batches >= 2:
-                break
-        else:
-            idle_batches = 0
 
 
 async def _apply_streams(
@@ -867,6 +911,8 @@ async def _apply_streams(
         raise
     except Exception as exc:  # noqa: BLE001 - fall back to an estimate
         logger.warning("%s streams for %s failed: %s", source.name, activity.id, exc)
+        # A failed write leaves the session unusable until rolled back.
+        await session.rollback()
         await session.execute(
             update(Activity)
             .where(Activity.id == activity.id)
@@ -878,6 +924,27 @@ async def _apply_streams(
             )
         )
         await session.commit()
+
+
+async def _stream_one(
+    source: ActivitySource,
+    activity_id: str,
+    ctx: EngineContext,
+    counter_lock: asyncio.Lock,
+) -> None:
+    async with ctx.session_factory() as worker_session:
+        activity = await worker_session.get(Activity, activity_id)
+        if (
+            activity is None
+            or activity.synced_streams
+            or activity.deleted_upstream_at is not None
+        ):
+            return
+        await _apply_streams(worker_session, source, activity, ctx)
+    async with counter_lock:
+        ctx.state.streams_fetched += 1
+        if ctx.state.streams_pending > 0:
+            ctx.state.streams_pending -= 1
 
 
 async def drain_stream_queue(
@@ -896,7 +963,7 @@ async def drain_stream_queue(
             Activity.athlete_id == ctx.athlete_id,
             Activity.source == source.name,
             Activity.synced_streams == False,  # noqa: E712
-            Activity.superseded_by == None,  # noqa: E711
+            ACTIVITY_VISIBLE,
         )
         .order_by(Activity.start_date.desc())
     )
@@ -907,15 +974,7 @@ async def drain_stream_queue(
     counter_lock = asyncio.Lock()
 
     async def _worker(activity_id: str) -> None:
-        async with ctx.session_factory() as worker_session:
-            activity = await worker_session.get(Activity, activity_id)
-            if activity is None:
-                return
-            await _apply_streams(worker_session, source, activity, ctx)
-        async with counter_lock:
-            ctx.state.streams_fetched += 1
-            if ctx.state.streams_pending > 0:
-                ctx.state.streams_pending -= 1
+        await _stream_one(source, activity_id, ctx, counter_lock)
 
     completed = await run_with_concurrency(
         pending_ids, _worker, ctx.streams_concurrency
@@ -931,6 +990,10 @@ async def drain_stream_queue(
 async def run_enrich_phase(
     source: ActivitySource, session: AsyncSession, ctx: EngineContext
 ) -> None:
-    """Detail then streams, for the activities this source actually shows."""
+    """Detail then streams, for the activities this source actually shows.
+
+    The detail drain already streams each activity it merges; the stream
+    drain picks up the rest (sources without detail, and earlier leftovers).
+    """
     await drain_detail_queue(source, session, ctx)
     await drain_stream_queue(source, session, ctx)

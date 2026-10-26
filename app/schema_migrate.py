@@ -322,11 +322,29 @@ async def _restore_suffer_score(conn: AsyncConnection) -> None:
         )
 
 
-#: View name → table. Each holds only the rows ``superseded_by`` leaves visible.
+async def _add_deleted_upstream_at(conn: AsyncConnection) -> None:
+    """Add ``activities.deleted_upstream_at`` to databases that predate it.
+
+    ``create_all`` only creates missing tables, never missing columns.
+    """
+    if not await _table_exists(conn, "activities"):
+        return
+    if await _column_exists(conn, "activities", "deleted_upstream_at"):
+        return
+    await conn.execute(
+        text("ALTER TABLE activities ADD COLUMN deleted_upstream_at TIMESTAMPTZ")
+    )
+    logger.info("Added activities.deleted_upstream_at column")
+
+
+#: View name → (table, condition). Each holds only the visible rows.
 _ACTIVE_VIEWS = {
-    "active_activities": "activities",
-    "active_body_measurements": "body_measurements",
-    "active_daily_nutrition": "daily_nutrition",
+    "active_activities": (
+        "activities",
+        "superseded_by IS NULL AND deleted_upstream_at IS NULL",
+    ),
+    "active_body_measurements": ("body_measurements", "superseded_by IS NULL"),
+    "active_daily_nutrition": ("daily_nutrition", "superseded_by IS NULL"),
 }
 
 
@@ -339,13 +357,10 @@ async def _ensure_active_views(conn: AsyncConnection) -> None:
     ``suffer_score`` puts a column back in the middle of ``activities``, which
     a replace would reject.
     """
-    for view, table in _ACTIVE_VIEWS.items():
+    for view, (table, condition) in _ACTIVE_VIEWS.items():
         await conn.execute(text(f"DROP VIEW IF EXISTS {view}"))
         await conn.execute(
-            text(
-                f"CREATE VIEW {view} AS "
-                f"SELECT * FROM {table} WHERE superseded_by IS NULL"
-            )
+            text(f"CREATE VIEW {view} AS SELECT * FROM {table} WHERE {condition}")
         )
 
 
@@ -492,6 +507,7 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
     await _migrate_strava_tokens(conn)
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)
+    await _add_deleted_upstream_at(conn)
     await _migrate_withings_plugin(conn, timezone)
     await _migrate_fddb_plugin(conn)
     await _ensure_active_views(conn)

@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -110,9 +111,23 @@ class Activity(Base):
     superseded_by: Mapped[str | None] = mapped_column(
         String(128), nullable=True
     )
+    #: Set when the provider answered "gone" (404/410) for this activity. The
+    #: row, its streams and its FIT file are kept: a provider may also stop
+    #: serving an activity because of a retention limit or a lost scope, not
+    #: only because the user deleted it. Cleared if the activity is listed again.
+    deleted_upstream_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+#: SQL condition for activities that are shown anywhere: neither a duplicate
+#: hidden behind another source's copy nor gone upstream.
+ACTIVITY_VISIBLE = and_(
+    Activity.superseded_by.is_(None), Activity.deleted_upstream_at.is_(None)
+)
 
 
 class ActivityStream(Base):
@@ -243,5 +258,23 @@ class DailyNutrition(Base):
     fiber_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RecordSyncCursor(Base):
+    """The last local day a provider's feed for one kind was fully listed.
+
+    Lets the next sync start from there even when the provider had nothing to
+    store for a while (days without diary entries or weigh-ins), instead of
+    re-listing the whole gap since its newest stored record every run.
+    """
+
+    __tablename__ = "record_sync_cursors"
+
+    provider: Mapped[str] = mapped_column(String(32), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    synced_through: Mapped[date] = mapped_column(Date, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

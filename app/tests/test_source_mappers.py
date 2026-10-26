@@ -195,11 +195,18 @@ def test_icu_map_row_reads_icu_prefixed_aliases():
     assert row["gear_id"] == "b999"
     assert row["device_name"] == "Garmin Edge"
     assert row["training_load"] == pytest.approx(44.0)
-    assert row["calories"] == pytest.approx(500.0)
+    # icu_joules is work in joules, never calories.
+    assert row["calories"] is None
 
 
 def test_icu_map_row_skips_activity_without_start():
     assert icu.map_row(payloads.ICU_ACTIVITY_NO_START, ATHLETE_ID) is None
+
+
+def test_icu_map_row_skips_payload_without_id():
+    payload = dict(payloads.ICU_LIST_ACTIVITY)
+    payload.pop("id")
+    assert icu.map_row(payload, ATHLETE_ID) is None
 
 
 def test_icu_map_row_uses_nested_gear_object():
@@ -497,55 +504,3 @@ def test_hammerhead_analysis_cache_round_trips_and_is_bounded():
     for i in range(hammerhead._ANALYSIS_CACHE_MAX + 5):
         source._cache_analysis(f"hammerhead_{i}", object())
     assert len(source._analysis_cache) <= hammerhead._ANALYSIS_CACHE_MAX
-
-
-class _FakeScalars:
-    def __init__(self, values):
-        self._values = values
-
-    def all(self):
-        return self._values
-
-
-class _FakeResult:
-    def __init__(self, values):
-        self._values = values
-
-    def scalars(self):
-        return _FakeScalars(self._values)
-
-
-class _FakeSession:
-    def __init__(self, already_detailed_ids):
-        self._ids = already_detailed_ids
-
-    async def execute(self, _stmt):
-        return _FakeResult(self._ids)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_exc):
-        return False
-
-
-@pytest.mark.asyncio
-async def test_hammerhead_drop_already_detailed_skips_previously_detailed_rows():
-    """Regression test for the list-phase clobbering bug.
-
-    Re-listing an already-detailed activity must not happen: its bare summary
-    would map to blank HR/power/elevation columns, and engine.upsert_rows has
-    no way to tell that from "provider actually cleared this field", so it
-    would silently null out real, previously FIT-enriched data.
-    """
-    already_detailed = {"hammerhead_1", "hammerhead_2"}
-    source = hammerhead.HammerheadSource(
-        session_factory=lambda: _FakeSession(already_detailed),
-        client_id="c",
-        client_secret="s",
-    )
-    payloads_in = [{"id": "1"}, {"id": "2"}, {"id": "3"}, {"name": "no id"}]
-
-    kept = await source._drop_already_detailed(payloads_in)
-
-    assert [item.get("id") for item in kept] == ["3", None]

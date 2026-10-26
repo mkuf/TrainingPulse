@@ -121,7 +121,7 @@ Each activity provider implements `ActivitySource` in [`app/sources/base.py`](ap
 | `is_configured()` / `is_connected()` | Credentials present / usable right now |
 | `verify_credentials()` | Fail-fast auth check; returns a provider athlete id. **Never** used for zones or FTP |
 | `list_activities(start, end)` | Provider payloads for a half-open window; the source owns its own pagination |
-| `fetch_detail(external_id)` | One activity's detail; `None` means gone upstream |
+| `fetch_detail(external_id)` | One activity's detail; `None` means gone upstream (the row is hidden via `deleted_upstream_at`, never deleted, and restored if listed again) |
 | `fetch_streams(activity)` | Canonical `{stream: [samples]}` |
 | `map_row(payload, athlete_id)` | **Pure and synchronous** — provider payload to column dict |
 | `rate_limits()` | Quota snapshot for the status page |

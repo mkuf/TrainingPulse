@@ -34,6 +34,7 @@ from mcp_common import (
 from mcp_records import register_record_tools
 from metrics import get_hr_zone_boundaries, get_power_zone_boundaries
 from models import (
+    ACTIVITY_VISIBLE,
     Activity,
     ActivityStream,
     AthleteSettings,
@@ -90,8 +91,8 @@ def _apply_activity_filters(
 ) -> Select:
     # The same workout can arrive from several sources. Only the row that
     # wins on precedence is visible, otherwise every aggregate here would
-    # double-count duplicated activities.
-    stmt = stmt.where(Activity.superseded_by == None)  # noqa: E711
+    # double-count duplicated activities. Activities gone upstream are hidden.
+    stmt = stmt.where(ACTIVITY_VISIBLE)
     lower, upper = local_day_bounds(start_date, end_date)
     if lower is not None:
         stmt = stmt.where(Activity.start_date >= lower)
@@ -173,7 +174,9 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
     Activity ids are provider-prefixed strings, e.g. ``icu_i55610271``,
     ``strava_123``, ``ghealth_<id>``, or ``hammerhead_<id>``. A duplicate
     hidden behind another provider's copy is still returned when asked for by
-    id; ``superseded_by`` then names the visible copy.
+    id; ``superseded_by`` then names the visible copy. So is an activity the
+    provider no longer serves; ``deleted_upstream_at`` then says when that was
+    noticed.
     """
     stmt = (
         select(Activity, ActivityStream)
@@ -241,6 +244,11 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
         # Best average watts keyed by duration in seconds.
         "power_curve": activity.power_curve or {},
         "superseded_by": activity.superseded_by,
+        "deleted_upstream_at": (
+            activity.deleted_upstream_at.isoformat()
+            if activity.deleted_upstream_at
+            else None
+        ),
         "stream_types": stream_types,
         "stream_sample_count": stream.sample_count if stream is not None else 0,
         "day_training_load": day_training_load,
@@ -634,17 +642,19 @@ async def _record_coverage(session, model) -> dict[str, Any]:
 async def get_data_coverage() -> dict[str, Any]:
     """Report what data is stored, per kind: visible row counts per provider,
     hidden duplicates, the first and last day, and for activities how many
-    still lack detail, streams, or heart rate. Use it to tell missing data
-    from a quiet period."""
-    visible = Activity.superseded_by == None  # noqa: E711
+    still lack detail, streams, or heart rate, and how many the provider no
+    longer serves. Use it to tell missing data from a quiet period."""
+    visible = ACTIVITY_VISIBLE
+    gone = Activity.deleted_upstream_at != None  # noqa: E711
     activity_count = func.count(Activity.id)
     # Superseded duplicates are never enriched, so counting them would
     # permanently report missing detail and streams.
     activity_stmt = select(
         activity_count.filter(visible).label("count"),
-        activity_count.filter(Activity.superseded_by != None).label(  # noqa: E711
-            "superseded"
-        ),
+        activity_count.filter(
+            Activity.superseded_by != None, ~gone  # noqa: E711
+        ).label("superseded"),
+        activity_count.filter(gone).label("deleted_upstream"),
         func.min(Activity.start_date).filter(visible).label("earliest"),
         func.max(Activity.start_date).filter(visible).label("latest"),
         activity_count.filter(visible, Activity.detail_synced == False).label(  # noqa: E712
@@ -686,6 +696,7 @@ async def get_data_coverage() -> dict[str, Any]:
                 str(source or "unknown"): int(count or 0) for source, count in by_source
             },
             "superseded_duplicates": int(act.superseded or 0),
+            "deleted_upstream": int(act.deleted_upstream or 0),
             "earliest_day": iso_day(local_day(act.earliest) if act.earliest else None),
             "latest_day": iso_day(local_day(act.latest) if act.latest else None),
             "missing_detail": int(act.missing_detail or 0),
