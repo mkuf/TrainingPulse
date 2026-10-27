@@ -16,4 +16,4 @@ screenshots
 **/*.egg-info
 grafana/dashboards
 README.md
-DEVELOPERS.md
+docs

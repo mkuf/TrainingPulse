@@ -1,6 +1,6 @@
 # Developer notes
 
-Technical reference for **TrainingPulse**. Day-to-day setup lives in [`README.md`](README.md); this file covers architecture, provider APIs, the HTTP API, the configuration schema, and how training metrics are calculated.
+Technical reference for **TrainingPulse**. Day-to-day setup lives in the [user documentation](README.md); this file covers architecture, provider APIs, the HTTP API, the configuration schema, and how training metrics are calculated.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ Grafana → provisioned Postgres datasource
 MCP → same database as core
 ```
 
-The core service in [`app/`](app/) handles provider authentication, APScheduler, TRIMP/CTL/ATL/TSB, and the status UI. Shared pieces that the app and the MCP server both need, the configuration loader and the data-kind catalog, live in [`packages/trainingpulse_common/`](packages/trainingpulse_common/).
+The core service in [`app/`](../app/) handles provider authentication, APScheduler, TRIMP/CTL/ATL/TSB, and the status UI. Shared pieces that the app and the MCP server both need, the configuration loader and the data-kind catalog, live in [`packages/trainingpulse_common/`](../packages/trainingpulse_common/).
 
 ```mermaid
 flowchart TB
@@ -60,7 +60,7 @@ flowchart TB
 
 ## Providers and data kinds
 
-Two independent axes, both declared in [`catalog.py`](packages/trainingpulse_common/trainingpulse_common/catalog.py):
+Two independent axes, both declared in [`catalog.py`](../packages/trainingpulse_common/trainingpulse_common/catalog.py):
 
 - A **data kind** (`activities`, `body`, `nutrition`, reserved `sleep`) is something TrainingPulse stores and shows. The core owns its table, its duplicate rule, its dashboards, and its MCP tools.
 - A **provider** is an account the user connects. It authenticates once, owns one rate budget, and offers a **feed** per kind it can supply. `ProviderSpec.kinds` lists the kinds that have a working feed; config validation rejects importing anything else.
@@ -72,11 +72,11 @@ Two independent axes, both declared in [`catalog.py`](packages/trainingpulse_com
 | nutrition | `daily_nutrition` | `PER_DAY` |
 | sleep | — (no feed yet) | `OVERLAP` |
 
-The `Provider` contract is in [`app/providers/base.py`](app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](app/providers/feeds.py). The four activity providers in [`app/sources/`](app/sources/) are each their own `ActivityFeed`. Withings and FDDB in [`app/providers/`](app/providers/) return separate `BodyFeed` / `NutritionFeed` objects. A provider that gains a second kind returns one more feed from `feeds()`.
+The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). The four activity providers in [`app/sources/`](../app/sources/) are each their own `ActivityFeed`. Withings and FDDB in [`app/providers/`](../app/providers/) return separate `BodyFeed` / `NutritionFeed` objects. A provider that gains a second kind returns one more feed from `feeds()`.
 
 ### Non-activity kinds
 
-A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each payload to a canonical record (`map_record`, pure). [`app/providers/records.py`](app/providers/records.py) does the rest identically for every provider:
+A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each payload to a canonical record (`map_record`, pure). [`app/providers/records.py`](../app/providers/records.py) does the rest identically for every provider:
 
 - **Window.** The first sync walks `data.<kind>.history_days`. Later syncs re-list from `min(caught-up day, today − refresh_days)`, so a provider that was unreachable catches up instead of leaving a gap. The caught-up day is the later of the newest stored day and `record_sync_cursors.synced_through`, which is written only after every window listed successfully, so days that simply had no data are not re-listed on every run. Windows are whole local days in `athlete.timezone`, chunked by `sync.window_days`.
 - **Upsert** on `(provider, external_id)` for body and `(provider, day)` for nutrition, deduplicating within a batch.
@@ -88,7 +88,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 2. Keep anything async out of mappers. If a row needs a second call (Strava resolves gear names this way), make it in `fetch_detail` and return an augmented payload.
 3. Add a `ProviderSpec` to `PROVIDERS` in the catalog, and the kind's ranking to `DEFAULT_PRECEDENCE`.
 4. Add a config section in `packages/trainingpulse_common/trainingpulse_common/config.py`: a `_ProviderSection` (or `_OAuthProviderSection`) subclass with credentials marked `secret()` and `missing_credentials()`, plus a field on `ProvidersSection`.
-5. Register a builder in [`app/providers/registry.py`](app/providers/registry.py).
+5. Register a builder in [`app/providers/registry.py`](../app/providers/registry.py).
 6. Add fixtures and mapper tests. `test_feeds_match_the_catalog_and_their_contracts` fails until the provider's feeds match its `ProviderSpec`. For an activity provider, `test_mappers_agree_on_the_column_set` fails until the mapper emits exactly the same columns as the others.
 
 ### Adding a data kind
@@ -108,7 +108,7 @@ Column `activities.source` is `icu`, `strava`, `google_health`, or `hammerhead`.
 
 ### The activity contract
 
-Each activity provider implements `ActivitySource` in [`app/sources/base.py`](app/sources/base.py), which is `Provider` and `ActivityFeed` combined. It knows only how to authenticate, list a date window, fetch one activity's detail and streams, and map a provider payload onto `activities` columns. Backfill, incremental sync, reconciliation, queue draining, concurrency, rate-limit pausing, and supersession all live once in [`app/sources/engine.py`](app/sources/engine.py).
+Each activity provider implements `ActivitySource` in [`app/sources/base.py`](../app/sources/base.py), which is `Provider` and `ActivityFeed` combined. It knows only how to authenticate, list a date window, fetch one activity's detail and streams, and map a provider payload onto `activities` columns. Backfill, incremental sync, reconciliation, queue draining, concurrency, rate-limit pausing, and supersession all live once in [`app/sources/engine.py`](../app/sources/engine.py).
 
 | Member | Purpose |
 |--------|---------|
@@ -200,7 +200,7 @@ A scraper with no API: one `GET /db/i18n/myday20/?p=&q=` per diary day, authenti
 
 ### FIT file analysis
 
-[`app/fitfiles/`](app/fitfiles/) is a small, source-agnostic package for turning raw `.fit` bytes into a `FitSummary` (aggregate metrics) and canonical streams (`fitfiles.analyzer.analyze_fit_file`, built on `fitdecode`), plus a permanent store (`fitfiles.store`) keyed by the local activity id in the `activity_fit_files` table (one row per activity, `BYTEA`). Any current or future source that can hand it raw FIT bytes gets the same analysis — it has no knowledge of Hammerhead or any other provider.
+[`app/fitfiles/`](../app/fitfiles/) is a small, source-agnostic package for turning raw `.fit` bytes into a `FitSummary` (aggregate metrics) and canonical streams (`fitfiles.analyzer.analyze_fit_file`, built on `fitdecode`), plus a permanent store (`fitfiles.store`) keyed by the local activity id in the `activity_fit_files` table (one row per activity, `BYTEA`). Any current or future source that can hand it raw FIT bytes gets the same analysis — it has no knowledge of Hammerhead or any other provider.
 
 Hammerhead's source adapter downloads a FIT file at most once: `fetch_detail` downloads-and-stores it if missing, and `fetch_streams` reuses whatever is already stored (falling back to a download only if it runs before detail has, e.g. after a rate-limit pause). A missing or unreadable FIT file degrades gracefully — detail still merges `name`/`description`/`activityType`, just without HR/power/etc., and streams return `{}` (the engine's existing no-HR TRIMP estimate then applies).
 
@@ -216,7 +216,7 @@ The activity part of a run is two-pass, and the ordering is load-bearing:
 
 Two activities compete when their starts are within `START_TOLERANCE_SECONDS` (900) **and** their time ranges genuinely overlap. The winner is decided by `(precedence index, longer duration, earlier start, id)`. Comparison is pairwise rather than transitive, so a chain of near-misses cannot collapse two activities that do not actually overlap; winner chains are then resolved to their root so `superseded_by` always points at a visible row.
 
-`choose_winners` in [`app/sources/engine.py`](app/sources/engine.py) is a pure function over `(id, source, start, elapsed)` tuples and is tested directly.
+`choose_winners` in [`app/sources/engine.py`](../app/sources/engine.py) is a pure function over `(id, source, start, elapsed)` tuples and is tested directly.
 
 Two properties worth preserving:
 
@@ -227,7 +227,7 @@ Two properties worth preserving:
 
 When `fetch_detail` returns `None` (the provider answered 404/410), the row is soft-deleted: `deleted_upstream_at` is set and the row, its streams, and its FIT file are kept. "Gone" can also mean a retention limit or a lost scope, and stored streams and FIT files cannot be fetched again. A gone activity takes no part in supersession, so it neither stays hidden behind another copy nor keeps suppressing the copies other sources hold. If a later listing includes it again, `upsert_rows` clears the mark and re-queues its detail.
 
-`ACTIVITY_VISIBLE` in [`app/models.py`](app/models.py) (`superseded_by IS NULL AND deleted_upstream_at IS NULL`) is the one condition every query, metric, and queue uses for "shown".
+`ACTIVITY_VISIBLE` in [`app/models.py`](../app/models.py) (`superseded_by IS NULL AND deleted_upstream_at IS NULL`) is the one condition every query, metric, and queue uses for "shown".
 
 After activities, each record kind is synced provider by provider in its precedence order, each isolated so one failure does not stop the others, and then deduplicated per day.
 
@@ -259,7 +259,7 @@ OAuth routes are mounted by the providers themselves via `register_auth_routes`,
 
 ## Configuration
 
-All application settings come from a single YAML file. The schema, loader, and validation live in [`packages/trainingpulse_common/trainingpulse_common/config.py`](packages/trainingpulse_common/trainingpulse_common/config.py); [`app/config.py`](app/config.py) loads it once at import and exits non-zero with a readable message if anything is wrong.
+All application settings come from a single YAML file. The schema, loader, and validation live in [`packages/trainingpulse_common/trainingpulse_common/config.py`](../packages/trainingpulse_common/trainingpulse_common/config.py); [`app/config.py`](../app/config.py) loads it once at import and exits non-zero with a readable message if anything is wrong.
 
 `config.example.yaml` is the reference. Sections: `app`, `database`, `athlete`, `providers`, `data`, `sync`, `mcp`.
 
@@ -311,7 +311,7 @@ Computed values win over imported ones because devices disagree at the same effo
 
 ## Schema upgrades
 
-On startup [`app/schema_migrate.py`](app/schema_migrate.py) migrates **in place and preserves all activity history**:
+On startup [`app/schema_migrate.py`](../app/schema_migrate.py) migrates **in place and preserves all activity history**:
 
 - Strava-era bigint `activities.id` becomes `VARCHAR(128)` and is prefixed `strava_`; `activity_streams.activity_id` is migrated and re-prefixed to match, not dropped.
 - `strava_detail_synced` → `detail_synced`, `strava_updated_at` → `provider_updated_at`; `source` and `superseded_by` are added.
@@ -325,7 +325,7 @@ All of this runs in the one transaction opened by `engine.begin()` in the lifesp
 
 ## Training metrics reference
 
-Computed in [`app/metrics.py`](app/metrics.py) and stored alongside activities and in `daily_metrics`. Aggregates exclude superseded activities.
+Computed in [`app/metrics.py`](../app/metrics.py) and stored alongside activities and in `daily_metrics`. Aggregates exclude superseded activities.
 
 | Metric | Also known as | Description |
 |--------|---------------|-------------|
@@ -337,20 +337,20 @@ Computed in [`app/metrics.py`](app/metrics.py) and stored alongside activities a
 
 ## MCP
 
-The `mcp` Compose service runs [`app/mcp_server.py`](app/mcp_server.py) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…` / `hammerhead_…`).
+The `mcp` Compose service runs [`app/mcp_server.py`](../app/mcp_server.py) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…` / `hammerhead_…`).
 
 Tools, by area:
 
 | Area | Tools | Module |
 | --- | --- | --- |
-| Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server.py`](app/mcp_server.py) |
-| Training load | `get_training_load` (daily CTL / ATL / TSB) | [`mcp_server.py`](app/mcp_server.py) |
-| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server.py`](app/mcp_server.py) |
-| Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_records.py`](app/mcp_records.py) |
-| Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_records.py`](app/mcp_records.py) |
-| Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server.py`](app/mcp_server.py) |
+| Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server.py`](../app/mcp_server.py) |
+| Training load | `get_training_load` (daily CTL / ATL / TSB) | [`mcp_server.py`](../app/mcp_server.py) |
+| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server.py`](../app/mcp_server.py) |
+| Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_records.py`](../app/mcp_records.py) |
+| Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_records.py`](../app/mcp_records.py) |
+| Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server.py`](../app/mcp_server.py) |
 
-Conventions, shared through [`app/mcp_common.py`](app/mcp_common.py):
+Conventions, shared through [`app/mcp_common.py`](../app/mcp_common.py):
 
 - Every date argument and every returned `day` is a local calendar day in `athlete.timezone`, and ranges include both ends. Activities are filtered by local-midnight bounds, and `daily_metrics` buckets activities by the same local day, so a late-evening workout lands on the day it happened.
 - Timestamps are returned in `athlete.timezone` with their offset. Rows report the supplying `provider`.
@@ -375,7 +375,7 @@ docker compose exec app python -m pytest tests -q
 
 ## Demo data
 
-[`app/seed_demo_data.py`](app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`) and weigh-ins (`provider=withings`, `external_id` `demo…`). OAuth token tables are never touched.
+[`app/seed_demo_data.py`](../app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`) and weigh-ins (`provider=withings`, `external_id` `demo…`). OAuth token tables are never touched.
 
 ```bash
 docker compose exec app python seed_demo_data.py --force
@@ -383,20 +383,20 @@ docker compose exec app python seed_demo_data.py --force
 
 ## Source map
 
-- Status UI, route mounting, scheduler: [`app/main.py`](app/main.py)
-- Sync ordering: [`app/sync.py`](app/sync.py)
-- Data kinds and provider capabilities: [`catalog.py`](packages/trainingpulse_common/trainingpulse_common/catalog.py)
-- Provider and feed contracts: [`app/providers/base.py`](app/providers/base.py), [`app/providers/feeds.py`](app/providers/feeds.py), [`app/sources/base.py`](app/sources/base.py)
-- Activity phases, precedence, supersession: [`app/sources/engine.py`](app/sources/engine.py)
-- Record sync and per-day dedup: [`app/providers/records.py`](app/providers/records.py)
-- Activity providers: [`app/sources/intervals.py`](app/sources/intervals.py), [`app/sources/strava.py`](app/sources/strava.py), [`app/sources/google_health.py`](app/sources/google_health.py), [`app/sources/hammerhead.py`](app/sources/hammerhead.py)
-- Body and nutrition providers: [`app/providers/withings.py`](app/providers/withings.py), [`app/providers/fddb.py`](app/providers/fddb.py)
-- Provider construction from config: [`app/providers/registry.py`](app/providers/registry.py)
-- Provider HTTP clients: [`app/intervals_client.py`](app/intervals_client.py), [`app/strava_client.py`](app/strava_client.py), [`app/google_health_client.py`](app/google_health_client.py), [`app/hammerhead_client.py`](app/hammerhead_client.py), [`app/withings_client.py`](app/withings_client.py), [`app/fddb_client.py`](app/fddb_client.py)
-- Generic FIT-file analysis and storage: [`app/fitfiles/`](app/fitfiles/)
-- Schema migration (in place, history preserved): [`app/schema_migrate.py`](app/schema_migrate.py)
-- Metrics: [`app/metrics.py`](app/metrics.py)
-- Models: [`app/models.py`](app/models.py)
-- Config schema and loader: [`packages/trainingpulse_common/trainingpulse_common/config.py`](packages/trainingpulse_common/trainingpulse_common/config.py), [`app/config.py`](app/config.py)
-- MCP: [`app/mcp_server.py`](app/mcp_server.py), [`app/mcp_records.py`](app/mcp_records.py), [`app/mcp_common.py`](app/mcp_common.py)
-- Grafana: [`grafana/`](grafana/)
+- Status UI, route mounting, scheduler: [`app/main.py`](../app/main.py)
+- Sync ordering: [`app/sync.py`](../app/sync.py)
+- Data kinds and provider capabilities: [`catalog.py`](../packages/trainingpulse_common/trainingpulse_common/catalog.py)
+- Provider and feed contracts: [`app/providers/base.py`](../app/providers/base.py), [`app/providers/feeds.py`](../app/providers/feeds.py), [`app/sources/base.py`](../app/sources/base.py)
+- Activity phases, precedence, supersession: [`app/sources/engine.py`](../app/sources/engine.py)
+- Record sync and per-day dedup: [`app/providers/records.py`](../app/providers/records.py)
+- Activity providers: [`app/sources/intervals.py`](../app/sources/intervals.py), [`app/sources/strava.py`](../app/sources/strava.py), [`app/sources/google_health.py`](../app/sources/google_health.py), [`app/sources/hammerhead.py`](../app/sources/hammerhead.py)
+- Body and nutrition providers: [`app/providers/withings.py`](../app/providers/withings.py), [`app/providers/fddb.py`](../app/providers/fddb.py)
+- Provider construction from config: [`app/providers/registry.py`](../app/providers/registry.py)
+- Provider HTTP clients: [`app/intervals_client.py`](../app/intervals_client.py), [`app/strava_client.py`](../app/strava_client.py), [`app/google_health_client.py`](../app/google_health_client.py), [`app/hammerhead_client.py`](../app/hammerhead_client.py), [`app/withings_client.py`](../app/withings_client.py), [`app/fddb_client.py`](../app/fddb_client.py)
+- Generic FIT-file analysis and storage: [`app/fitfiles/`](../app/fitfiles/)
+- Schema migration (in place, history preserved): [`app/schema_migrate.py`](../app/schema_migrate.py)
+- Metrics: [`app/metrics.py`](../app/metrics.py)
+- Models: [`app/models.py`](../app/models.py)
+- Config schema and loader: [`packages/trainingpulse_common/trainingpulse_common/config.py`](../packages/trainingpulse_common/trainingpulse_common/config.py), [`app/config.py`](../app/config.py)
+- MCP: [`app/mcp_server.py`](../app/mcp_server.py), [`app/mcp_records.py`](../app/mcp_records.py), [`app/mcp_common.py`](../app/mcp_common.py)
+- Grafana: [`grafana/`](../grafana/)
