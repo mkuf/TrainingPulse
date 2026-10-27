@@ -81,6 +81,14 @@ Example views from the bundled dashboards.
 
    **Google OAuth tip:** the Google Health scopes are sensitive, so Google will not move the consent screen to **In production** without app verification. Leave the publishing status on **Testing** and add your own Google account under **Audience → Test users**. In Testing mode Google expires the refresh token after 7 days: when the Google Health sync stops, click **Connect** on the status page again. Google Workspace accounts can avoid this by choosing the **Internal** user type, which needs no verification and has no 7-day limit.
 
+   **Google OAuth on a home server:** Google only accepts `http://localhost` redirect URIs, or HTTPS URIs on a domain under a public suffix. A LAN name such as `homeserver.lan` or `nas.local` is rejected ("must end with a public top-level domain"). The redirect is performed by your browser, so the URI does not have to be reachable from the internet — it only has to be a name Google accepts:
+
+   - **Tailscale:** `ts.net` is a public suffix. Enable MagicDNS and HTTPS certificates, run `tailscale serve --bg 8000` on the server, and set `app.base_url` to `https://<server>.<tailnet>.ts.net`. The app stays reachable from your tailnet only.
+   - **A domain you own:** point a subdomain (e.g. `training.example.com`) at the server's LAN IP in your local DNS, put a reverse proxy in front of port `8000` that gets its certificate through a DNS-01 challenge (Caddy, Traefik), and set `app.base_url` to `https://training.example.com`. No port has to be opened.
+   - **SSH tunnel:** only if `app.base_url` is `http://localhost:8000`. Run `ssh -L 8000:localhost:8000 you@homeserver` and click **Connect** in `http://localhost:8000/`. In Testing mode you repeat this every week.
+
+   The redirect URI in Google Cloud Console is then `{app.base_url}/auth/google/callback`.
+
    **Strava rate limits:** Strava's default read budget is 100 requests per 15 minutes and 1000 per day — roughly twenty times tighter than intervals.icu. A full multi-year backfill including streams can take several days. It pauses and resumes automatically, and Strava's card on the status page shows the remaining daily budget.
 
    **Hammerhead:** every activity's `.fit` file is downloaded once and permanently stored — it is the only source of heart rate, power, cadence, and elevation data for Hammerhead-sourced activities, since the API's own JSON payload doesn't carry any of that.
