@@ -79,7 +79,7 @@ Example views from the bundled dashboards.
 
 3. **Connect providers.** Open the app at `http://your-host:8000/`. intervals.icu and FDDB sync automatically once their credentials are set. Strava, Google Health, Hammerhead, and Withings use OAuth — click **Connect** next to each. One sync runs every provider every 15 minutes.
 
-   **Google OAuth tip:** set the consent screen publishing status to **In production** (you can leave the app unverified for personal use) so refresh tokens are not limited to 7 days. Testing mode requires reconnecting about weekly.
+   **Google OAuth tip:** the Google Health scopes are sensitive, so Google will not move the consent screen to **In production** without app verification. Leave the publishing status on **Testing** and add your own Google account under **Audience → Test users**. In Testing mode Google expires the refresh token after 7 days: when the Google Health sync stops, click **Connect** on the status page again. Google Workspace accounts can avoid this by choosing the **Internal** user type, which needs no verification and has no 7-day limit.
 
    **Strava rate limits:** Strava's default read budget is 100 requests per 15 minutes and 1000 per day — roughly twenty times tighter than intervals.icu. A full multi-year backfill including streams can take several days. It pauses and resumes automatically, and Strava's card on the status page shows the remaining daily budget.
 
