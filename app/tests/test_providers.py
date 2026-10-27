@@ -8,9 +8,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from trainingpulse_common.catalog import PROVIDER_NAMES, PROVIDERS, DataKind
-from trainingpulse_common.config import load_config
 
+from catalog import PROVIDER_NAMES, PROVIDERS, DataKind
+from config_loader import load_config
 from fddb_client import (
     FddbAuthenticationError,
     FddbNoDataError,

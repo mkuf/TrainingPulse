@@ -9,8 +9,8 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 from models import Activity
 from providers.base import granted_if_connected
 from sources.base import (

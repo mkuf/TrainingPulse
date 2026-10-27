@@ -21,8 +21,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import ClassVar, Protocol, TypeVar, runtime_checkable
 
-from trainingpulse_common.catalog import DataKind
-
+from catalog import DataKind
 from models import Activity
 
 # ── Canonical records ───────────────────────────────────────────────

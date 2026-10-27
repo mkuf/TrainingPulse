@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from trainingpulse_common.catalog import AuthMethod, DataKind
+
+from catalog import AuthMethod, DataKind
 from fastapi import FastAPI
 
 from intervals_client import DEFAULT_API_BASE, IntervalsClient

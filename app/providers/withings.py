@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 from providers.base import granted_if_connected
 from providers.feeds import BodyRecord, Feed
 from sources.base import OAuthStateGuard, RateLimitSnapshot

@@ -15,8 +15,8 @@ from __future__ import annotations
 from typing import Mapping, Protocol, runtime_checkable
 
 from fastapi import FastAPI
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 from providers.feeds import Feed
 from sources.base import RateLimitSnapshot
 

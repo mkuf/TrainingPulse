@@ -14,8 +14,8 @@ from xml.etree import ElementTree
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 from google_health_client import DEFAULT_API_BASE, GoogleHealthClient
 from models import Activity
 from providers.base import granted_if_connected

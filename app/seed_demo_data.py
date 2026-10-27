@@ -39,8 +39,8 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from trainingpulse_common.catalog import DataKind
 
+from catalog import DataKind
 from config import config
 from database import async_session, engine
 from metrics import (

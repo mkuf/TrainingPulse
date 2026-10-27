@@ -18,8 +18,8 @@ from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from fastapi import FastAPI
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 from models import Activity
 
 #: Canonical stream keys. Sources normalize provider-specific names onto these

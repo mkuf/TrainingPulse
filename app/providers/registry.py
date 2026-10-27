@@ -6,9 +6,9 @@ import logging
 from typing import Callable
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from trainingpulse_common.catalog import PROVIDER_NAMES
-from trainingpulse_common.config import Config
 
+from catalog import PROVIDER_NAMES
+from config_loader import Config
 from providers.base import Provider
 from providers.fddb import FddbSource
 from providers.withings import WithingsSource

@@ -19,10 +19,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, true
-from trainingpulse_common.catalog import KINDS, PROVIDERS, AuthMethod, DataKind
-from trainingpulse_common.config import redacted_dump
 
+from catalog import KINDS, PROVIDERS, AuthMethod, DataKind
 from config import config
+from config_loader import redacted_dump
 from database import async_session, engine
 from models import ACTIVITY_VISIBLE, Activity, AthleteSettings
 from providers.records import RECORD_KINDS, STORES

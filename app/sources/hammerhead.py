@@ -20,8 +20,8 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 import fitfiles
 from hammerhead_client import DEFAULT_API_BASE, HammerheadClient
 from models import Activity

@@ -7,8 +7,9 @@ import textwrap
 
 import pytest
 from pydantic import BaseModel
-from trainingpulse_common.catalog import DataKind, default_precedence
-from trainingpulse_common.config import (
+
+from catalog import DataKind, default_precedence
+from config_loader import (
     REDACTED,
     Config,
     ConfigError,

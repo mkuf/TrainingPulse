@@ -6,14 +6,15 @@ from pathlib import Path
 
 import pytest
 import yaml
-from trainingpulse_common.catalog import (
+
+from catalog import (
     KINDS,
     PROVIDERS,
     DataKind,
     default_precedence,
     providers_supporting,
 )
-from trainingpulse_common.config import ConfigError, load_config, precedence_warnings
+from config_loader import ConfigError, load_config, precedence_warnings
 
 ATHLETE = {"max_hr": 190, "rest_hr": 60, "ftp": 250}
 EXAMPLE = Path(__file__).resolve().parents[2] / "config.example.yaml"

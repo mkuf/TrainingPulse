@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI
-from trainingpulse_common.catalog import AuthMethod, DataKind
 
+from catalog import AuthMethod, DataKind
 from fddb_client import FddbClient, FddbNoDataError
 from providers.base import granted_if_connected
 from providers.feeds import Feed, NutritionRecord

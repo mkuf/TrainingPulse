@@ -16,7 +16,7 @@ Grafana → provisioned Postgres datasource
 MCP → same database as core
 ```
 
-The core service in [`app/`](../app/) handles provider authentication, APScheduler, TRIMP/CTL/ATL/TSB, and the status UI. Shared pieces that the app and the MCP server both need, the configuration loader and the data-kind catalog, live in [`packages/trainingpulse_common/`](../packages/trainingpulse_common/).
+The core service in [`app/`](../app/) handles provider authentication, APScheduler, TRIMP/CTL/ATL/TSB, and the status UI. The MCP server runs from the same code in its own container.
 
 ```mermaid
 flowchart TB
@@ -60,7 +60,7 @@ flowchart TB
 
 ## Providers and data kinds
 
-Two independent axes, both declared in [`catalog.py`](../packages/trainingpulse_common/trainingpulse_common/catalog.py):
+Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 
 - A **data kind** (`activities`, `body`, `nutrition`, reserved `sleep`) is something TrainingPulse stores and shows. The core owns its table, its duplicate rule, its dashboards, and its MCP tools.
 - A **provider** is an account the user connects. It authenticates once, owns one rate budget, and offers a **feed** per kind it can supply. `ProviderSpec.kinds` lists the kinds that have a working feed; config validation rejects importing anything else.
@@ -87,7 +87,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 1. Write the provider class (in `app/providers/<name>.py`, or `app/sources/<name>.py` for an activity provider) implementing `Provider`. Give it a pure, module-level mapper for each feed so it can be tested against recorded payloads.
 2. Keep anything async out of mappers. If a row needs a second call (Strava resolves gear names this way), make it in `fetch_detail` and return an augmented payload.
 3. Add a `ProviderSpec` to `PROVIDERS` in the catalog, and the kind's ranking to `DEFAULT_PRECEDENCE`.
-4. Add a config section in `packages/trainingpulse_common/trainingpulse_common/config.py`: a `_ProviderSection` (or `_OAuthProviderSection`) subclass with credentials marked `secret()` and `missing_credentials()`, plus a field on `ProvidersSection`.
+4. Add a config section in `app/config_loader.py`: a `_ProviderSection` (or `_OAuthProviderSection`) subclass with credentials marked `secret()` and `missing_credentials()`, plus a field on `ProvidersSection`.
 5. Register a builder in [`app/providers/registry.py`](../app/providers/registry.py).
 6. Add fixtures and mapper tests. `test_feeds_match_the_catalog_and_their_contracts` fails until the provider's feeds match its `ProviderSpec`. For an activity provider, `test_mappers_agree_on_the_column_set` fails until the mapper emits exactly the same columns as the others.
 
@@ -259,7 +259,7 @@ OAuth routes are mounted by the providers themselves via `register_auth_routes`,
 
 ## Configuration
 
-All application settings come from a single YAML file. The schema, loader, and validation live in [`packages/trainingpulse_common/trainingpulse_common/config.py`](../packages/trainingpulse_common/trainingpulse_common/config.py); [`app/config.py`](../app/config.py) loads it once at import and exits non-zero with a readable message if anything is wrong.
+All application settings come from a single YAML file. The schema, loader, and validation live in [`app/config_loader.py`](../app/config_loader.py); [`app/config.py`](../app/config.py) loads it once at import and exits non-zero with a readable message if anything is wrong.
 
 `config.example.yaml` is the reference. Sections: `app`, `database`, `athlete`, `providers`, `data`, `sync`, `mcp`.
 
@@ -385,7 +385,7 @@ docker compose exec app python seed_demo_data.py --force
 
 - Status UI, route mounting, scheduler: [`app/main.py`](../app/main.py)
 - Sync ordering: [`app/sync.py`](../app/sync.py)
-- Data kinds and provider capabilities: [`catalog.py`](../packages/trainingpulse_common/trainingpulse_common/catalog.py)
+- Data kinds and provider capabilities: [`catalog.py`](../app/catalog.py)
 - Provider and feed contracts: [`app/providers/base.py`](../app/providers/base.py), [`app/providers/feeds.py`](../app/providers/feeds.py), [`app/sources/base.py`](../app/sources/base.py)
 - Activity phases, precedence, supersession: [`app/sources/engine.py`](../app/sources/engine.py)
 - Record sync and per-day dedup: [`app/providers/records.py`](../app/providers/records.py)
@@ -397,6 +397,6 @@ docker compose exec app python seed_demo_data.py --force
 - Schema migration (in place, history preserved): [`app/schema_migrate.py`](../app/schema_migrate.py)
 - Metrics: [`app/metrics.py`](../app/metrics.py)
 - Models: [`app/models.py`](../app/models.py)
-- Config schema and loader: [`packages/trainingpulse_common/trainingpulse_common/config.py`](../packages/trainingpulse_common/trainingpulse_common/config.py), [`app/config.py`](../app/config.py)
+- Config schema and loader: [`app/config_loader.py`](../app/config_loader.py), [`app/config.py`](../app/config.py)
 - MCP: [`app/mcp_server.py`](../app/mcp_server.py), [`app/mcp_records.py`](../app/mcp_records.py), [`app/mcp_common.py`](../app/mcp_common.py)
 - Grafana: [`grafana/`](../grafana/)

@@ -37,7 +37,7 @@ from pydantic import (
     model_validator,
 )
 
-from trainingpulse_common.catalog import (
+from catalog import (
     KINDS,
     PROVIDER_NAMES,
     PROVIDERS,
