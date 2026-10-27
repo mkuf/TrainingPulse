@@ -13,6 +13,12 @@ config.yaml
 **/.pytest_cache
 **/.ruff_cache
 **/*.egg-info
+**/.venv
+# Database dumps (e.g. backup.sql) would otherwise be sent with every build.
+*.sql
+# Tests stay out of the image; the test service mounts the repository instead.
+app/tests
+app/pytest.ini
 grafana/dashboards
 README.md
 docs

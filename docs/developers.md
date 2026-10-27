@@ -362,8 +362,10 @@ The mcp container mounts the same `config.yaml` as the app. If you would rather 
 ## Tests
 
 ```bash
-docker compose exec app python -m pytest tests -q
+docker compose run --rm test
 ```
+
+The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfile), which adds [`requirements-dev.txt`](../app/requirements-dev.txt), and mounts the repository read-only. The tests are not part of the runtime image. Outside Docker, `pip install -r app/requirements-dev.txt`, then run `python -m pytest` from `app/`.
 
 - `tests/test_config_loader.py` — loader, overrides, interpolation, validation, redaction, moved-key messages
 - `tests/test_config_providers.py` — `providers` / `data` schema: imports, per-kind precedence, defaults from the catalog

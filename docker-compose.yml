@@ -57,6 +57,19 @@ services:
       db:
         condition: service_healthy
 
+  test:
+    # Not started by `docker compose up`; run with `docker compose run --rm test`.
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+      target: test
+    volumes:
+      - ./:/repo:ro
+    working_dir: /repo/app
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+
   grafana:
     image: grafana/grafana-oss:latest
     restart: unless-stopped
@@ -72,7 +85,9 @@ services:
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards/json
+      # Kept outside the provisioning directory, and split into core/ and
+      # addons/, so each dashboard is picked up by exactly one provider.
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       db:
         condition: service_healthy

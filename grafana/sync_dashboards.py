@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Push dashboards from grafana/dashboards/ to a Grafana instance via HTTP API.
 
-Includes top-level dashboards (*.json) and addon dashboards (addons/*.json).
+Includes core dashboards (core/*.json) and addon dashboards (addons/*.json).
 
 Env: GRAFANA_TLS_SKIP_VERIFY=1 (or true/yes/on) disables TLS certificate verification
 for https:// URLs (e.g. self-signed Grafana). Use only on trusted networks.
@@ -51,7 +51,7 @@ def main() -> int:
         print(f"Dashboards directory not found: {dashboards_dir}", file=sys.stderr)
         return 1
 
-    paths = sorted(dashboards_dir.glob("*.json"))
+    paths = sorted((dashboards_dir / "core").glob("*.json"))
     addons_dir = dashboards_dir / "addons"
     if addons_dir.is_dir():
         paths.extend(sorted(addons_dir.glob("*.json")))
