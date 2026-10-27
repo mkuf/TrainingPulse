@@ -21,13 +21,18 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from catalog import AuthMethod, DataKind
 import fitfiles
+from catalog import AuthMethod, DataKind
 from hammerhead_client import DEFAULT_API_BASE, HammerheadClient
 from models import Activity
-from providers.base import granted_if_connected
-from sources.base import OAuthStateGuard, RateLimitSnapshot, external_id, prefixed_id
-from sources.mapping import as_float, as_int, clip_text, parse_dt
+from providers.base import (
+    OAuthStateGuard,
+    RateLimitSnapshot,
+    external_id,
+    granted_if_connected,
+    prefixed_id,
+)
+from providers.mapping import as_float, as_int, clip_text, parse_dt
 
 logger = logging.getLogger(__name__)
 

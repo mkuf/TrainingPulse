@@ -24,8 +24,8 @@ from catalog import KINDS, PROVIDERS, AuthMethod, DataKind
 from config import config
 from config_loader import redacted_dump
 from database import async_session, engine
+from ingest.records import RECORD_KINDS, STORES
 from models import ACTIVITY_VISIBLE, Activity, AthleteSettings
-from providers.records import RECORD_KINDS, STORES
 from providers.registry import build_all_providers
 from schema_migrate import ensure_schema
 from sync import run_sync, sync_state

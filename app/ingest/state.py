@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sources.base import ActivitySource, RateLimitSnapshot
+from providers.base import ActivitySource, RateLimitSnapshot
 
 
 class SyncState:

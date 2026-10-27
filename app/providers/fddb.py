@@ -12,10 +12,9 @@ from fastapi import FastAPI
 
 from catalog import AuthMethod, DataKind
 from fddb_client import FddbClient, FddbNoDataError
-from providers.base import granted_if_connected
+from providers.base import RateLimitSnapshot, granted_if_connected
 from providers.feeds import Feed, NutritionRecord
-from sources.base import RateLimitSnapshot
-from sources.mapping import as_float
+from providers.mapping import as_float
 
 logger = logging.getLogger(__name__)
 

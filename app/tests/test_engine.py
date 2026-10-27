@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sources.engine import (
+from ingest.activities import (
     LIST_UPSERT_FIELDS,
     START_TOLERANCE_SECONDS,
     ActivityKey,
@@ -522,7 +522,7 @@ def _stream_ctx():
 
 @pytest.mark.asyncio
 async def test_apply_streams_tolerates_none_gaps_in_fit_streams():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     n = 1500
     power = [200] * n
@@ -543,7 +543,7 @@ async def test_apply_streams_tolerates_none_gaps_in_fit_streams():
 
 @pytest.mark.asyncio
 async def test_apply_streams_fallback_does_not_reload_activity_after_rollback():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     session = _FakeSession()
 
@@ -564,7 +564,7 @@ async def test_apply_streams_fallback_does_not_reload_activity_after_rollback():
 @pytest.mark.asyncio
 async def test_apply_streams_computes_kilojoules_from_the_power_stream():
     from calories import KCAL_PER_KJ
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     n = 1501
     streams = {"time": list(range(n)), "watts": [200] * n, "heartrate": [150] * n}
@@ -582,7 +582,7 @@ async def test_apply_streams_computes_kilojoules_from_the_power_stream():
 
 @pytest.mark.asyncio
 async def test_apply_streams_computes_hr_power_for_gym_sessions():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     streams = {"time": list(range(600)), "heartrate": [140] * 600}
     session = _FakeSession()
@@ -600,7 +600,7 @@ async def test_apply_streams_computes_hr_power_for_gym_sessions():
 @pytest.mark.asyncio
 async def test_apply_streams_without_hr_or_power_uses_acsm_and_weigh_in():
     from calories import ACSM_WALK, KCAL_PER_LITRE_O2, RESTING_VO2
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     session = _FakeSession(weight_kg=90.0)
     activity = _stream_activity(
@@ -627,7 +627,7 @@ async def test_apply_streams_without_hr_or_power_uses_acsm_and_weigh_in():
 @pytest.mark.asyncio
 async def test_apply_streams_failure_still_computes_from_summary():
     from calories import KCAL_PER_KJ
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     session = _FakeSession()
 
@@ -643,7 +643,7 @@ async def test_apply_streams_failure_still_computes_from_summary():
 
 @pytest.mark.asyncio
 async def test_apply_streams_derives_missing_heart_rate_summary():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     n = 1200
     streams = {"time": list(range(n)), "heartrate": [0] * 10 + [140] * (n - 20) + [180] * 10}
@@ -671,7 +671,7 @@ async def test_apply_streams_derives_missing_heart_rate_summary():
 
 @pytest.mark.asyncio
 async def test_apply_streams_keeps_source_heart_rate_summary():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     n = 1500
     streams = {"time": list(range(n)), "heartrate": [100] * n}
@@ -686,7 +686,7 @@ async def test_apply_streams_keeps_source_heart_rate_summary():
 
 @pytest.mark.asyncio
 async def test_apply_streams_derives_missing_distance_and_speed():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     streams = {"time": [0, 600, 1200], "distance": [0.0, 2500.0, 6000.0]}
     session = _FakeSession()
@@ -703,7 +703,7 @@ async def test_apply_streams_derives_missing_distance_and_speed():
 
 @pytest.mark.asyncio
 async def test_apply_streams_keeps_source_distance():
-    from sources.engine import _apply_streams
+    from ingest.activities import _apply_streams
 
     streams = {"time": [0, 600], "distance": [0.0, 9999.0]}
     session = _FakeSession()

@@ -7,7 +7,7 @@ import logging
 
 import httpx
 
-from sources.base import SourceRateLimitExceeded
+from providers.base import SourceRateLimitExceeded
 
 logger = logging.getLogger(__name__)
 

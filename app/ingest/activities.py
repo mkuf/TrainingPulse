@@ -2,7 +2,7 @@
 
 Every source goes through the same phases here — backfill or incremental,
 reconcile, detail drain, stream drain — so a new provider only has to implement
-the :class:`~sources.base.ActivitySource` protocol.
+the :class:`~providers.base.ActivitySource` protocol.
 
 The run is deliberately two-pass (see :func:`sync_sources` callers):
 
@@ -33,6 +33,7 @@ from calories import (
     compute_energy,
     kilojoules_from_stream,
 )
+from ingest.state import SyncState
 from metrics import (
     calculate_best_interval,
     calculate_power_curve,
@@ -41,8 +42,7 @@ from metrics import (
     estimate_trimp_without_hr,
 )
 from models import ACTIVITY_VISIBLE, Activity, ActivityStream, BodyMeasurement
-from sources.base import ActivitySource, SourceRateLimitExceeded, external_id
-from sources.state import SyncState
+from providers.base import ActivitySource, SourceRateLimitExceeded, external_id
 
 logger = logging.getLogger(__name__)
 

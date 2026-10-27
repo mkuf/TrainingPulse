@@ -1,7 +1,7 @@
 """Activity sync orchestration.
 
 This module owns the *order* of a sync run. All per-provider behaviour lives in
-:mod:`sources` and all phase mechanics live in :mod:`sources.engine`.
+:mod:`providers` and all phase mechanics live in :mod:`ingest`.
 
 A run is deliberately two-pass:
 
@@ -20,7 +20,7 @@ The second pass is what makes precedence reversible: flipping
 next run instead of requiring a re-backfill.
 
 Then every other data kind (body, nutrition) is listed per provider and
-deduplicated per day by :mod:`providers.records`. Those kinds have no
+deduplicated per day by :mod:`ingest.records`. Those kinds have no
 enrichment pass, so their order relative to activities does not matter.
 """
 
@@ -38,6 +38,19 @@ from calories import AthleteEnergyInputs
 from catalog import DataKind
 from config import config
 from database import async_session
+from ingest.activities import (
+    EngineContext,
+    recompute_supersessions,
+    refresh_progress,
+    run_enrich_phase,
+    run_list_phase,
+)
+from ingest.records import (
+    RECORD_KINDS,
+    recompute_daily_supersessions,
+    sync_record_feed,
+)
+from ingest.state import SyncState, sync_state
 from metrics import (
     calculate_power_curve,
     get_hr_zone_boundaries,
@@ -45,22 +58,8 @@ from metrics import (
     recalculate_daily_metrics,
 )
 from models import ACTIVITY_VISIBLE, Activity, ActivityStream, AthleteSettings
-from providers.base import Provider
-from providers.records import (
-    RECORD_KINDS,
-    recompute_daily_supersessions,
-    sync_record_feed,
-)
+from providers.base import ActivitySource, Provider, SourceRateLimitExceeded
 from providers.registry import build_enabled_providers
-from sources.base import ActivitySource, SourceRateLimitExceeded
-from sources.engine import (
-    EngineContext,
-    recompute_supersessions,
-    refresh_progress,
-    run_enrich_phase,
-    run_list_phase,
-)
-from sources.state import SyncState, sync_state
 
 logger = logging.getLogger(__name__)
 

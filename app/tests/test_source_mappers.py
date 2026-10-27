@@ -11,11 +11,11 @@ from datetime import datetime, timezone
 
 import pytest
 from fixtures import payloads
-from sources import google_health as gh
-from sources import hammerhead
-from sources import intervals as icu
-from sources import strava
-from sources.base import ActivitySource, external_id, prefixed_id
+from providers import google_health as gh
+from providers import hammerhead
+from providers import intervals as icu
+from providers import strava
+from providers.base import ActivitySource, external_id, prefixed_id
 
 ATHLETE_ID = 7
 
@@ -486,7 +486,7 @@ def test_hammerhead_list_phase_matches_a_real_summary():
     ``duration`` is the moving time in ms, so the derived start lands within
     the pauses of the true start, well inside the dedup start tolerance.
     """
-    from sources.engine import START_TOLERANCE_SECONDS
+    from ingest.activities import START_TOLERANCE_SECONDS
 
     row = hammerhead.map_row(
         {

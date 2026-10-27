@@ -16,16 +16,16 @@ from fddb_client import (
     FddbNoDataError,
     parse_diary_html,
 )
-from providers.base import Provider
-from providers.fddb import local_days, map_day
-from providers.feeds import FEED_CONTRACTS, BodyRecord, NutritionRecord
-from providers.records import (
+from ingest.records import (
     _body_values,
     choose_daily_winners,
     first_day_to_list,
     local_day_window,
     map_records,
 )
+from providers.base import Provider
+from providers.fddb import local_days, map_day
+from providers.feeds import FEED_CONTRACTS, BodyRecord, NutritionRecord
 from providers.registry import build_all_providers
 from providers.withings import WithingsBodyFeed, map_measure_group
 

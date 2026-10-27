@@ -5,7 +5,7 @@ Turns raw ``.fit`` bytes into:
 - a :class:`FitSummary` of aggregate metrics matching the ``activities``
   table's aggregate columns (elapsed/moving time, distance, HR, power, ...)
 - a dict of canonical time-series streams, using the same stream names as
-  ``sources.base`` (``time``, ``heartrate``, ``watts``, ...)
+  ``providers.base`` (``time``, ``heartrate``, ``watts``, ...)
 
 This module has no knowledge of any particular activity source. Any source
 that can hand it raw FIT bytes (downloaded from wherever) gets the same
@@ -41,7 +41,7 @@ class FitParseError(Exception):
 
 
 # Canonical stream keys. Duplicated here (as plain strings) rather than
-# imported from ``sources.base``, so this package stays usable outside the
+# imported from ``providers.base``, so this package stays usable outside the
 # app's source-adapter layer (e.g. from a future plugin) without a hard
 # dependency on it.
 STREAM_TIME = "time"

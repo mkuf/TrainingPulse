@@ -102,7 +102,7 @@ class Feed(Protocol):
 class ActivityFeed(Feed, Protocol):
     """Activities: list, then per-activity detail and streams.
 
-    The members match today's ``sources.base.ActivitySource`` one to one, so
+    The members match today's ``providers.base.ActivitySource`` one to one, so
     the existing engine, mappers, and tests carry over unchanged. Only
     ``name``, auth, ``rate_limits``, and ``close`` move up to the provider.
     """

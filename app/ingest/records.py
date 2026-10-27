@@ -6,7 +6,7 @@ upserting into the kind's core table, and deciding which provider's rows are
 visible for each day.
 
 Only per-day kinds (body, nutrition) have a table today. Sleep will need the
-overlap rule from :func:`sources.engine.choose_winners` instead.
+overlap rule from :func:`ingest.activities.choose_winners` instead.
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from catalog import DataKind
+from ingest.activities import date_windows
+from ingest.state import SyncState
 from models import BodyMeasurement, DailyNutrition, RecordSyncCursor
 from providers.feeds import BodyRecord, NutritionRecord, RecordFeed
-from sources.engine import date_windows
-from sources.state import SyncState
 
 logger = logging.getLogger(__name__)
 

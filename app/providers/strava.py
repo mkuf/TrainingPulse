@@ -12,15 +12,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from catalog import AuthMethod, DataKind
 from models import Activity
-from providers.base import granted_if_connected
-from sources.base import (
+from providers.base import (
     OAuthStateGuard,
     RateLimitSnapshot,
     SourceRateLimitExceeded,
     external_id,
+    granted_if_connected,
     prefixed_id,
 )
-from sources.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
+from providers.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
 from strava_client import DEFAULT_API_BASE, StravaClient
 
 logger = logging.getLogger(__name__)

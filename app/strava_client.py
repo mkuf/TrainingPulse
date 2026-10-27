@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import OAuthToken
-from sources.base import SourceRateLimitExceeded
+from providers.base import SourceRateLimitExceeded
 
 logger = logging.getLogger(__name__)
 

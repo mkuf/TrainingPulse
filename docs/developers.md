@@ -32,8 +32,8 @@ flowchart TB
     Cfg[config.yaml]
     Main[app.main]
     Sync[app.sync]
-    Engine[sources.engine]
-    Records[providers.records]
+    Engine[ingest.activities]
+    Records[ingest.records]
     Fit[fitfiles]
     Cfg --> Main
     Main --> Sync
@@ -72,11 +72,11 @@ Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 | nutrition | `daily_nutrition` | `PER_DAY` |
 | sleep | — (no feed yet) | `OVERLAP` |
 
-The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). The four activity providers in [`app/sources/`](../app/sources/) are each their own `ActivityFeed`. Withings and FDDB in [`app/providers/`](../app/providers/) return separate `BodyFeed` / `NutritionFeed` objects. A provider that gains a second kind returns one more feed from `feeds()`.
+The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All six providers live in [`app/providers/`](../app/providers/). The four activity providers are each their own `ActivityFeed`; Withings and FDDB return separate `BodyFeed` / `NutritionFeed` objects. A provider that gains a second kind returns one more feed from `feeds()`.
 
 ### Non-activity kinds
 
-A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each payload to a canonical record (`map_record`, pure). [`app/providers/records.py`](../app/providers/records.py) does the rest identically for every provider:
+A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each payload to a canonical record (`map_record`, pure). [`app/ingest/records.py`](../app/ingest/records.py) does the rest identically for every provider:
 
 - **Window.** The first sync walks `data.<kind>.history_days`. Later syncs re-list from `min(caught-up day, today − refresh_days)`, so a provider that was unreachable catches up instead of leaving a gap. The caught-up day is the later of the newest stored day and `record_sync_cursors.synced_through`, which is written only after every window listed successfully, so days that simply had no data are not re-listed on every run. Windows are whole local days in `athlete.timezone`, chunked by `sync.window_days`.
 - **Upsert** on `(provider, external_id)` for body and `(provider, day)` for nutrition, deduplicating within a batch.
@@ -84,7 +84,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 
 ### Adding a provider
 
-1. Write the provider class (in `app/providers/<name>.py`, or `app/sources/<name>.py` for an activity provider) implementing `Provider`. Give it a pure, module-level mapper for each feed so it can be tested against recorded payloads.
+1. Write the provider class (in `app/providers/<name>.py`) implementing `Provider`. Give it a pure, module-level mapper for each feed so it can be tested against recorded payloads.
 2. Keep anything async out of mappers. If a row needs a second call (Strava resolves gear names this way), make it in `fetch_detail` and return an augmented payload.
 3. Add a `ProviderSpec` to `PROVIDERS` in the catalog, and the kind's ranking to `DEFAULT_PRECEDENCE`.
 4. Add a config section in `app/config_loader.py`: a `_ProviderSection` (or `_OAuthProviderSection`) subclass with credentials marked `secret()` and `missing_credentials()`, plus a field on `ProvidersSection`.
@@ -93,7 +93,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 
 ### Adding a data kind
 
-Add it to `DataKind` and `KINDS`, add a record dataclass and feed protocol in `feeds.py`, a model and a `RecordStore` in `records.py` (for a per-day kind), a field on `DataSection`, its `active_*` view in `schema_migrate._ACTIVE_VIEWS`, and MCP tools. A session kind such as sleep needs the overlap rule from `sources.engine.choose_winners` instead of `choose_daily_winners`.
+Add it to `DataKind` and `KINDS`, add a record dataclass and feed protocol in `providers/feeds.py`, a model and a `RecordStore` in `ingest/records.py` (for a per-day kind), a field on `DataSection`, its `active_*` view in `schema_migrate._ACTIVE_VIEWS`, and MCP tools. A session kind such as sleep needs the overlap rule from `ingest.activities.choose_winners` instead of `choose_daily_winners`.
 
 ## Activity providers
 
@@ -108,7 +108,7 @@ Column `activities.source` is `icu`, `strava`, `google_health`, or `hammerhead`.
 
 ### The activity contract
 
-Each activity provider implements `ActivitySource` in [`app/sources/base.py`](../app/sources/base.py), which is `Provider` and `ActivityFeed` combined. It knows only how to authenticate, list a date window, fetch one activity's detail and streams, and map a provider payload onto `activities` columns. Backfill, incremental sync, reconciliation, queue draining, concurrency, rate-limit pausing, and supersession all live once in [`app/sources/engine.py`](../app/sources/engine.py).
+Each activity provider implements `ActivitySource` in [`app/providers/base.py`](../app/providers/base.py), which is `Provider` and `ActivityFeed` combined. It knows only how to authenticate, list a date window, fetch one activity's detail and streams, and map a provider payload onto `activities` columns. Backfill, incremental sync, reconciliation, queue draining, concurrency, rate-limit pausing, and supersession all live once in [`app/ingest/activities.py`](../app/ingest/activities.py).
 
 | Member | Purpose |
 |--------|---------|
@@ -216,7 +216,7 @@ The activity part of a run is two-pass, and the ordering is load-bearing:
 
 Two activities compete when their starts are within `START_TOLERANCE_SECONDS` (900) **and** their time ranges genuinely overlap. The winner is decided by `(precedence index, longer duration, earlier start, id)`. Comparison is pairwise rather than transitive, so a chain of near-misses cannot collapse two activities that do not actually overlap; winner chains are then resolved to their root so `superseded_by` always points at a visible row.
 
-`choose_winners` in [`app/sources/engine.py`](../app/sources/engine.py) is a pure function over `(id, source, start, elapsed)` tuples and is tested directly.
+`choose_winners` in [`app/ingest/activities.py`](../app/ingest/activities.py) is a pure function over `(id, source, start, elapsed)` tuples and is tested directly.
 
 Two properties worth preserving:
 
@@ -386,10 +386,10 @@ docker compose exec app python seed_demo_data.py --force
 - Status UI, route mounting, scheduler: [`app/main.py`](../app/main.py)
 - Sync ordering: [`app/sync.py`](../app/sync.py)
 - Data kinds and provider capabilities: [`catalog.py`](../app/catalog.py)
-- Provider and feed contracts: [`app/providers/base.py`](../app/providers/base.py), [`app/providers/feeds.py`](../app/providers/feeds.py), [`app/sources/base.py`](../app/sources/base.py)
-- Activity phases, precedence, supersession: [`app/sources/engine.py`](../app/sources/engine.py)
-- Record sync and per-day dedup: [`app/providers/records.py`](../app/providers/records.py)
-- Activity providers: [`app/sources/intervals.py`](../app/sources/intervals.py), [`app/sources/strava.py`](../app/sources/strava.py), [`app/sources/google_health.py`](../app/sources/google_health.py), [`app/sources/hammerhead.py`](../app/sources/hammerhead.py)
+- Provider and feed contracts: [`app/providers/base.py`](../app/providers/base.py), [`app/providers/feeds.py`](../app/providers/feeds.py)
+- Activity phases, precedence, supersession: [`app/ingest/activities.py`](../app/ingest/activities.py)
+- Record sync and per-day dedup: [`app/ingest/records.py`](../app/ingest/records.py)
+- Activity providers: [`app/providers/intervals.py`](../app/providers/intervals.py), [`app/providers/strava.py`](../app/providers/strava.py), [`app/providers/google_health.py`](../app/providers/google_health.py), [`app/providers/hammerhead.py`](../app/providers/hammerhead.py)
 - Body and nutrition providers: [`app/providers/withings.py`](../app/providers/withings.py), [`app/providers/fddb.py`](../app/providers/fddb.py)
 - Provider construction from config: [`app/providers/registry.py`](../app/providers/registry.py)
 - Provider HTTP clients: [`app/intervals_client.py`](../app/intervals_client.py), [`app/strava_client.py`](../app/strava_client.py), [`app/google_health_client.py`](../app/google_health_client.py), [`app/hammerhead_client.py`](../app/hammerhead_client.py), [`app/withings_client.py`](../app/withings_client.py), [`app/fddb_client.py`](../app/fddb_client.py)

@@ -11,11 +11,11 @@ from catalog import PROVIDER_NAMES
 from config_loader import Config
 from providers.base import Provider
 from providers.fddb import FddbSource
+from providers.google_health import GoogleHealthSource
+from providers.hammerhead import HammerheadSource
+from providers.intervals import IntervalsSource
+from providers.strava import StravaSource
 from providers.withings import WithingsSource
-from sources.google_health import GoogleHealthSource
-from sources.hammerhead import HammerheadSource
-from sources.intervals import IntervalsSource
-from sources.strava import StravaSource
 
 logger = logging.getLogger(__name__)
 

@@ -18,9 +18,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from catalog import AuthMethod, DataKind
 from google_health_client import DEFAULT_API_BASE, GoogleHealthClient
 from models import Activity
-from providers.base import granted_if_connected
-from sources.base import OAuthStateGuard, RateLimitSnapshot, prefixed_id
-from sources.mapping import (
+from providers.base import (
+    OAuthStateGuard,
+    RateLimitSnapshot,
+    granted_if_connected,
+    prefixed_id,
+)
+from providers.mapping import (
     as_float,
     clip_text,
     parse_dt,

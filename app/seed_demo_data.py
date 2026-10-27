@@ -43,6 +43,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from catalog import DataKind
 from config import config
 from database import async_session, engine
+from ingest.activities import recompute_supersessions
+from ingest.records import recompute_daily_supersessions
 from metrics import (
     calculate_best_interval,
     calculate_power_curve,
@@ -61,9 +63,7 @@ from models import (
     DailyMetrics,
     DailyNutrition,
 )
-from providers.records import recompute_daily_supersessions
 from schema_migrate import ensure_schema
-from sources.engine import recompute_supersessions
 
 logging.basicConfig(
     level=logging.INFO,
