@@ -49,7 +49,7 @@ Example views from the bundled dashboards.
   |---|---|---|
   | intervals.icu | activities | API key (Settings → Developer Settings) |
   | Strava | activities | API application (<https://www.strava.com/settings/api>), callback domain set to your app host |
-  | Google Health | activities | Google Cloud OAuth client with the Google Health API enabled, redirect URI `{app.base_url}/auth/google/callback` |
+  | Google Health | activities | Google Cloud OAuth client with the Google Health API enabled, redirect URI `{app.base_url}/auth/google/callback`, scopes `googlehealth.activity_and_fitness.readonly`, `googlehealth.health_metrics_and_measurements.readonly` and `googlehealth.location.readonly` (GPS routes) |
   | Hammerhead | activities | API client (<https://support.hammerhead.io/hc/en-us/sections/42738685226523-Public-API>), redirect URI exactly `{app.base_url}/auth/hammerhead/callback` |
   | Withings | body (weight, fat %, muscle mass) | Partner Hub app, callback URL `{app.base_url}/plugins/withings/get_token` |
   | FDDB | nutrition (kcal, macros) | Username, password, and the `fddb` session cookie from your browser |

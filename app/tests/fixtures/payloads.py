@@ -121,8 +121,8 @@ STRAVA_STREAMS = {
 # ── Google Health ───────────────────────────────────────────────────
 
 GOOGLE_HEALTH_EXERCISE = {
-    "name": "users/me/dataTypes/exercise/dataPoints/abc123",
-    "updateTime": "2026-03-14T20:00:00Z",
+    "name": "users/1557732547676114584/dataTypes/exercise/dataPoints/abc123",
+    "dataSource": {"platform": "FITBIT", "device": {"displayName": "Fitbit Air"}},
     "exercise": {
         "exerciseType": "WALKING",
         "displayName": "Evening Walk",
@@ -130,34 +130,40 @@ GOOGLE_HEALTH_EXERCISE = {
         "activeDuration": "3600s",
         "interval": {
             "startTime": "2026-03-14T18:00:00Z",
+            "startUtcOffset": "3600s",
             "endTime": "2026-03-14T19:05:00Z",
+            "endUtcOffset": "3600s",
         },
         "metricsSummary": {
-            "averageHeartRate": 96,
-            "maxHeartRate": 118,
-            "calories": 210,
-            "distanceMeters": 4200.0,
+            "caloriesKcal": 210,
+            "averageHeartRateBeatsPerMinute": "96",
+            "distanceMillimeters": 4200000,
+            "averageSpeedMillimetersPerSecond": 1166.7,
+            "elevationGainMillimeters": 35000,
         },
+        "exerciseMetadata": {"hasGps": True},
+        "updateTime": "2026-03-14T20:00:00Z",
     },
+    "updateTime": "2026-03-14T20:00:00Z",
 }
 
-#: Some responses nest the exercise under "data" and use snake_case keys.
-GOOGLE_HEALTH_EXERCISE_SNAKE = {
-    "name": "users/me/dataTypes/exercise/dataPoints/snake1",
-    "update_time": "2026-03-14T21:00:00Z",
-    "data": {
-        "exercise": {
-            "exercise_type": "STRENGTH_TRAINING",
-            "active_duration": 1800,
-            "interval": {
-                "start_time": "2026-03-14T19:30:00Z",
-                "end_time": "2026-03-14T20:00:00Z",
-            },
-            "metrics_summary": {
-                "average_heart_rate": 105,
-                "energyBurned": {"value": 180},
-            },
-        }
+#: A Strava session synced through Health Connect: the summary is empty.
+GOOGLE_HEALTH_EXERCISE_HEALTH_CONNECT = {
+    "name": "users/1557732547676114584/dataTypes/exercise/dataPoints/hc1",
+    "dataSource": {
+        "platform": "HEALTH_CONNECT",
+        "application": {"packageName": "com.strava"},
+    },
+    "exercise": {
+        "exerciseType": "STRENGTH_TRAINING",
+        "displayName": "Kraft",
+        "activeDuration": "1800s",
+        "interval": {
+            "startTime": "2026-03-14T19:30:00Z",
+            "endTime": "2026-03-14T20:00:00Z",
+        },
+        "metricsSummary": {},
+        "exerciseMetadata": {},
     },
 }
 
@@ -170,7 +176,7 @@ GOOGLE_HEALTH_BIKE_EXERCISE = {
             "startTime": "2026-03-14T17:05:00Z",
             "endTime": "2026-03-14T18:07:00Z",
         },
-        "metricsSummary": {"averageHeartRate": 145},
+        "metricsSummary": {"averageHeartRateBeatsPerMinute": "145"},
     },
 }
 
@@ -180,6 +186,15 @@ GOOGLE_HEALTH_EXERCISE_NO_START = {
 }
 
 GOOGLE_HEALTH_HR_POINTS = [
+    {
+        "heartRate": {
+            "sampleTime": {
+                "physicalTime": "2026-03-14T18:01:30Z",
+                "utcOffset": "3600s",
+            },
+            "beatsPerMinute": "104",
+        },
+    },
     {
         "timeInterval": {"startTime": "2026-03-14T18:00:30Z"},
         "heartRate": {"beatsPerMinute": 95},
@@ -238,3 +253,25 @@ HAMMERHEAD_DETAIL_ACTIVITY = {
 
 HAMMERHEAD_ACTIVITY_NO_ID = {"name": "No id", "createdAt": "2026-03-14T17:05:00Z"}
 HAMMERHEAD_ACTIVITY_NO_START = {"id": "1000.activity.nostart", "name": "No start"}
+
+GOOGLE_HEALTH_TCX = """<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities><Activity Sport="Biking"><Lap><Track>
+    <Trackpoint>
+      <Time>2026-03-14T18:00:10Z</Time>
+      <Position><LatitudeDegrees>48.1</LatitudeDegrees><LongitudeDegrees>11.5</LongitudeDegrees></Position>
+      <AltitudeMeters>520.5</AltitudeMeters>
+      <DistanceMeters>40</DistanceMeters>
+    </Trackpoint>
+    <Trackpoint>
+      <Time>2026-03-14T18:00:00Z</Time>
+      <Position><LatitudeDegrees>48.0</LatitudeDegrees><LongitudeDegrees>11.4</LongitudeDegrees></Position>
+      <AltitudeMeters>520.0</AltitudeMeters>
+      <DistanceMeters>0</DistanceMeters>
+    </Trackpoint>
+    <Trackpoint>
+      <Time>2026-03-14T18:00:20Z</Time>
+    </Trackpoint>
+  </Track></Lap></Activity></Activities>
+</TrainingCenterDatabase>
+"""

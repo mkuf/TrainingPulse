@@ -497,6 +497,8 @@ def _stream_activity(**overrides):
         total_elevation_gain=50.0,
         average_watts=200.0,
         average_heartrate=150.0,
+        max_heartrate=175.0,
+        average_speed=8.0,
         calories=None,
     )
     fields.update(overrides)
@@ -637,3 +639,77 @@ async def test_apply_streams_failure_still_computes_from_summary():
     assert values["computed_calories_method"] == "power"
     assert values["computed_kilojoules"] == pytest.approx(200 * 1500 / 1000)
     assert values["computed_calories"] == pytest.approx(300.0 * KCAL_PER_KJ)
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_derives_missing_heart_rate_summary():
+    from sources.engine import _apply_streams
+
+    n = 1200
+    streams = {"time": list(range(n)), "heartrate": [0] * 10 + [140] * (n - 20) + [180] * 10}
+    session = _FakeSession()
+    activity = _stream_activity(
+        device_watts=False,
+        has_heartrate=False,
+        average_heartrate=None,
+        max_heartrate=None,
+        average_watts=None,
+        sport_type="Crossfit",
+    )
+
+    await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+
+    assert not session.rolled_back
+    (values,) = session.updates
+    assert values["has_heartrate"] is True
+    assert values["max_heartrate"] == pytest.approx(180.0)
+    assert values["average_heartrate"] == pytest.approx((140 * 1180 + 180 * 10) / 1190)
+    # With an average heart rate the HR-to-power rule applies.
+    assert values["computed_calories_method"] == "hr_power"
+    assert values["hr_zone_seconds"] is not None
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_keeps_source_heart_rate_summary():
+    from sources.engine import _apply_streams
+
+    n = 1500
+    streams = {"time": list(range(n)), "heartrate": [100] * n}
+    session = _FakeSession()
+
+    await _apply_streams(session, _FakeSource(streams), _stream_activity(), _stream_ctx())
+
+    (values,) = session.updates
+    assert "average_heartrate" not in values
+    assert "max_heartrate" not in values
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_derives_missing_distance_and_speed():
+    from sources.engine import _apply_streams
+
+    streams = {"time": [0, 600, 1200], "distance": [0.0, 2500.0, 6000.0]}
+    session = _FakeSession()
+    activity = _stream_activity(
+        distance=0.0, average_speed=None, moving_time=1200, device_watts=False
+    )
+
+    await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+
+    (values,) = session.updates
+    assert values["distance"] == pytest.approx(6000.0)
+    assert values["average_speed"] == pytest.approx(5.0)
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_keeps_source_distance():
+    from sources.engine import _apply_streams
+
+    streams = {"time": [0, 600], "distance": [0.0, 9999.0]}
+    session = _FakeSession()
+
+    await _apply_streams(session, _FakeSource(streams), _stream_activity(), _stream_ctx())
+
+    (values,) = session.updates
+    assert "distance" not in values
+    assert "average_speed" not in values

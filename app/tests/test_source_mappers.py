@@ -331,7 +331,11 @@ def test_google_health_map_row():
     assert row["moving_time"] == 3600
     assert row["elapsed_time"] == 3900
     assert row["distance"] == pytest.approx(4200.0)
+    assert row["average_speed"] == pytest.approx(1.1667)
+    assert row["total_elevation_gain"] == pytest.approx(35.0)
     assert row["average_heartrate"] == pytest.approx(96.0)
+    # MetricsSummary has no max; the stream phase derives it.
+    assert row["max_heartrate"] is None
     assert row["has_heartrate"] is True
     assert row["calories"] == pytest.approx(210.0)
     assert row["description"] == "with the dog"
@@ -342,14 +346,16 @@ def test_google_health_map_row():
     assert row["device_watts"] is False
 
 
-def test_google_health_map_row_handles_nested_snake_case():
-    row = gh.map_row(payloads.GOOGLE_HEALTH_EXERCISE_SNAKE, ATHLETE_ID)
+def test_google_health_map_row_with_empty_health_connect_summary():
+    row = gh.map_row(payloads.GOOGLE_HEALTH_EXERCISE_HEALTH_CONNECT, ATHLETE_ID)
 
-    assert row["id"] == "ghealth_snake1"
+    assert row["id"] == "ghealth_hc1"
     assert row["sport_type"] == "Strengthtraining"
     assert row["elapsed_time"] == 1800
-    assert row["average_heartrate"] == pytest.approx(105.0)
-    assert row["calories"] == pytest.approx(180.0)
+    assert row["distance"] == 0.0
+    assert row["average_heartrate"] is None
+    assert row["has_heartrate"] is False
+    assert row["calories"] is None
 
 
 def test_google_health_stores_bike_activities_for_precedence_to_judge():
@@ -373,8 +379,8 @@ def test_google_health_hr_points_to_streams_sorts_and_filters():
 
     streams = gh.hr_points_to_streams(payloads.GOOGLE_HEALTH_HR_POINTS, start)
 
-    assert streams["time"] == [0, 30, 60]
-    assert streams["heartrate"] == [90.0, 95.0, 101.0]
+    assert streams["time"] == [0, 30, 60, 90]
+    assert streams["heartrate"] == [90.0, 95.0, 101.0, 104.0]
 
 
 def test_google_health_hr_points_to_streams_when_nothing_usable():
@@ -382,6 +388,52 @@ def test_google_health_hr_points_to_streams_when_nothing_usable():
 
     assert gh.hr_points_to_streams([], start) == {}
     assert gh.hr_points_to_streams([{"nothing": 1}], start) == {}
+
+
+def test_google_health_tcx_to_streams_keeps_positioned_trackpoints():
+    start = _utc("2026-03-14T18:00:00Z")
+
+    streams = gh.tcx_to_streams(payloads.GOOGLE_HEALTH_TCX, start)
+
+    assert streams["time"] == [0, 10]
+    assert streams["latlng"] == [[48.0, 11.4], [48.1, 11.5]]
+    assert streams["altitude"] == [520.0, 520.5]
+    assert streams["distance"] == [0.0, 40.0]
+    assert streams["velocity_smooth"] == [4.0, 4.0]
+    # No trackpoint has a heart rate, so the stream is left out.
+    assert "heartrate" not in streams
+
+
+def test_google_health_tcx_to_streams_ignores_garbage():
+    assert gh.tcx_to_streams("not xml", _utc("2026-03-14T18:00:00Z")) == {}
+
+
+@pytest.mark.asyncio
+async def test_google_health_streams_merge_route_and_heart_rate():
+    from types import SimpleNamespace
+
+    class Client:
+        async def export_exercise_tcx(self, data_point_id):
+            assert data_point_id == "abc123"
+            return payloads.GOOGLE_HEALTH_TCX
+
+        async def list_heart_rate(self, start, end):
+            return payloads.GOOGLE_HEALTH_HR_POINTS
+
+    source = gh.GoogleHealthSource.__new__(gh.GoogleHealthSource)
+    source._client = Client()
+    activity = SimpleNamespace(
+        id="ghealth_abc123",
+        start_date=_utc("2026-03-14T18:00:00Z"),
+        elapsed_time=120,
+    )
+
+    streams = await source.fetch_streams(activity)
+
+    assert streams["time"] == [0, 10]
+    assert streams["latlng"] == [[48.0, 11.4], [48.1, 11.5]]
+    # Latest heart-rate sample at or before each route point.
+    assert streams["heartrate"] == [90.0, 90.0]
 
 
 @pytest.mark.parametrize(

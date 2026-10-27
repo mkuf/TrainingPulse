@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from xml.etree import ElementTree
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -121,12 +122,14 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     summary = (
         exercise.get("metricsSummary") or exercise.get("metrics_summary") or {}
     )
-    avg_hr = summary.get("averageHeartRate") or summary.get("average_heart_rate")
-    max_hr = summary.get("maxHeartRate") or summary.get("max_heart_rate")
-    calories = summary.get("calories") or summary.get("energyBurned")
-    if isinstance(calories, dict):
-        calories = calories.get("value") or calories.get("kcal")
-    distance = summary.get("distanceMeters") or summary.get("distance") or 0.0
+    # MetricsSummary has no max heart rate; the engine derives it from the
+    # heart-rate stream. Strava sessions synced via Health Connect arrive with
+    # an empty summary.
+    avg_hr = as_float(summary.get("averageHeartRateBeatsPerMinute"))
+    calories = as_float(summary.get("caloriesKcal"))
+    distance = _millimeters_to_meters(summary.get("distanceMillimeters"))
+    speed = _millimeters_to_meters(summary.get("averageSpeedMillimetersPerSecond"))
+    elevation = _millimeters_to_meters(summary.get("elevationGainMillimeters"))
 
     display = exercise.get("displayName") or exercise.get("display_name") or ""
     raw_id = resource_name or payload.get("id") or start.isoformat()
@@ -148,16 +151,16 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "start_date": start,
         "elapsed_time": elapsed,
         "moving_time": active or elapsed,
-        "distance": as_float(distance) or 0.0,
-        "average_heartrate": as_float(avg_hr),
-        "max_heartrate": as_float(max_hr),
-        "has_heartrate": avg_hr is not None or max_hr is not None,
+        "distance": distance or 0.0,
+        "average_heartrate": avg_hr,
+        "max_heartrate": None,
+        "has_heartrate": avg_hr is not None,
         "average_watts": None,
         "max_watts": None,
-        "average_speed": None,
-        "total_elevation_gain": None,
+        "average_speed": speed,
+        "total_elevation_gain": elevation,
         "kilojoules": None,
-        "calories": as_float(calories),
+        "calories": calories,
         "device_watts": False,
         "device_name": clip_text("Google Health", 255),
         "gear_id": None,
@@ -167,6 +170,82 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "training_load": None,
         "provider_updated_at": updated,
     }
+
+
+def _millimeters_to_meters(raw: object) -> float | None:
+    value = as_float(raw)
+    return value / 1000.0 if value is not None else None
+
+
+TCX_NS = {"tcx": "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"}
+
+
+def tcx_to_streams(tcx: str, start: datetime) -> dict[str, list]:
+    """Turn TCX trackpoints into time/latlng/altitude/distance/heartrate streams.
+
+    Only trackpoints with a position are kept, so every stream lines up with
+    ``latlng``; a stream is dropped when none of its samples has a value.
+    """
+    try:
+        root = ElementTree.fromstring(tcx)
+    except ElementTree.ParseError as exc:
+        logger.warning("Google Health TCX could not be parsed: %s", exc)
+        return {}
+
+    def number(trackpoint, path: str) -> float | None:
+        return as_float(trackpoint.findtext(path, namespaces=TCX_NS))
+
+    rows: list[tuple[int, list[float], float | None, float | None, float | None]] = []
+    for trackpoint in root.iterfind(".//tcx:Trackpoint", TCX_NS):
+        timestamp = parse_dt(trackpoint.findtext("tcx:Time", namespaces=TCX_NS))
+        lat = number(trackpoint, "tcx:Position/tcx:LatitudeDegrees")
+        lng = number(trackpoint, "tcx:Position/tcx:LongitudeDegrees")
+        if timestamp is None or lat is None or lng is None:
+            continue
+        rows.append(
+            (
+                max(0, int((timestamp - start).total_seconds())),
+                [lat, lng],
+                number(trackpoint, "tcx:AltitudeMeters"),
+                number(trackpoint, "tcx:DistanceMeters"),
+                number(trackpoint, "tcx:HeartRateBpm/tcx:Value"),
+            )
+        )
+    if not rows:
+        return {}
+    rows.sort(key=lambda row: row[0])
+    streams: dict[str, list] = {
+        "time": [row[0] for row in rows],
+        "latlng": [row[1] for row in rows],
+    }
+    for index, key in ((2, "altitude"), (3, "distance"), (4, "heartrate")):
+        values = [row[index] for row in rows]
+        if any(value is not None for value in values):
+            streams[key] = values
+    if "distance" in streams:
+        streams["velocity_smooth"] = _smoothed_speed(
+            streams["time"], streams["distance"]
+        )
+    return streams
+
+
+#: Trackpoints on each side of a sample that its speed is averaged over.
+SPEED_WINDOW = 2
+
+
+def _smoothed_speed(times: list[int], distances: list[float | None]) -> list[float]:
+    """Speed in m/s from cumulative distance, over a few neighbouring points."""
+    out: list[float] = []
+    last = len(times) - 1
+    for index in range(len(times)):
+        lo = max(0, index - SPEED_WINDOW)
+        hi = min(last, index + SPEED_WINDOW)
+        dt = times[hi] - times[lo]
+        if dt <= 0 or distances[hi] is None or distances[lo] is None:
+            out.append(0.0)
+            continue
+        out.append(max(0.0, (distances[hi] - distances[lo]) / dt))
+    return out
 
 
 def hr_points_to_streams(points: list[dict], start: datetime) -> dict[str, list]:
@@ -181,8 +260,12 @@ def hr_points_to_streams(points: list[dict], start: datetime) -> dict[str, list]
             )
         if bpm is None and "value" in point:
             bpm = point["value"]
+        sample_time = (
+            heart_rate.get("sampleTime") if isinstance(heart_rate, dict) else None
+        ) or {}
         timestamp = parse_dt(
-            (point.get("timeInterval") or point.get("interval") or {}).get("startTime")
+            sample_time.get("physicalTime")
+            or (point.get("timeInterval") or point.get("interval") or {}).get("startTime")
             or point.get("startTime")
             or point.get("instantaneousTime")
         )
@@ -197,6 +280,18 @@ def hr_points_to_streams(points: list[dict], start: datetime) -> dict[str, list]
         "time": [sample[0] for sample in samples],
         "heartrate": [sample[1] for sample in samples],
     }
+
+
+def _resample(heart_rate: dict[str, list], times: list[int]) -> list[float | None]:
+    """Latest heart-rate sample at or before each route time (None before any)."""
+    out: list[float | None] = []
+    index = -1
+    hr_times = heart_rate["time"]
+    for moment in times:
+        while index + 1 < len(hr_times) and hr_times[index + 1] <= moment:
+            index += 1
+        out.append(heart_rate["heartrate"][index] if index >= 0 else None)
+    return out
 
 
 class GoogleHealthSource:
@@ -347,8 +442,20 @@ class GoogleHealthSource:
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
         end = start + timedelta(seconds=max(activity.elapsed_time or 0, 60))
-        points = await self.client.list_heart_rate(start, end)
-        return hr_points_to_streams(points, start)
+        tcx = await self.client.export_exercise_tcx(
+            activity.id.removeprefix(ID_PREFIX)
+        )
+        route = tcx_to_streams(tcx, start) if tcx else {}
+        if "heartrate" in route:
+            return route
+        heart_rate = hr_points_to_streams(
+            await self.client.list_heart_rate(start, end), start
+        )
+        if not route:
+            return heart_rate
+        if heart_rate:
+            route["heartrate"] = _resample(heart_rate, route["time"])
+        return route
 
     def feeds(self) -> dict[DataKind, "GoogleHealthSource"]:
         # Single-kind provider: the source is its own activities feed.

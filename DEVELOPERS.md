@@ -162,8 +162,11 @@ Strava publishes **two** budgets per response: `X-RateLimit-*` (overall) and `X-
 |------|----------|------|
 | Exercises | `GET .../dataTypes/exercise/dataPoints` | Sessions, complete in the list payload |
 | Heart rate | `GET .../dataTypes/heart-rate/dataPoints` | Streams for TRIMP |
+| Route | `GET .../dataTypes/exercise/dataPoints/{id}:exportExerciseTcx?alt=media` | GPS, altitude, distance and HR streams (needs `googlehealth.location.readonly`) |
 
 Auth: Google OAuth (`access_type=offline`). Tokens in `oauth_tokens` (`provider=google_health`). The Google Health scopes are sensitive, so publishing the consent screen **In production** requires Google verification. Personal deployments stay in **Testing** with the user added as a test user, which means Google expires the refresh token after 7 days and the user must reconnect weekly. Workspace accounts can use the **Internal** user type instead, which has no such limit.
+
+Exercises only filter on `exercise.interval.civil_start_time` (local time), so the client widens each window by a day and trims on the physical start. `MetricsSummary` has no max heart rate, and Strava sessions synced through Health Connect have an empty one; the stream phase derives missing average/max heart rate, distance and average speed from the streams, and re-listing keeps those values.
 
 `supports_detail` is False (the list payload is complete) and `supports_reconcile` is False, because Google Health publishes no per-activity update marker worth re-listing for. Google publishes no usable quota headers, so `rate_limits()` reports `known: false` rather than a misleading 0/0.
 

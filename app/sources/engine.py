@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Awaitable, Callable, Iterable, Sequence, TypeVar
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -78,6 +78,9 @@ LIST_UPSERT_FIELDS = (
     "training_load",
     "provider_updated_at",
 )
+
+#: Summary columns the stream phase derives when a source omits them.
+_STREAM_DERIVED_FIELDS = ("average_heartrate", "max_heartrate", "average_speed")
 
 #: Columns compared to decide whether a re-listed activity was edited upstream.
 _DIFF_FIELDS = (
@@ -280,10 +283,27 @@ async def upsert_rows(
 
     for offset in range(0, len(values), _UPSERT_BATCH):
         stmt = pg_insert(Activity).values(values[offset : offset + _UPSERT_BATCH])
+        existing = Activity.__table__.c
         stmt = stmt.on_conflict_do_update(
             index_elements=["id"],
             set_={
                 **{name: getattr(stmt.excluded, name) for name in fields},
+                # The stream phase fills these in when the list payload has
+                # none; a later re-list without them must not wipe them.
+                **{
+                    name: func.coalesce(
+                        getattr(stmt.excluded, name), getattr(existing, name)
+                    )
+                    for name in _STREAM_DERIVED_FIELDS
+                },
+                # distance is NOT NULL, so "none" arrives as 0.
+                "distance": case(
+                    (stmt.excluded.distance > 0, stmt.excluded.distance),
+                    else_=existing.distance,
+                ),
+                "has_heartrate": or_(
+                    stmt.excluded.has_heartrate, existing.has_heartrate
+                ),
                 **restore,
             },
             where=where,
@@ -862,6 +882,32 @@ async def _computed_energy(
     }
 
 
+def _missing_summary(activity: Activity, streams: dict[str, list]) -> dict:
+    """Summary values derived from the streams for fields the source left empty.
+
+    Some sources (Google Health) report no max and often no average heart rate,
+    and no distance for sessions whose route only exists as a track.
+    """
+    derived: dict = {}
+    samples = [value for value in streams.get("heartrate") or [] if value and value > 0]
+    if samples:
+        if activity.average_heartrate is None:
+            derived["average_heartrate"] = sum(samples) / len(samples)
+        if activity.max_heartrate is None:
+            derived["max_heartrate"] = float(max(samples))
+        if derived and not activity.has_heartrate:
+            derived["has_heartrate"] = True
+
+    distances = [value for value in streams.get("distance") or [] if value is not None]
+    distance = activity.distance or 0.0
+    if distance <= 0 and distances and max(distances) > 0:
+        distance = float(max(distances))
+        derived["distance"] = distance
+    if activity.average_speed is None and distance > 0 and activity.moving_time:
+        derived["average_speed"] = distance / activity.moving_time
+    return derived
+
+
 async def _apply_streams(
     session: AsyncSession,
     source: ActivitySource,
@@ -900,11 +946,19 @@ async def _apply_streams(
             )
             await session.execute(stmt)
 
+        derived_summary = _missing_summary(activity, streams)
+        if derived_summary:
+            for field, value in derived_summary.items():
+                setattr(activity, field, value)
+            wants_hr_power = activity_needs_streams(activity)
+            energy_inputs = _energy_inputs(activity)
+
         if not wants_hr_power:
             await session.execute(
                 update(Activity)
                 .where(Activity.id == activity.id)
                 .values(
+                    **derived_summary,
                     trimp=estimate_trimp_without_hr(
                         activity.sport_type, activity.moving_time
                     ),
@@ -971,6 +1025,7 @@ async def _apply_streams(
             update(Activity)
             .where(Activity.id == activity.id)
             .values(
+                **derived_summary,
                 trimp=trimp,
                 **energy,
                 hr_zone_seconds=hr_zones,
