@@ -4,13 +4,13 @@
 #
 # Defaults assume the stack is running locally (docker compose up -d) and that
 # the database has activities (e.g. seed_demo_data.py). Output PNGs land in
-# ./screenshots/ at the repo root.
+# ./docs/screenshots/ at the repo root.
 #
 # Environment overrides:
 #   PLAYWRIGHT_IMAGE  default: mcr.microsoft.com/playwright/python:v1.49.1-jammy
 #   COMPOSE_NETWORK   default: trainingpulse_default (compose project name + _default)
 #   GRAFANA_HOST      default: grafana (the in-network compose service name)
-#   OUT_DIR           default: <repo>/screenshots
+#   OUT_DIR           default: <repo>/docs/screenshots
 #   WIDTH             default: 1920
 #   HEIGHT            default: 1080
 #   WAIT_MS           default: 15000
@@ -31,7 +31,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PLAYWRIGHT_IMAGE="${PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright/python:v1.49.1-jammy}"
 COMPOSE_NETWORK="${COMPOSE_NETWORK:-trainingpulse_default}"
 GRAFANA_HOST="${GRAFANA_HOST:-grafana}"
-OUT_DIR="${OUT_DIR:-$REPO_ROOT/screenshots}"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/docs/screenshots}"
 WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 WAIT_MS="${WAIT_MS:-15000}"
