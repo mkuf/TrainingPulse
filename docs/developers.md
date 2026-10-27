@@ -337,20 +337,20 @@ Computed in [`app/metrics.py`](../app/metrics.py) and stored alongside activitie
 
 ## MCP
 
-The `mcp` Compose service runs [`app/mcp_server.py`](../app/mcp_server.py) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…` / `hammerhead_…`).
+The `mcp` Compose service runs [`app/mcp_server/`](../app/mcp_server/) (`python -m mcp_server`) at `http://your-host:${MCP_PORT:-8001}/mcp`. Read-only; does not expose `oauth_tokens` or credentials. Activity ids are strings (`icu_…` / `strava_…` / `ghealth_…` / `hammerhead_…`).
 
 Tools, by area:
 
 | Area | Tools | Module |
 | --- | --- | --- |
-| Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server.py`](../app/mcp_server.py) |
-| Training load | `get_training_load` (daily CTL / ATL / TSB) | [`mcp_server.py`](../app/mcp_server.py) |
-| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server.py`](../app/mcp_server.py) |
-| Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_records.py`](../app/mcp_records.py) |
-| Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_records.py`](../app/mcp_records.py) |
-| Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server.py`](../app/mcp_server.py) |
+| Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server/server.py`](../app/mcp_server/server.py) |
+| Training load | `get_training_load` (daily CTL / ATL / TSB) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
+| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
+| Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
+| Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
+| Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 
-Conventions, shared through [`app/mcp_common.py`](../app/mcp_common.py):
+Conventions, shared through [`app/mcp_server/common.py`](../app/mcp_server/common.py):
 
 - Every date argument and every returned `day` is a local calendar day in `athlete.timezone`, and ranges include both ends. Activities are filtered by local-midnight bounds, and `daily_metrics` buckets activities by the same local day, so a late-evening workout lands on the day it happened.
 - Timestamps are returned in `athlete.timezone` with their offset. Rows report the supplying `provider`.
@@ -370,9 +370,9 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 - `tests/test_config_loader.py` — loader, overrides, interpolation, validation, redaction, moved-key messages
 - `tests/test_config_providers.py` — `providers` / `data` schema: imports, per-kind precedence, defaults from the catalog
 - `tests/test_providers.py` — provider and feed contract conformance, Withings and FDDB mappers and parsers, record windows, `choose_daily_winners`
-- `tests/test_source_mappers.py` — per-source mappers and stream normalizers against `tests/fixtures/payloads.py`, plus protocol conformance
+- `tests/test_provider_mappers.py` — per-provider activity mappers and stream normalizers against `tests/fixtures/payloads.py`, plus protocol conformance
 - `tests/test_fitfiles.py` — generic FIT-file analyzer: stream/summary derivation and message dispatch, against faked `fitdecode` frames
-- `tests/test_engine.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
+- `tests/test_ingest_activities.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
 
 ## Demo data
@@ -394,11 +394,11 @@ docker compose exec app python seed_demo_data.py --force
 - Activity providers: [`app/providers/intervals.py`](../app/providers/intervals.py), [`app/providers/strava.py`](../app/providers/strava.py), [`app/providers/google_health.py`](../app/providers/google_health.py), [`app/providers/hammerhead.py`](../app/providers/hammerhead.py)
 - Body and nutrition providers: [`app/providers/withings.py`](../app/providers/withings.py), [`app/providers/fddb.py`](../app/providers/fddb.py)
 - Provider construction from config: [`app/providers/registry.py`](../app/providers/registry.py)
-- Provider HTTP clients: [`app/intervals_client.py`](../app/intervals_client.py), [`app/strava_client.py`](../app/strava_client.py), [`app/google_health_client.py`](../app/google_health_client.py), [`app/hammerhead_client.py`](../app/hammerhead_client.py), [`app/withings_client.py`](../app/withings_client.py), [`app/fddb_client.py`](../app/fddb_client.py)
+- Provider HTTP clients: [`app/providers/intervals_client.py`](../app/providers/intervals_client.py), [`app/providers/strava_client.py`](../app/providers/strava_client.py), [`app/providers/google_health_client.py`](../app/providers/google_health_client.py), [`app/providers/hammerhead_client.py`](../app/providers/hammerhead_client.py), [`app/providers/withings_client.py`](../app/providers/withings_client.py), [`app/providers/fddb_client.py`](../app/providers/fddb_client.py)
 - Generic FIT-file analysis and storage: [`app/fitfiles/`](../app/fitfiles/)
 - Schema migration (in place, history preserved): [`app/schema_migrate.py`](../app/schema_migrate.py)
 - Metrics: [`app/metrics.py`](../app/metrics.py)
 - Models: [`app/models.py`](../app/models.py)
 - Config schema and loader: [`app/config_loader.py`](../app/config_loader.py), [`app/config.py`](../app/config.py)
-- MCP: [`app/mcp_server.py`](../app/mcp_server.py), [`app/mcp_records.py`](../app/mcp_records.py), [`app/mcp_common.py`](../app/mcp_common.py)
+- MCP: [`app/mcp_server/`](../app/mcp_server/)
 - Grafana: [`grafana/`](../grafana/)

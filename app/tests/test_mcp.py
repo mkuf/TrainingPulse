@@ -30,8 +30,7 @@ _CONFIG.close()
 _previous = os.environ.get("TP_CONFIG_FILE")
 os.environ["TP_CONFIG_FILE"] = _CONFIG.name
 try:
-    import mcp_common  # noqa: E402
-    import mcp_server  # noqa: E402
+    from mcp_server import common, server  # noqa: E402
 finally:
     if _previous is None:
         os.environ.pop("TP_CONFIG_FILE", None)
@@ -62,13 +61,13 @@ EXPECTED_TOOLS = {
 
 
 def test_registered_tools_match_the_documented_set():
-    tools = asyncio.run(mcp_server.mcp.list_tools())
+    tools = asyncio.run(server.mcp.list_tools())
     assert {tool.name for tool in tools} == EXPECTED_TOOLS
     assert all(tool.description for tool in tools)
 
 
 def test_local_day_bounds_use_athlete_timezone():
-    lower, upper = mcp_common.local_day_bounds(date(2026, 7, 1), date(2026, 7, 1))
+    lower, upper = common.local_day_bounds(date(2026, 7, 1), date(2026, 7, 1))
     # Berlin is UTC+2 in summer: the local day starts at 22:00 UTC the day before.
     assert lower == datetime(2026, 6, 30, 22, 0, tzinfo=timezone.utc)
     assert upper == datetime(2026, 7, 1, 22, 0, tzinfo=timezone.utc)
@@ -76,17 +75,17 @@ def test_local_day_bounds_use_athlete_timezone():
 
 def test_late_evening_utc_belongs_to_next_local_day():
     instant = datetime(2026, 1, 10, 23, 30, tzinfo=timezone.utc)
-    assert mcp_common.local_day(instant) == date(2026, 1, 11)
-    assert mcp_common.local_time(instant) == "2026-01-11T00:30:00+01:00"
+    assert common.local_day(instant) == date(2026, 1, 11)
+    assert common.local_time(instant) == "2026-01-11T00:30:00+01:00"
 
 
 def test_open_ended_bounds():
-    assert mcp_common.local_day_bounds(None, None) == (None, None)
+    assert common.local_day_bounds(None, None) == (None, None)
 
 
 def test_inverted_range_is_rejected():
     try:
-        mcp_common.check_range(date(2026, 2, 1), date(2026, 1, 1))
+        common.check_range(date(2026, 2, 1), date(2026, 1, 1))
     except ValueError as exc:
         assert "start_date" in str(exc)
     else:
@@ -96,7 +95,7 @@ def test_inverted_range_is_rejected():
 def test_period_deltas_are_b_minus_a_and_skip_missing():
     a = {"trimp": 100.0, "avg_power": None, "count": 3}
     b = {"trimp": 130.5, "avg_power": 200.0, "count": 1}
-    assert mcp_common.period_deltas(a, b, ["trimp", "avg_power", "count"]) == {
+    assert common.period_deltas(a, b, ["trimp", "avg_power", "count"]) == {
         "trimp": 30.5,
         "avg_power": None,
         "count": -2.0,
@@ -104,13 +103,13 @@ def test_period_deltas_are_b_minus_a_and_skip_missing():
 
 
 def test_limit_is_clamped():
-    assert mcp_common.clamp_limit(None) == mcp_common.DEFAULT_LIMIT
-    assert mcp_common.clamp_limit(0) == 1
-    assert mcp_common.clamp_limit(10_000) == mcp_common.MAX_LIMIT
+    assert common.clamp_limit(None) == common.DEFAULT_LIMIT
+    assert common.clamp_limit(0) == 1
+    assert common.clamp_limit(10_000) == common.MAX_LIMIT
 
 
 def test_zones_use_zone_second_keys_and_open_top():
-    zones = mcp_server._zones(get_power_zone_boundaries(200), "watts")
+    zones = server._zones(get_power_zone_boundaries(200), "watts")
     assert [z["zone"] for z in zones] == [f"zone_{i}" for i in range(1, 8)]
     assert zones[0] == {"zone": "zone_1", "min_watts": 0, "max_watts": 110}
     assert zones[-1]["max_watts"] is None
@@ -118,7 +117,7 @@ def test_zones_use_zone_second_keys_and_open_top():
 
 def test_downsample_keeps_ends_and_size():
     data = list(range(1000))
-    sampled = mcp_server._downsample(data, 50)
+    sampled = server._downsample(data, 50)
     assert len(sampled) == 50
     assert sampled[0] == 0 and sampled[-1] == 999
-    assert mcp_server._downsample(data[:10], 50) == data[:10]
+    assert server._downsample(data[:10], 50) == data[:10]

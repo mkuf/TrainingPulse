@@ -39,7 +39,7 @@ services:
       context: .
       dockerfile: app/Dockerfile
     restart: unless-stopped
-    command: ["python", "mcp_server.py"]
+    command: ["python", "-m", "mcp_server"]
     ports:
       # The container always listens on mcp.port (8001); only the host port is
       # configurable here.

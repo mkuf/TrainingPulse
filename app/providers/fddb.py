@@ -11,8 +11,8 @@ import httpx
 from fastapi import FastAPI
 
 from catalog import AuthMethod, DataKind
-from fddb_client import FddbClient, FddbNoDataError
 from providers.base import RateLimitSnapshot, granted_if_connected
+from providers.fddb_client import FddbClient, FddbNoDataError
 from providers.feeds import Feed, NutritionRecord
 from providers.mapping import as_float
 

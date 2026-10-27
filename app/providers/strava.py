@@ -21,7 +21,7 @@ from providers.base import (
     prefixed_id,
 )
 from providers.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
-from strava_client import DEFAULT_API_BASE, StravaClient
+from providers.strava_client import DEFAULT_API_BASE, StravaClient
 
 logger = logging.getLogger(__name__)
 

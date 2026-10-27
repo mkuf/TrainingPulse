@@ -1,9 +1,7 @@
-"""TrainingPulse MCP server.
+"""The FastMCP instance, plus the activity, training-load, athlete, and coverage tools.
 
-Exposes read-only, training-aware tools over MCP for local/network clients.
-Activity, training-load, athlete, and coverage tools live here; body and
-nutrition tools in :mod:`mcp_records`. Shared conventions (local days,
-``b - a`` deltas) are in :mod:`mcp_common`.
+Body and nutrition tools are in :mod:`mcp_server.records`. Shared conventions
+(local days, ``b - a`` deltas) are in :mod:`mcp_server.common`.
 """
 
 from datetime import timedelta
@@ -14,7 +12,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import Select, desc, func, select
 
 from config import config
-from mcp_common import (
+from mcp_server.common import (
     check_range,
     clamp_limit,
     iso_day,
@@ -31,7 +29,7 @@ from mcp_common import (
     seconds_to_minutes,
     today_local,
 )
-from mcp_records import register_record_tools
+from mcp_server.records import register_record_tools
 from metrics import get_hr_zone_boundaries, get_power_zone_boundaries
 from models import (
     ACTIVITY_VISIBLE,
@@ -733,8 +731,3 @@ async def get_data_coverage() -> dict[str, Any]:
 
 register_record_tools(mcp)
 
-
-if __name__ == "__main__":
-    mcp.settings.host = config.mcp.host
-    mcp.settings.port = config.mcp.port
-    mcp.run(transport="streamable-http")

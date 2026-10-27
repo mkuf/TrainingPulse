@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from catalog import AuthMethod, DataKind
 from providers.base import OAuthStateGuard, RateLimitSnapshot, granted_if_connected
 from providers.feeds import BodyRecord, Feed
-from withings_client import WithingsClient
+from providers.withings_client import WithingsClient
 
 logger = logging.getLogger(__name__)
 

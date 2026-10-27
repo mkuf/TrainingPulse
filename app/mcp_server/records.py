@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import Select, func, select
 
-from mcp_common import (
+from mcp_server.common import (
     check_range,
     clamp_limit,
     local_time,

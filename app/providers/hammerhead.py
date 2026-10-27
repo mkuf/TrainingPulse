@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import fitfiles
 from catalog import AuthMethod, DataKind
-from hammerhead_client import DEFAULT_API_BASE, HammerheadClient
 from models import Activity
 from providers.base import (
     OAuthStateGuard,
@@ -32,6 +31,7 @@ from providers.base import (
     granted_if_connected,
     prefixed_id,
 )
+from providers.hammerhead_client import DEFAULT_API_BASE, HammerheadClient
 from providers.mapping import as_float, as_int, clip_text, parse_dt
 
 logger = logging.getLogger(__name__)
