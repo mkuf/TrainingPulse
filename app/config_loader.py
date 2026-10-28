@@ -245,6 +245,15 @@ class HammerheadProvider(_OAuthProviderSection):
     api_base: str = "https://api.hammerhead.io/v1/api"
 
 
+class GarminProvider(_ProviderSection):
+    #: Personal API key from Garmin Connect → Settings → Personal API.
+    api_key: str = secret("")
+    api_base: str = "https://personal.connectapi.garmin.com"
+
+    def missing_credentials(self) -> list[str]:
+        return [] if self.api_key.strip() else ["api_key"]
+
+
 class WithingsProvider(_OAuthProviderSection):
     #: Blank uses {app.base_url}/plugins/withings/get_token, the callback
     #: earlier releases registered, so existing Partner Hub apps keep working.
@@ -282,6 +291,7 @@ class ProvidersSection(_Section):
     strava: StravaProvider = Field(default_factory=StravaProvider)
     google_health: GoogleHealthProvider = Field(default_factory=GoogleHealthProvider)
     hammerhead: HammerheadProvider = Field(default_factory=HammerheadProvider)
+    garmin: GarminProvider = Field(default_factory=GarminProvider)
     withings: WithingsProvider = Field(default_factory=WithingsProvider)
     fddb: FddbProvider = Field(default_factory=FddbProvider)
 

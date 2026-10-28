@@ -11,6 +11,7 @@ from catalog import PROVIDER_NAMES
 from config_loader import Config
 from providers.base import Provider
 from providers.fddb import FddbSource
+from providers.garmin import GarminSource
 from providers.google_health import GoogleHealthSource
 from providers.hammerhead import HammerheadSource
 from providers.intervals import IntervalsSource
@@ -65,6 +66,15 @@ def _build_hammerhead(
     )
 
 
+def _build_garmin(config: Config, session_factory: async_sessionmaker) -> Provider:
+    section = config.providers.garmin
+    return GarminSource(
+        api_key=section.api_key,
+        api_base=section.api_base,
+        session_factory=session_factory,
+    )
+
+
 def _build_withings(config: Config, session_factory: async_sessionmaker) -> Provider:
     section = config.providers.withings
     return WithingsSource(
@@ -94,6 +104,7 @@ _BUILDERS: dict[str, Callable[[Config, async_sessionmaker], Provider]] = {
     "strava": _build_strava,
     "google_health": _build_google_health,
     "hammerhead": _build_hammerhead,
+    "garmin": _build_garmin,
     "withings": _build_withings,
     "fddb": _build_fddb,
 }

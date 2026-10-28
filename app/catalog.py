@@ -96,6 +96,12 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "google_health", "Google Health", AuthMethod.OAUTH, (DataKind.ACTIVITIES,)
         ),
         ProviderSpec("hammerhead", "Hammerhead", AuthMethod.OAUTH, (DataKind.ACTIVITIES,)),
+        ProviderSpec(
+            "garmin",
+            "Garmin Connect",
+            AuthMethod.API_KEY,
+            (DataKind.ACTIVITIES, DataKind.BODY),
+        ),
         ProviderSpec("withings", "Withings", AuthMethod.OAUTH, (DataKind.BODY,)),
         ProviderSpec("fddb", "FDDB", AuthMethod.SESSION, (DataKind.NUTRITION,)),
     )
@@ -106,9 +112,9 @@ PROVIDER_NAMES: tuple[str, ...] = tuple(PROVIDERS)
 #: Default precedence per kind, highest first. Only lists providers that
 #: support the kind; supporting providers left out rank after these.
 DEFAULT_PRECEDENCE: dict[DataKind, tuple[str, ...]] = {
-    DataKind.ACTIVITIES: ("icu", "strava", "google_health", "hammerhead"),
+    DataKind.ACTIVITIES: ("icu", "strava", "google_health", "hammerhead", "garmin"),
     # A dedicated scale beats a phone app that often just mirrors the scale.
-    DataKind.BODY: ("withings", "google_health"),
+    DataKind.BODY: ("withings", "garmin", "google_health"),
     DataKind.NUTRITION: ("fddb", "google_health"),
     DataKind.SLEEP: ("withings", "google_health", "icu"),
 }

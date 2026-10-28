@@ -80,7 +80,7 @@ def test_example_file_validates():
     config = load_config(EXAMPLE, env={"INTERVALS_ICU_API_KEY": "key"})
 
     assert config.active_providers(DataKind.ACTIVITIES) == ["icu"]
-    assert config.data.body.precedence == ["withings"]
+    assert config.data.body.precedence == ["withings", "garmin"]
 
 
 # ── Imports ─────────────────────────────────────────────────────────
@@ -119,6 +119,7 @@ def test_partial_precedence_appends_the_rest_in_default_order(load_with):
         "icu",
         "strava",
         "google_health",
+        "garmin",
     ]
 
 
@@ -132,7 +133,7 @@ def test_precedence_rejects_a_provider_that_cannot_supply_the_kind(problems_for)
 
 def test_precedence_rejects_unknown_and_duplicate_providers(problems_for):
     assert "unknown provider" in problems_for(
-        data={"activities": {"precedence": ["garmin"]}}
+        data={"activities": {"precedence": ["polar"]}}
     )[0][1]
     assert "duplicate provider" in problems_for(
         data={"activities": {"precedence": ["icu", "icu"]}}

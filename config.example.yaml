@@ -58,6 +58,7 @@ athlete:
 #   strava          activities
 #   google_health   activities
 #   hammerhead      activities
+#   garmin          activities, body
 #   withings        body
 #   fddb            nutrition
 
@@ -102,6 +103,16 @@ providers:
     client_secret: ${HAMMERHEAD_CLIENT_SECRET:-}
     api_base: https://api.hammerhead.io/v1/api
 
+  # Garmin Connect — Personal API key from Garmin Connect (web) → Settings →
+  # Personal API → Create Key. No OAuth and no redirect URI. Keys expire after
+  # 30 days to one year; Garmin emails a week before. Activities download and
+  # permanently store the original .fit file, like Hammerhead. Garmin
+  # publishes no rate-limit budget.
+  garmin:
+    enabled: false
+    api_key: ${GARMIN_PERSONAL_API_KEY:-}
+    api_base: https://personal.connectapi.garmin.com
+
   # Withings — body weight, fat %, and muscle mass from Withings scales.
   # Create an app in the Withings Partner Hub; its callback URL must be
   # {app.base_url}/plugins/withings/get_token (unchanged from earlier releases).
@@ -144,11 +155,11 @@ providers:
 
 data:
   activities:
-    precedence: [icu, strava, google_health, hammerhead]
+    precedence: [icu, strava, google_health, hammerhead, garmin]
     history_days: 3650
     refresh_days: 90
   body:
-    precedence: [withings]
+    precedence: [withings, garmin]
     history_days: 3650
     refresh_days: 7
   nutrition:

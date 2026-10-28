@@ -254,6 +254,83 @@ HAMMERHEAD_DETAIL_ACTIVITY = {
 HAMMERHEAD_ACTIVITY_NO_ID = {"name": "No id", "createdAt": "2026-03-14T17:05:00Z"}
 HAMMERHEAD_ACTIVITY_NO_START = {"id": "1000.activity.nostart", "name": "No start"}
 
+# ── Garmin ──────────────────────────────────────────────────────────
+
+#: Shapes follow Garmin Connect's web endpoints, which the Personal API
+#: mirrors; not yet recorded from a real Personal API response.
+GARMIN_SEARCH_ACTIVITY = {
+    "activityId": 17123456789,
+    "activityName": "Morning Run",
+    "description": None,
+    "startTimeGMT": "2026-10-20 06:31:12",
+    "startTimeLocal": "2026-10-20 08:31:12",
+    "activityType": {"typeId": 1, "typeKey": "running"},
+    "distance": 10234.5,
+    "duration": 3105.4,
+    "elapsedDuration": 3180.2,
+    "movingDuration": 3080.0,
+    "elevationGain": 84.0,
+    "averageSpeed": 3.29,
+    "averageHR": 151.0,
+    "maxHR": 176.0,
+    "calories": 712.0,
+}
+
+GARMIN_DETAIL_ACTIVITY = {
+    "activityId": 17123456789,
+    "activityName": "Morning Run",
+    "description": "Easy loop",
+    "activityTypeDTO": {"typeId": 1, "typeKey": "running"},
+    "metadataDTO": {"lastUpdateDate": "2026-10-20T08:10:00.0"},
+    "summaryDTO": {
+        "startTimeGMT": "2026-10-20T06:31:12.0",
+        "distance": 10234.5,
+        "duration": 3105.4,
+        "elapsedDuration": 3180.2,
+        "movingDuration": 3080.0,
+        "elevationGain": 84.0,
+        "averageSpeed": 3.29,
+        "averageHR": 151.0,
+        "maxHR": 176.0,
+        "averagePower": 268.0,
+        "maxPower": 512.0,
+        "normalizedPower": 275.0,
+        "calories": 712.0,
+    },
+}
+
+GARMIN_FIT_SUMMARY = {
+    "start_date": "2026-10-20T06:31:10Z",
+    "elapsed_time": 3181,
+    "moving_time": 3079,
+    "distance": 10240.0,
+    "average_heartrate": 151.4,
+    "max_heartrate": 177.0,
+    "has_heartrate": True,
+    "average_watts": 269.0,
+    "max_watts": 515.0,
+    "device_watts": True,
+    "weighted_average_watts": 276.0,
+    "average_speed": 3.3,
+    "total_elevation_gain": 85.0,
+    "calories": 715.0,
+    "device_name": "Garmin CIRQA",
+}
+
+#: One ``allWeightMetrics`` entry: grams, epoch milliseconds. Field names and
+#: units checked against a real Personal API response (a manual weigh-in);
+#: ``date`` is local wall-clock time, ``timestampGMT`` true UTC.
+GARMIN_WEIGHT_METRIC = {
+    "samplePk": 1792562400123,
+    "date": 1792569600000,
+    "calendarDate": "2026-10-21",
+    "weight": 81250.0,
+    "bodyFat": 18.4,
+    "muscleMass": 36100.0,
+    "sourceType": "INDEX_SCALE",
+    "timestampGMT": 1792562400000,
+}
+
 GOOGLE_HEALTH_TCX = """<?xml version="1.0" encoding="UTF-8"?>
 <TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
   <Activities><Activity Sport="Biking"><Lap><Track>

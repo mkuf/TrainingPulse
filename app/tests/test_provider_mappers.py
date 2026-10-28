@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fixtures import payloads
+from providers import garmin
 from providers import google_health as gh
 from providers import hammerhead
 from providers import intervals as icu
@@ -90,8 +91,9 @@ def test_external_id_round_trip(prefix, activity_id, expected):
         hammerhead.HammerheadSource(
             session_factory=None, client_id="c", client_secret="s"
         ),
+        garmin.GarminSource(api_key="k"),
     ],
-    ids=["icu", "strava", "google_health", "hammerhead"],
+    ids=["icu", "strava", "google_health", "hammerhead", "garmin"],
 )
 def test_sources_satisfy_the_protocol(source):
     assert isinstance(source, ActivitySource)
@@ -110,10 +112,11 @@ def test_sources_satisfy_the_protocol(source):
 
 
 def test_source_names_and_prefixes_are_distinct():
-    names = {icu.SOURCE_NAME, strava.SOURCE_NAME, gh.SOURCE_NAME, hammerhead.SOURCE_NAME}
-    prefixes = {icu.ID_PREFIX, strava.ID_PREFIX, gh.ID_PREFIX, hammerhead.ID_PREFIX}
-    assert len(names) == 4
-    assert len(prefixes) == 4
+    sources = (icu, strava, gh, hammerhead, garmin)
+    names = {source.SOURCE_NAME for source in sources}
+    prefixes = {source.ID_PREFIX for source in sources}
+    assert len(names) == len(sources)
+    assert len(prefixes) == len(sources)
 
 
 def test_mappers_agree_on_the_column_set():
@@ -129,7 +132,15 @@ def test_mappers_agree_on_the_column_set():
         payloads.HAMMERHEAD_LIST_ACTIVITY, ATHLETE_ID
     )
 
-    assert set(icu_row) == set(strava_row) == set(gh_row) == set(hammerhead_row)
+    garmin_row = garmin.map_row(payloads.GARMIN_SEARCH_ACTIVITY, ATHLETE_ID)
+
+    assert (
+        set(icu_row)
+        == set(strava_row)
+        == set(gh_row)
+        == set(hammerhead_row)
+        == set(garmin_row)
+    )
 
 
 def test_mapped_columns_all_exist_on_the_model():
@@ -147,6 +158,13 @@ def test_no_mapper_leaks_private_keys():
         strava.map_row(payloads.STRAVA_LIST_ACTIVITY, ATHLETE_ID),
         gh.map_row(payloads.GOOGLE_HEALTH_EXERCISE, ATHLETE_ID),
         hammerhead.map_row(payloads.HAMMERHEAD_DETAIL_ACTIVITY, ATHLETE_ID),
+        garmin.map_row(
+            {
+                **garmin.flatten_detail(payloads.GARMIN_DETAIL_ACTIVITY),
+                "_fit_summary": payloads.GARMIN_FIT_SUMMARY,
+            },
+            ATHLETE_ID,
+        ),
     ):
         assert [key for key in row if key.startswith("_")] == []
 

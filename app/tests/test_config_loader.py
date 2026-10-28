@@ -238,6 +238,7 @@ def test_list_override_is_comma_split(minimal_config):
         "icu",
         "google_health",
         "hammerhead",
+        "garmin",
     ]
     assert config.mcp.allowed_hosts == ["a:*", "b:*"]
 
@@ -445,6 +446,7 @@ def test_precedence_subset_appends_missing_sources(write_config):
         "icu",
         "google_health",
         "hammerhead",
+        "garmin",
     ]
 
 
@@ -457,7 +459,7 @@ def test_precedence_rejects_unknown_source(write_config):
           ftp: 250
         data:
           activities:
-            precedence: [icu, garmin]
+            precedence: [icu, polar]
         """
     )
 
@@ -465,7 +467,7 @@ def test_precedence_rejects_unknown_source(write_config):
         load_config(path, env={})
 
     assert excinfo.value.problems[0][0] == "data.activities"
-    assert "garmin" in excinfo.value.problems[0][1]
+    assert "polar" in excinfo.value.problems[0][1]
 
 
 def test_precedence_rejects_duplicates(write_config):
@@ -650,6 +652,7 @@ def test_known_secret_paths_are_marked():
     assert ("providers", "strava", "client_secret") in marked
     assert ("providers", "google_health", "client_secret") in marked
     assert ("providers", "hammerhead", "client_secret") in marked
+    assert ("providers", "garmin", "api_key") in marked
     assert ("providers", "withings", "client_secret") in marked
     assert ("providers", "fddb", "password") in marked
     assert ("providers", "fddb", "cookie") in marked

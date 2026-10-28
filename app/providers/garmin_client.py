@@ -1,0 +1,207 @@
+"""Garmin Connect Personal API client.
+
+Endpoints, the token exchange, and the base URL follow Garmin's own Python SDK
+(https://github.com/garmin/connect-personal-api-python). The Personal API is
+read-only and pull-only. A Personal API key, created by the user in Garmin
+Connect's settings, is exchanged for a JWT bearer token valid for 24 hours (or
+until the key expires). There are no refresh tokens: a new bearer token is
+simply requested with the same key. Garmin documents no rate limits and no
+rate-limit headers.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import io
+import json
+import logging
+import time
+import zipfile
+from datetime import date
+
+import httpx
+
+from providers.base import SourceRateLimitExceeded
+
+logger = logging.getLogger(__name__)
+
+SOURCE_NAME = "garmin"
+
+DEFAULT_API_BASE = "https://personal.connectapi.garmin.com"
+TOKEN_PATH = "/personalapitoken-service/personal-api/personal-api-key/token"
+
+#: Garmin's SDK requests a new bearer token once fewer than this many seconds
+#: remain; we do the same.
+_TOKEN_REFRESH_WINDOW = 60 * 60
+
+#: Used when a 429 arrives without ``Retry-After``. Garmin documents no limits.
+_DEFAULT_RATE_LIMIT_RESET = 900.0
+
+#: Caps how much of one activity download this client will buffer. Same order
+#: of magnitude as ``fitfiles.store.MAX_RAW_DATA_BYTES``.
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+
+
+class GarminAuthError(ValueError):
+    """Raised when Garmin rejects the configured Personal API key."""
+
+
+class FitDownloadTooLargeError(ValueError):
+    """Raised when an activity download exceeds :data:`MAX_DOWNLOAD_BYTES`."""
+
+
+def jwt_expiration(token: str) -> float:
+    """The ``exp`` claim of a JWT, read without verifying its signature."""
+    try:
+        encoded = token.split(".")[1]
+        payload = json.loads(
+            base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        )
+        return float(payload["exp"])
+    except (IndexError, KeyError, TypeError, ValueError) as exc:
+        raise GarminAuthError(
+            "Garmin's token endpoint did not return a JWT with an exp claim"
+        ) from exc
+
+
+def extract_fit(archive: bytes) -> bytes:
+    """Return the ``.fit`` member of Garmin's original-activity ZIP.
+
+    Garmin wraps the original file in a ZIP. Activities uploaded from another
+    format (GPX/TCX) contain no ``.fit`` member and raise ``ValueError``.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            for info in bundle.infolist():
+                if info.filename.lower().endswith(".fit"):
+                    if info.file_size > MAX_DOWNLOAD_BYTES:
+                        raise FitDownloadTooLargeError(
+                            f"{info.filename} unpacks to {info.file_size} bytes"
+                        )
+                    return bundle.read(info)
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Garmin activity download is not a ZIP archive") from exc
+    raise ValueError("Garmin activity download contains no .fit file")
+
+
+class GarminClient:
+    """Async Garmin Personal API client that manages its own bearer token."""
+
+    def __init__(self, api_key: str, *, api_base: str = DEFAULT_API_BASE):
+        self._api_key = api_key
+        self.api_base = (api_base or DEFAULT_API_BASE).rstrip("/")
+        self._http = httpx.AsyncClient(timeout=30.0)
+        self._token: str | None = None
+        self._token_expires_at = 0.0
+        # Serializes token exchange so concurrent callers don't double-fetch.
+        self._token_lock = asyncio.Lock()
+
+    async def close(self) -> None:
+        await self._http.aclose()
+
+    # ── Auth ────────────────────────────────────────────────────────
+
+    async def _ensure_token(self) -> str:
+        async with self._token_lock:
+            if (
+                self._token is not None
+                and self._token_expires_at - time.time() > _TOKEN_REFRESH_WINDOW
+            ):
+                return self._token
+            response = await self._http.post(
+                f"{self.api_base}{TOKEN_PATH}",
+                headers={"Accept": "*/*", "Authorization": f"ApiKey {self._api_key}"},
+            )
+            if response.status_code in (401, 403):
+                raise GarminAuthError(
+                    f"Garmin rejected the Personal API key (HTTP {response.status_code}). "
+                    "It may have expired; create a new one in Garmin Connect and "
+                    "update providers.garmin.api_key."
+                )
+            response.raise_for_status()
+            token = response.text.strip()
+            self._token_expires_at = jwt_expiration(token)
+            self._token = token
+            logger.info("Garmin bearer token obtained")
+            return token
+
+    # ── Requests ────────────────────────────────────────────────────
+
+    def _raise_for_rate_limit(self, response: httpx.Response) -> None:
+        if response.status_code == 429:
+            retry_after = response.headers.get("Retry-After")
+            reset = float(retry_after) if retry_after else _DEFAULT_RATE_LIMIT_RESET
+            logger.warning("Got 429 from Garmin (Retry-After=%s)", retry_after)
+            raise SourceRateLimitExceeded(source=SOURCE_NAME, reset_after=reset)
+
+    async def _get(self, path: str, *, params: dict | None = None):
+        """GET a path and return decoded JSON, or ``None`` for an empty body."""
+        token = await self._ensure_token()
+        response = await self._http.get(
+            f"{self.api_base}{path}",
+            params=params,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+        )
+        self._raise_for_rate_limit(response)
+        response.raise_for_status()
+        if not response.content:
+            return None
+        return response.json()
+
+    async def search_activities(
+        self, *, start: int, limit: int, start_date: date, end_date: date
+    ) -> list[dict]:
+        """One page of activity summaries for an inclusive local-date range."""
+        data = await self._get(
+            "/activitylist-service/activities/search/activities",
+            params={
+                "start": start,
+                "limit": limit,
+                "startDate": start_date.isoformat(),
+                "endDate": end_date.isoformat(),
+            },
+        )
+        if data is None:
+            return []
+        if not isinstance(data, list):
+            raise ValueError("Unexpected Garmin activity search response")
+        return data
+
+    async def get_activity(self, activity_id: str) -> dict:
+        data = await self._get(f"/activity-service/activity/{activity_id}")
+        if not isinstance(data, dict):
+            raise ValueError("Unexpected Garmin activity response")
+        return data
+
+    async def get_weight_measurements(self, start_date: date, end_date: date) -> dict:
+        """Every weigh-in for an inclusive local-date range."""
+        data = await self._get(
+            f"/weight-service/weight/range/{start_date.isoformat()}/{end_date.isoformat()}",
+            params={"includeAll": "true"},
+        )
+        return data if isinstance(data, dict) else {}
+
+    async def download_activity(self, activity_id: str) -> bytes:
+        """The original activity file as ZIP bytes, streamed with a size cap."""
+        token = await self._ensure_token()
+        url = f"{self.api_base}/download-service/files/activity/{activity_id}"
+        headers = {
+            "Accept": "application/zip, application/x-zip-compressed, "
+            "application/octet-stream",
+            "Authorization": f"Bearer {token}",
+        }
+        chunks: list[bytes] = []
+        total = 0
+        async with self._http.stream("GET", url, headers=headers) as response:
+            self._raise_for_rate_limit(response)
+            response.raise_for_status()
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > MAX_DOWNLOAD_BYTES:
+                    raise FitDownloadTooLargeError(
+                        f"Garmin download for activity {activity_id!r} exceeds "
+                        f"the {MAX_DOWNLOAD_BYTES}-byte limit; aborting"
+                    )
+                chunks.append(chunk)
+        return b"".join(chunks)
