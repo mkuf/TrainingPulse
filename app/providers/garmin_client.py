@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -85,15 +86,26 @@ def extract_fit(archive: bytes) -> bytes:
     raise ValueError("Garmin activity download contains no .fit file")
 
 
+#: Bearer tokens shared by every client in this process, keyed by
+#: :func:`_token_cache_key`. The sync engine builds a fresh client for every
+#: run, so without this each sync would exchange the key again. Kept in memory
+#: only: a token is cheap to get again after a restart, and keying on the API
+#: key means a replaced key never reuses the old key's token.
+_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+
+
+def _token_cache_key(api_base: str, api_key: str) -> str:
+    return hashlib.sha256(f"{api_base}\0{api_key}".encode()).hexdigest()
+
+
 class GarminClient:
     """Async Garmin Personal API client that manages its own bearer token."""
 
     def __init__(self, api_key: str, *, api_base: str = DEFAULT_API_BASE):
         self._api_key = api_key
         self.api_base = (api_base or DEFAULT_API_BASE).rstrip("/")
+        self._cache_key = _token_cache_key(self.api_base, api_key)
         self._http = httpx.AsyncClient(timeout=30.0)
-        self._token: str | None = None
-        self._token_expires_at = 0.0
         # Serializes token exchange so concurrent callers don't double-fetch.
         self._token_lock = asyncio.Lock()
 
@@ -102,13 +114,15 @@ class GarminClient:
 
     # ── Auth ────────────────────────────────────────────────────────
 
+    def _forget_token(self) -> None:
+        """Drop the cached token, e.g. after Garmin rejected it."""
+        _TOKEN_CACHE.pop(self._cache_key, None)
+
     async def _ensure_token(self) -> str:
         async with self._token_lock:
-            if (
-                self._token is not None
-                and self._token_expires_at - time.time() > _TOKEN_REFRESH_WINDOW
-            ):
-                return self._token
+            cached = _TOKEN_CACHE.get(self._cache_key)
+            if cached is not None and cached[1] - time.time() > _TOKEN_REFRESH_WINDOW:
+                return cached[0]
             response = await self._http.post(
                 f"{self.api_base}{TOKEN_PATH}",
                 headers={"Accept": "*/*", "Authorization": f"ApiKey {self._api_key}"},
@@ -121,14 +135,18 @@ class GarminClient:
                 )
             response.raise_for_status()
             token = response.text.strip()
-            self._token_expires_at = jwt_expiration(token)
-            self._token = token
+            _TOKEN_CACHE[self._cache_key] = (token, jwt_expiration(token))
             logger.info("Garmin bearer token obtained")
             return token
 
     # ── Requests ────────────────────────────────────────────────────
 
-    def _raise_for_rate_limit(self, response: httpx.Response) -> None:
+    def _check_status(self, response: httpx.Response) -> None:
+        """Handle the statuses that need more than ``raise_for_status``."""
+        if response.status_code == 401:
+            # Deleting the key revokes its tokens early; the next call must
+            # exchange the key again instead of reusing the cached token.
+            self._forget_token()
         if response.status_code == 429:
             retry_after = response.headers.get("Retry-After")
             reset = float(retry_after) if retry_after else _DEFAULT_RATE_LIMIT_RESET
@@ -143,7 +161,7 @@ class GarminClient:
             params=params,
             headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
         )
-        self._raise_for_rate_limit(response)
+        self._check_status(response)
         response.raise_for_status()
         if not response.content:
             return None
@@ -194,7 +212,7 @@ class GarminClient:
         chunks: list[bytes] = []
         total = 0
         async with self._http.stream("GET", url, headers=headers) as response:
-            self._raise_for_rate_limit(response)
+            self._check_status(response)
             response.raise_for_status()
             async for chunk in response.aiter_bytes():
                 total += len(chunk)

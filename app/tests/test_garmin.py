@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import time
 import io
 import json
 import zipfile
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from fixtures import payloads
 from providers import garmin
 from providers.feeds import BodyRecord
+from providers import garmin_client
 from providers.garmin_client import (
     GarminAuthError,
+    GarminClient,
     extract_fit,
     jwt_expiration,
 )
@@ -245,3 +249,88 @@ def test_extract_fit_returns_the_fit_member():
 def test_extract_fit_rejects_archives_without_a_fit_file(archive):
     with pytest.raises(ValueError):
         extract_fit(archive)
+
+
+# ── Token cache ─────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _empty_token_cache():
+    garmin_client._TOKEN_CACHE.clear()
+    yield
+    garmin_client._TOKEN_CACHE.clear()
+
+
+class _FakeGarmin:
+    """Serves the token endpoint and an empty activity search."""
+
+    def __init__(self, *, token_ttl: float = 86_400, search_status: int = 200):
+        self.token_ttl = token_ttl
+        self.search_status = search_status
+        self.token_requests: list[str] = []
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == garmin_client.TOKEN_PATH:
+            self.token_requests.append(request.headers["Authorization"])
+            token = _jwt(
+                {"exp": time.time() + self.token_ttl, "n": len(self.token_requests)}
+            )
+            return httpx.Response(200, text=token)
+        return httpx.Response(self.search_status, json=[])
+
+    def client(self, api_key: str = "key-a") -> GarminClient:
+        client = GarminClient(api_key)
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
+        return client
+
+
+def _search(client: GarminClient) -> None:
+    async def run():
+        try:
+            today = datetime.now(timezone.utc).date()
+            await client.search_activities(
+                start=0, limit=1, start_date=today, end_date=today
+            )
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+def test_token_is_reused_across_clients():
+    fake = _FakeGarmin()
+
+    _search(fake.client())
+    _search(fake.client())
+
+    assert fake.token_requests == ["ApiKey key-a"]
+
+
+def test_a_new_api_key_gets_its_own_token():
+    fake = _FakeGarmin()
+
+    _search(fake.client("key-a"))
+    _search(fake.client("key-b"))
+
+    assert fake.token_requests == ["ApiKey key-a", "ApiKey key-b"]
+
+
+def test_token_close_to_expiry_is_replaced():
+    # Inside the one-hour refresh window from the start.
+    fake = _FakeGarmin(token_ttl=30 * 60)
+
+    _search(fake.client())
+    _search(fake.client())
+
+    assert len(fake.token_requests) == 2
+
+
+def test_rejected_token_is_forgotten():
+    fake = _FakeGarmin(search_status=401)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        _search(fake.client())
+    fake.search_status = 200
+    _search(fake.client())
+
+    assert len(fake.token_requests) == 2
