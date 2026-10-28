@@ -29,60 +29,79 @@ def _utc(text: str) -> datetime:
 # ── Activities ──────────────────────────────────────────────────────
 
 
-def test_search_payload_maps_provisional_values():
+def test_search_payload_maps_garmin_values():
     row = garmin.map_row(payloads.GARMIN_SEARCH_ACTIVITY, ATHLETE_ID)
 
-    assert row["id"] == "garmin_17123456789"
+    assert row["id"] == "garmin_24884964010"
     assert row["source"] == "garmin"
     assert row["athlete_id"] == ATHLETE_ID
-    assert row["name"] == "Morning Run"
-    assert row["sport_type"] == "Run"
+    assert row["name"] == "Radfahren"
+    assert row["sport_type"] == "Ride"
     # startTimeGMT has no offset but is UTC.
-    assert row["start_date"] == _utc("2026-10-20T06:31:12Z")
-    assert row["elapsed_time"] == 3180
-    assert row["moving_time"] == 3080
-    assert row["distance"] == pytest.approx(10234.5)
-    assert row["average_heartrate"] == pytest.approx(151.0)
+    assert row["start_date"] == _utc("2026-10-24T12:12:22Z")
+    assert row["elapsed_time"] == 3862
+    assert row["moving_time"] == 3613
+    assert row["distance"] == pytest.approx(30394.1)
+    assert row["average_heartrate"] == pytest.approx(119.0)
     assert row["has_heartrate"] is True
-    assert row["total_elevation_gain"] == pytest.approx(84.0)
-    # No power in the summary: no power, no work.
-    assert row["average_watts"] is None
-    assert row["device_watts"] is False
-    assert row["kilojoules"] is None
+    assert row["average_watts"] == pytest.approx(101.0)
+    assert row["device_watts"] is True
+    assert row["kilojoules"] == pytest.approx(101.0 * 3613 / 1000)
+    assert row["weighted_average_watts"] == pytest.approx(104.0)
+    assert row["device_name"] is None
 
 
-def test_detail_with_fit_summary_prefers_fit_values():
+def test_search_and_detail_rows_agree_on_every_reconcile_field():
+    """Reconcile compares a re-listed row with the detailed one.
+
+    Any difference would re-detail the activity on every sync, so the FIT
+    summary must not leak into these fields.
+    """
+    from ingest.activities import _DIFF_FIELDS
+
+    listed = garmin.map_row(payloads.GARMIN_SEARCH_ACTIVITY, ATHLETE_ID)
+    detailed = garmin.map_row(
+        {
+            **garmin.flatten_detail(payloads.GARMIN_DETAIL_ACTIVITY),
+            "_fit_summary": payloads.GARMIN_FIT_SUMMARY,
+        },
+        ATHLETE_ID,
+    )
+
+    assert {name: detailed[name] for name in _DIFF_FIELDS} == {
+        name: listed[name] for name in _DIFF_FIELDS
+    }
+
+
+def test_fit_summary_only_fills_what_the_json_lacks():
     payload = {
         **garmin.flatten_detail(payloads.GARMIN_DETAIL_ACTIVITY),
         "_fit_summary": payloads.GARMIN_FIT_SUMMARY,
     }
     row = garmin.map_row(payload, ATHLETE_ID)
 
-    assert row["description"] == "Easy loop"
-    assert row["start_date"] == _utc("2026-10-20T06:31:10Z")
-    assert row["elapsed_time"] == 3181
-    assert row["moving_time"] == 3079
-    assert row["distance"] == pytest.approx(10240.0)
-    assert row["average_watts"] == pytest.approx(269.0)
-    assert row["device_watts"] is True
-    assert row["kilojoules"] == pytest.approx(269.0 * 3079 / 1000)
-    assert row["weighted_average_watts"] == pytest.approx(276.0)
-    assert row["device_name"] == "Garmin CIRQA"
-    assert row["provider_updated_at"] == _utc("2026-10-20T08:10:00Z")
+    # Garmin's numbers win...
+    assert row["start_date"] == _utc("2026-10-24T12:12:22Z")
+    assert row["average_speed"] == pytest.approx(8.408)
+    assert row["total_elevation_gain"] == pytest.approx(0.0)
+    # ...and the FIT file fills the gaps.
+    assert row["calories"] == pytest.approx(640.0)
+    assert row["device_name"] == "Hammerhead Karoo"
+    assert row["provider_updated_at"] == _utc("2026-10-28T18:35:03Z")
 
 
-def test_detail_without_fit_falls_back_to_summary_dto():
+def test_stationary_sport_uses_elapsed_as_moving_time():
+    """Garmin reports movingDuration 0 for strength sessions."""
     payload = {
-        **garmin.flatten_detail(payloads.GARMIN_DETAIL_ACTIVITY),
-        "_fit_summary": None,
+        **payloads.GARMIN_SEARCH_ACTIVITY,
+        "activityType": {"typeKey": "strength_training"},
+        "elapsedDuration": 1800.0,
+        "movingDuration": 0.0,
     }
     row = garmin.map_row(payload, ATHLETE_ID)
 
-    assert row["start_date"] == _utc("2026-10-20T06:31:12Z")
-    assert row["sport_type"] == "Run"
-    assert row["average_watts"] == pytest.approx(268.0)
-    assert row["weighted_average_watts"] == pytest.approx(275.0)
-    assert row["device_watts"] is True
+    assert row["sport_type"] == "WeightTraining"
+    assert row["moving_time"] == 1800
 
 
 @pytest.mark.parametrize(

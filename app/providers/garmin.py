@@ -134,8 +134,13 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     """Map a Garmin activity payload onto ``activities`` columns.
 
     ``payload`` is a search result, or a flattened detail payload with a
-    private ``_fit_summary`` added by :meth:`GarminSource.fetch_detail`. FIT
-    values win over the JSON ones whenever the file was readable.
+    private ``_fit_summary`` added by :meth:`GarminSource.fetch_detail`.
+
+    Every field reconcile compares (``ingest.activities._DIFF_FIELDS``) comes
+    from Garmin's JSON only, which is identical in the search and detail
+    payloads, so re-listing flags an activity only when it was edited
+    upstream. The FIT summary, which differs from Garmin's numbers by a
+    second or a fraction of a beat, only fills fields the JSON lacks.
     """
     raw_id = payload.get("activityId")
     if raw_id is None:
@@ -145,32 +150,26 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     fit = payload.get("_fit_summary") or {}
 
     # ``startTimeGMT`` is UTC without an offset, which ``parse_dt`` assumes.
-    start = parse_dt(fit.get("start_date")) or parse_dt(payload.get("startTimeGMT"))
+    start = parse_dt(payload.get("startTimeGMT")) or parse_dt(fit.get("start_date"))
     if start is None:
         logger.warning("Garmin activity %s has no start time; skipping", raw_id)
         return None
 
-    json_elapsed = as_int(payload.get("elapsedDuration") or payload.get("duration"))
-    json_moving = as_int(payload.get("movingDuration"), json_elapsed)
-    elapsed = (
-        as_int(fit["elapsed_time"])
-        if fit.get("elapsed_time") is not None
-        else json_elapsed
-    )
-    moving = (
-        as_int(fit["moving_time"])
-        if fit.get("moving_time") is not None
-        else json_moving
-    )
+    elapsed = as_int(payload.get("elapsedDuration") or payload.get("duration"))
+    # Garmin reports a moving time of 0 for stationary sports (strength, yoga);
+    # use the elapsed time so TRIMP and calorie estimates still see the session.
+    moving = as_int(payload.get("movingDuration")) or elapsed
 
-    def pick(fit_key: str, json_key: str) -> float | None:
-        value = as_float(fit.get(fit_key))
-        return value if value is not None else as_float(payload.get(json_key))
+    def pick(json_key: str, fit_key: str) -> float | None:
+        value = as_float(payload.get(json_key))
+        return value if value is not None else as_float(fit.get(fit_key))
 
-    average_hr = pick("average_heartrate", "averageHR")
-    max_hr = pick("max_heartrate", "maxHR")
-    average_watts = pick("average_watts", "avgPower")
-    device_watts = bool(fit.get("device_watts")) if fit else average_watts is not None
+    average_hr = as_float(payload.get("averageHR"))
+    max_hr = as_float(payload.get("maxHR"))
+    average_watts = as_float(payload.get("avgPower"))
+    device_watts = average_watts is not None
+    # The search payload carries float32 noise (30394.099609375 vs 30394.1).
+    distance = round(as_float(payload.get("distance")) or 0.0, 1)
     kilojoules = (
         average_watts * moving / 1000.0
         if device_watts and average_watts and moving
@@ -190,21 +189,21 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "start_date": start,
         "elapsed_time": elapsed,
         "moving_time": moving,
-        "distance": pick("distance", "distance") or 0.0,
+        "distance": distance,
         "average_heartrate": average_hr,
         "max_heartrate": max_hr,
-        "has_heartrate": bool(fit.get("has_heartrate")) or average_hr is not None,
+        "has_heartrate": average_hr is not None,
         "average_watts": average_watts,
-        "max_watts": pick("max_watts", "maxPower"),
-        "average_speed": pick("average_speed", "averageSpeed"),
-        "total_elevation_gain": pick("total_elevation_gain", "elevationGain"),
+        "max_watts": as_float(payload.get("maxPower")),
+        "average_speed": pick("averageSpeed", "average_speed"),
+        "total_elevation_gain": pick("elevationGain", "total_elevation_gain"),
         "kilojoules": kilojoules,
         "calories": pick("calories", "calories"),
         "device_watts": device_watts,
         "device_name": clip_text(fit.get("device_name"), 255),
         "gear_id": None,
         "gear_name": None,
-        "weighted_average_watts": pick("weighted_average_watts", "normPower"),
+        "weighted_average_watts": pick("normPower", "weighted_average_watts"),
         "suffer_score": None,
         "training_load": None,
         "provider_updated_at": parse_dt(payload.get("lastUpdateDate")),
@@ -264,15 +263,17 @@ class GarminSource:
     """Garmin Connect, authenticated with a Personal API key.
 
     The provider is its own activities feed, plus a separate body feed.
-    Reconcile is off for the same reason as Hammerhead: the list has no
-    reliable updated-since marker, and re-detailing would re-parse FIT files.
+    Reconcile is on: one search request covers 100 activities, and
+    :func:`map_row` keeps list and detail rows comparable, so only activities
+    edited in Garmin Connect (sport, name, trimmed) are re-detailed. Their FIT
+    file is already stored, so a re-detail costs one JSON request.
     """
 
     name = SOURCE_NAME
     id_prefix = ID_PREFIX
     supports_detail = True
     supports_streams = True
-    supports_reconcile = False
+    supports_reconcile = True
     auth = AuthMethod.API_KEY
     kind = DataKind.ACTIVITIES
     connect_path = ""
