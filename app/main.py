@@ -9,7 +9,7 @@ Provides:
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select, true
+from sqlalchemy import distinct, func, select, true
 
 from catalog import KINDS, PROVIDERS, AuthMethod, DataKind
 from config import config
@@ -112,7 +112,8 @@ KIND_UNITS: dict[DataKind, tuple[str, str]] = {
     DataKind.NUTRITION: ("day", "days"),
     DataKind.SLEEP: ("night", "nights"),
     DataKind.WELLNESS: ("day", "days"),
-    DataKind.INTRADAY: ("sample", "samples"),
+    # Sample counts mean nothing to a reader; days with samples do.
+    DataKind.INTRADAY: ("day", "days"),
 }
 
 SHOWN_KINDS: tuple[DataKind, ...] = (DataKind.ACTIVITIES, *RECORD_KINDS)
@@ -190,12 +191,14 @@ async def _kind_counts(session, athlete_id: int | None) -> dict[DataKind, dict[s
         if kind is DataKind.ACTIVITIES and athlete_id is None:
             counts[kind] = by_provider
             continue
+        # Intraday rows are thousands of samples a day; count days instead.
+        unit = distinct(model.day) if kind is DataKind.INTRADAY else model.id
         rows = (
             await session.execute(
                 select(
                     provider_column,
-                    func.count(model.id).filter(model.superseded_by == None),  # noqa: E711
-                    func.count(model.id).filter(model.superseded_by != None),  # noqa: E711
+                    func.count(unit).filter(model.superseded_by == None),  # noqa: E711
+                    func.count(unit).filter(model.superseded_by != None),  # noqa: E711
                 )
                 .where(scope)
                 .group_by(provider_column)
@@ -209,6 +212,29 @@ async def _kind_counts(session, athlete_id: int | None) -> dict[DataKind, dict[s
             entry["hidden"] += int(hidden)
         counts[kind] = by_provider
     return counts
+
+
+async def _kind_since(session, athlete_id: int | None) -> dict[DataKind, date]:
+    """The earliest visible entry of each shown kind, as a local day."""
+    since: dict[DataKind, date] = {}
+    if athlete_id is not None:
+        first = await session.scalar(
+            select(func.min(Activity.start_date)).where(
+                ACTIVITY_VISIBLE, Activity.athlete_id == athlete_id
+            )
+        )
+        if first is not None:
+            since[DataKind.ACTIVITIES] = first.astimezone(
+                ZoneInfo(config.athlete.timezone)
+            ).date()
+    for kind in RECORD_KINDS:
+        model = STORES[kind].model
+        first = await session.scalar(
+            select(func.min(model.day)).where(model.superseded_by == None)  # noqa: E711
+        )
+        if first is not None:
+            since[kind] = first
+    return since
 
 
 async def _pending_counts(session, athlete_id: int | None) -> dict:
@@ -236,6 +262,16 @@ async def _pending_counts(session, athlete_id: int | None) -> dict:
         "details_pending": details_pending,
         "streams_pending": streams_pending,
     }
+
+
+async def _ungranted_imports(provider, name: str) -> list[DataKind]:
+    """Imported kinds the stored credentials cannot read (missing scopes)."""
+    try:
+        granted = await provider.granted_kinds()
+    except Exception as exc:  # noqa: BLE001 - status page must render
+        logger.warning("%s granted-kinds check failed: %s", name, exc)
+        return []
+    return [kind for kind in config.providers.imports_of(name) if kind not in granted]
 
 
 async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]:
@@ -269,23 +305,23 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 else "Signs in with the login from config.yaml."
             )
         elif connected:
-            status, status_label, tone = "connected", "Connected", "ok"
-            hint = f"You gave TrainingPulse access to your {label} account."
+            missing = await _ungranted_imports(provider, name)
+            if missing:
+                status, status_label, tone = "connected", "Reconnect needed", "warn"
+                hint = (
+                    f"Disconnect and connect {label} again to allow "
+                    f"{', '.join(KINDS[kind].label.lower() for kind in missing)}."
+                )
+            else:
+                status, status_label, tone = "connected", "Connected", "ok"
+                hint = f"You gave TrainingPulse access to your {label} account."
         else:
             status, status_label, tone = "disconnected", "Not connected", "warn"
             hint = f"Connect your {label} account to start syncing."
 
-        imports = config.providers.imports_of(name)
+        # Amounts, including hidden duplicates, live in "Where your data
+        # comes from"; the card is about the connection only.
         usable = status in ("ready", "connected")
-        count_labels: list[str] = []
-        hidden = 0
-        for kind in imports:
-            if kind not in KIND_UNITS:
-                continue
-            entry = counts.get(kind, {}).get(name, {"visible": 0, "hidden": 0})
-            hidden += entry["hidden"]
-            if entry["visible"] or usable:
-                count_labels.append(_count_label(kind, entry["visible"]))
 
         quota = None
         snapshot = sync_state.rate_limits.get(name)
@@ -309,9 +345,6 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 "status_label": status_label,
                 "tone": tone,
                 "hint": hint,
-                "kinds_label": ", ".join(KINDS[kind].label for kind in imports),
-                "counts": count_labels,
-                "hidden": hidden,
                 "quota": quota,
                 "usable": usable,
                 "connect_path": provider.connect_path,
@@ -324,7 +357,9 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
     return views
 
 
-def _kind_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]:
+def _kind_views(
+    counts: dict[DataKind, dict[str, dict]], since: dict[DataKind, date]
+) -> list[dict]:
     """Each kind's providers in precedence order, with what each one shows."""
     views: list[dict] = []
     for kind in SHOWN_KINDS:
@@ -343,15 +378,19 @@ def _kind_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]:
             {
                 "label": PROVIDER_LABELS.get(name, name),
                 "count": by_provider.get(name, {}).get("visible", 0),
+                "hidden": by_provider.get(name, {}).get("hidden", 0),
                 "off": name not in active,
             }
             for name in active + leftover
         ]
         total = sum(entry["visible"] for entry in by_provider.values())
+        total_label = _count_label(kind, total) if total else "No data yet"
+        if total and kind in since:
+            total_label += f" · since {since[kind].strftime('%b %Y')}"
         views.append(
             {
                 "label": KINDS[kind].label,
-                "total_label": _count_label(kind, total) if total else "No data yet",
+                "total_label": total_label,
                 "chain": chain,
             }
         )
@@ -449,13 +488,14 @@ async def _live_context() -> dict:
     async with async_session() as session:
         athlete_id = await _primary_athlete_id(session)
         counts = await _kind_counts(session, athlete_id)
+        since = await _kind_since(session, athlete_id)
         pending = await _pending_counts(session, athlete_id)
     providers = await _provider_views(counts)
     return {
         "setup": not any(view["usable"] for view in providers),
         "sync": _sync_view(pending),
         "providers": providers,
-        "kinds": _kind_views(counts),
+        "kinds": _kind_views(counts, since),
     }
 
 
@@ -475,6 +515,12 @@ async def home(request: Request):
         grafana_url=_grafana_url(),
         athlete=config.athlete,
         resting_hr=resting_hr,
+        resting_hr_source=(
+            f"{PROVIDER_LABELS.get(resting_hr.provider, resting_hr.provider)} · "
+            f"{resting_hr.days}-day median"
+            if resting_hr.source == "imported"
+            else "From config.yaml"
+        ),
     )
     return templates.TemplateResponse(request, "index.html", context)
 

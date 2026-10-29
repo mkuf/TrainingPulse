@@ -9,13 +9,15 @@ A **provider** is an account that you connect. A provider gives one or more **da
 | `activities` | intervals.icu, Strava, Google Health, Hammerhead, Garmin Connect |
 | `body` | Withings, Garmin Connect |
 | `nutrition` | FDDB |
-| `sleep` | Garmin Connect |
-| `wellness` | Garmin Connect |
-| `intraday` | Garmin Connect |
+| `sleep` | Garmin Connect, Google Health |
+| `wellness` | Garmin Connect, Google Health |
+| `intraday` | Garmin Connect, Google Health |
 
-- `sleep`: one main sleep per night, with times, sleep stages, score, heart rate, respiration, and naps of that day.
-- `wellness`: one row per day with resting heart rate, HRV, stress, Body Battery, respiration, steps, and calories.
-- `intraday`: values with a time stamp, for example heart rate every 2 minutes, HRV every 5 minutes while you sleep, and Body Battery.
+- `sleep`: one main sleep per night: start, end, time asleep, deep, light, REM, and awake time, naps of that day, and the sleep-stage timeline if the provider gives one.
+- `wellness`: one row per day: resting heart rate, HRV, respiration while asleep, SpO2, skin temperature deviation, steps, and calories.
+- `intraday`: values with a time stamp: heart rate (2-minute averages), HRV every 5 minutes while you sleep, and SpO2.
+
+TrainingPulse imports only these values, because most wearables give them. It does not import scores that only one provider calculates, for example the Garmin sleep score, stress, or Body Battery. These scores are different for each provider and cannot be compared. Instead, TrainingPulse calculates its own sleep score and recovery score from the values above. Refer to [Sleep and recovery scores](sleep-and-recovery.md).
 
 Each data kind has one table, one set of dashboards, and one set of MCP tools. This is the same for all providers.
 

@@ -337,6 +337,39 @@ async def _add_deleted_upstream_at(conn: AsyncConnection) -> None:
     logger.info("Added activities.deleted_upstream_at column")
 
 
+async def _add_oauth_scopes(conn: AsyncConnection) -> None:
+    """Add ``oauth_tokens.scopes``; NULL means "granted before it was recorded"."""
+    if not await _table_exists(conn, "oauth_tokens"):
+        return
+    if await _column_exists(conn, "oauth_tokens", "scopes"):
+        return
+    await conn.execute(text("ALTER TABLE oauth_tokens ADD COLUMN scopes TEXT"))
+    logger.info("Added oauth_tokens.scopes column")
+
+
+async def _reset_prebaseline_wellness(conn: AsyncConnection) -> None:
+    """Drop the first-draft sleep, wellness, and sample tables.
+
+    They carried provider-specific columns (Body Battery, stress, sleep score)
+    and only ever existed on a development branch. Their data comes back from
+    the providers on the next sync, so dropping them and their sync cursors is
+    simpler and safer than altering them column by column. Runs before
+    ``create_all``, which then creates the current tables.
+    """
+    if not await _column_exists(conn, "daily_wellness", "body_battery_max"):
+        return
+    await conn.execute(
+        text("DROP TABLE IF EXISTS wellness_samples, daily_wellness, sleep_sessions CASCADE")
+    )
+    await conn.execute(
+        text(
+            "DELETE FROM record_sync_cursors "
+            "WHERE kind IN ('sleep', 'wellness', 'intraday')"
+        )
+    )
+    logger.info("Dropped first-draft sleep and wellness tables; they re-sync next")
+
+
 async def _add_computed_energy(conn: AsyncConnection) -> None:
     """Add the ``computed_*`` energy columns, renaming the ``estimated_*`` ones.
 
@@ -552,7 +585,9 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
             "Strava activity history preserved with 'strava_' id prefix; "
             "overlapping activities will be marked as superseded during sync"
         )
+    await _reset_prebaseline_wellness(conn)
     await conn.run_sync(Base.metadata.create_all)
+    await _add_oauth_scopes(conn)
     await _migrate_strava_tokens(conn)
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)

@@ -8,7 +8,7 @@ until the key expires). There are no refresh tokens: a new bearer token is
 simply requested with the same key. Garmin documents no rate limits and no
 rate-limit headers; in practice it answered HTTP 429 with ``Retry-After: 41``
 after about 100 requests in 17 seconds, so requests are spaced out (see
-:class:`_Pacer`).
+:class:`providers.base.RequestPacer`).
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from datetime import date
 
 import httpx
 
-from providers.base import SourceRateLimitExceeded
+from providers.base import RequestPacer, SourceRateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -96,29 +96,7 @@ def extract_fit(archive: bytes) -> bytes:
     raise ValueError("Garmin activity download contains no .fit file")
 
 
-class _Pacer:
-    """Spaces requests out across every Garmin client in this process.
-
-    Each feed builds its requests through the provider's one client, but the
-    status page and the sync can run their own, and Garmin's limit is per
-    account, so the schedule is shared.
-    """
-
-    def __init__(self, interval: float):
-        self._interval = interval
-        self._next = 0.0
-        self._lock = asyncio.Lock()
-
-    async def wait(self) -> None:
-        async with self._lock:
-            now = time.monotonic()
-            delay = self._next - now
-            self._next = max(now, self._next) + self._interval
-        if delay > 0:
-            await asyncio.sleep(delay)
-
-
-_PACER = _Pacer(_MIN_REQUEST_INTERVAL)
+_PACER = RequestPacer(_MIN_REQUEST_INTERVAL)
 
 
 #: Bearer tokens shared by every client in this process, keyed by
@@ -305,17 +283,6 @@ class GarminClient:
         """The overnight HRV readings (every five minutes) ending on ``day``."""
         data = await self._get(f"/hrv-service/hrv/{day.isoformat()}")
         return data if isinstance(data, dict) else {}
-
-    async def get_body_battery(self, start_date: date, end_date: date) -> list[dict]:
-        """Body Battery reports, one per day, each with a few key samples."""
-        data = await self._get(
-            "/wellness-service/wellness/bodyBattery/reports/daily",
-            params={
-                "startDate": start_date.isoformat(),
-                "endDate": end_date.isoformat(),
-            },
-        )
-        return data if isinstance(data, list) else []
 
     async def download_activity(self, activity_id: str) -> bytes:
         """The original activity file as ZIP bytes, streamed with a size cap."""

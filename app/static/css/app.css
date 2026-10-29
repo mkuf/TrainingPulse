@@ -254,7 +254,6 @@ code {
     justify-content: space-between;
     gap: 0.5rem;
 }
-.provider-counts { font-weight: 550; margin-top: 0.35rem; }
 .provider .hint { color: var(--text-3); margin-top: auto; padding-top: 0.5rem; }
 .provider-actions { margin-top: 0.35rem; }
 .provider-off {
@@ -292,7 +291,7 @@ code {
     border-bottom: 1px solid var(--border);
 }
 .kind-row:last-child { border-bottom: none; }
-.kind-name { display: flex; flex-direction: column; width: 10.5rem; }
+.kind-name { display: flex; flex-direction: column; width: 13.5rem; }
 .chain {
     display: flex;
     align-items: center;
@@ -323,6 +322,7 @@ code {
 .chip-lead { background: var(--accent-soft); color: var(--accent-strong); font-weight: 550; }
 .chip-off { color: var(--text-2); background: transparent; border: 1px dashed var(--border); }
 .chip-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
+.chip-hidden { font-variant-numeric: tabular-nums; font-weight: 400; color: var(--text-2); }
 
 /* ── Athlete settings ───────────────────────────────────── */
 
@@ -340,6 +340,7 @@ code {
 .settings dt { font-size: 0.8rem; color: var(--text-2); }
 .settings dd { margin: 0; font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .settings dd span { font-size: 0.8rem; font-weight: 500; color: var(--text-2); }
+.settings dd.settings-note { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
 .settings dd.small-value { font-size: 1rem; padding-top: 0.2rem; overflow-wrap: anywhere; }
 
 .advanced {

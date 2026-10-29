@@ -50,6 +50,8 @@ def _build_google_health(
         client_secret=section.client_secret,
         api_base=section.api_base,
         app_base_url=config.app.base_url,
+        imports=config.providers.imports_of("google_health"),
+        timezone=config.athlete.timezone,
     )
 
 

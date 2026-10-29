@@ -4,7 +4,7 @@
 
 # TrainingPulse
 
-Self-hosted sync and dashboards for your training: activities from **intervals.icu**, **Strava**, **Google Health**, **Hammerhead** (Karoo bike computers), and **Garmin Connect**, body weight from **Withings** and **Garmin Connect**, nutrition from **FDDB**, and sleep, HRV, resting heart rate, stress, and Body Battery from **Garmin Connect**. PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
+Self-hosted sync and dashboards for your training: activities from **intervals.icu**, **Strava**, **Google Health**, **Hammerhead** (Karoo bike computers), and **Garmin Connect**, body weight from **Withings** and **Garmin Connect**, nutrition from **FDDB**, and sleep, HRV, resting heart rate, and SpO2 from **Garmin Connect** and **Google Health**, with sleep and recovery scores that work the same for every device. PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
 
 ## Trademarks and API use
 
@@ -47,7 +47,7 @@ Start with [Setup](docs/setup.md). Then set up each provider that you use:
 |---|---|---|
 | intervals.icu | activities | [intervals.icu](docs/providers/intervals-icu.md) |
 | Strava | activities | [Strava](docs/providers/strava.md) |
-| Google Health | activities | [Google Health](docs/providers/google-health.md) |
+| Google Health | activities, sleep, wellness, intraday | [Google Health](docs/providers/google-health.md) |
 | Hammerhead | activities | [Hammerhead](docs/providers/hammerhead.md) |
 | Garmin Connect | activities, body, sleep, wellness, intraday | [Garmin Connect](docs/providers/garmin.md) |
 | Withings | body (weight, fat %, muscle mass) | [Withings](docs/providers/withings.md) |
@@ -57,5 +57,6 @@ More manuals:
 
 - [Athlete settings](docs/athlete-settings.md): heart rate, FTP, time zone, and calories.
 - [Data and duplicates](docs/data.md): data kinds, provider order, and stored data.
+- [Sleep and recovery scores](docs/sleep-and-recovery.md): how TrainingPulse calculates them.
 - [Upgrading](docs/upgrading.md): change from an old release.
 - [Developer notes](docs/developers.md): architecture, HTTP API, configuration schema, and metric formulas.

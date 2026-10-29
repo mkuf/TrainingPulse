@@ -92,14 +92,19 @@ def _sleep_values(record: SleepRecord, provider: str, tz: ZoneInfo) -> dict[str,
         "light_seconds": record.light_seconds,
         "rem_seconds": record.rem_seconds,
         "awake_seconds": record.awake_seconds,
-        "score": record.score,
-        "avg_heart_rate": record.avg_heart_rate,
-        "avg_respiration": record.avg_respiration,
-        "min_respiration": record.min_respiration,
-        "max_respiration": record.max_respiration,
-        "avg_stress": record.avg_stress,
-        "awake_count": record.awake_count,
         "nap_seconds": record.nap_seconds,
+        "stages": (
+            [
+                {
+                    "start": stage.start.isoformat(),
+                    "end": stage.end.isoformat(),
+                    "stage": stage.stage,
+                }
+                for stage in record.stages
+            ]
+            if record.stages
+            else None
+        ),
     }
 
 

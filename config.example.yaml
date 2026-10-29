@@ -33,7 +33,8 @@ database:
   url: postgresql+asyncpg://trainingpulse:changeme@db:5432/trainingpulse
 
 # REQUIRED. These are the only source of heart-rate zones and FTP: no provider
-# is asked for a profile. Zones are computed from max_hr and rest_hr.
+# is asked for a profile. Zones are computed from max_hr. rest_hr is a
+# fallback: an imported resting heart rate (7-day median) replaces it.
 # Getting these wrong silently distorts TRIMP and therefore CTL/ATL/TSB for
 # your entire history, which is why there are no defaults.
 athlete:
@@ -46,6 +47,8 @@ athlete:
   # Assigns weigh-ins to calendar days, which is how body measurements from
   # several providers are deduplicated. Any IANA zone name.
   timezone: UTC
+  # Hours of sleep that earn full marks for duration in the sleep score.
+  # sleep_need_hours: 8
 
 # ── Accounts ─────────────────────────────────────────────────────────
 #
@@ -56,7 +59,7 @@ athlete:
 #   provider        can supply
 #   icu             activities
 #   strava          activities
-#   google_health   activities
+#   google_health   activities, sleep, wellness, intraday
 #   hammerhead      activities
 #   garmin          activities, body, sleep, wellness, intraday
 #   withings        body
@@ -83,6 +86,9 @@ providers:
 
   # Google Health — OAuth client from Google Cloud Console. The redirect URI
   # must be exactly {app.base_url}/auth/google/callback
+  #
+  # Connecting asks only for the scopes of the imported kinds; sleep needs its
+  # own scope. After adding a kind to `imports`, reconnect from the status page.
   google_health:
     enabled: false
     client_id: ""
@@ -166,23 +172,23 @@ data:
     precedence: [fddb]
     history_days: 365
     refresh_days: 7
-  # One main sleep per night: times, stages, score, heart rate, respiration.
+  # One main sleep per night: times, stage totals and timeline, naps.
   sleep:
-    precedence: [garmin]
+    precedence: [garmin, google_health]
     history_days: 3650
     refresh_days: 7
-  # Daily recovery values: resting heart rate, HRV, stress, Body Battery,
-  # respiration, steps. An imported resting heart rate replaces
-  # athlete.rest_hr (median of the last 7 days).
+  # Daily recovery values: resting heart rate, HRV, respiration, SpO2, skin
+  # temperature deviation, steps, calories. An imported resting heart rate
+  # replaces athlete.rest_hr (median of the last 7 days).
   wellness:
-    precedence: [garmin]
+    precedence: [garmin, google_health]
     history_days: 3650
     refresh_days: 7
-  # Heart rate (every 2 min), HRV (every 5 min asleep), and Body Battery
+  # Heart rate (two-minute averages), HRV (every 5 min asleep), and SpO2
   # samples. Garmin needs two requests per day, so the default history is
   # short; raise history_days for a longer backfill.
   intraday:
-    precedence: [garmin]
+    precedence: [garmin, google_health]
     history_days: 30
     refresh_days: 1
 

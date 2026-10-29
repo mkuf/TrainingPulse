@@ -1,10 +1,10 @@
-"""MCP tools for sleep, daily wellness, and intraday samples.
+"""MCP tools for sleep, daily wellness, scores, and intraday samples.
 
 Read the core ``sleep_sessions``, ``daily_wellness``, and ``wellness_samples``
 tables, visible rows only, so a day reported by two providers is never
-counted twice. A night belongs to the local day it ends, matching the
-``day`` column. Provider scores (sleep score, stress, Body Battery, HRV
-status) are the provider's own and not comparable across providers.
+counted twice, plus ``daily_scores``, which TrainingPulse derives from them
+the same way for every provider (see :mod:`wellness_scores`). A night
+belongs to the local day it ends, matching the ``day`` column.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from mcp_server.common import (
     seconds_to_hours,
     seconds_to_minutes,
 )
-from models import DailyWellness, SleepSession, WellnessSample
+from models import DailyScores, DailyWellness, SleepSession, WellnessSample
 from providers.feeds import SAMPLE_METRICS, SAMPLE_UNITS
 
 DEFAULT_MAX_POINTS = 300
@@ -56,6 +56,19 @@ def _check_metric(metric: str) -> str:
     return metric
 
 
+def _scores_dict(scores: DailyScores | None, which: str) -> dict[str, Any] | None:
+    """One score with its parts, or None when it could not be computed."""
+    if scores is None:
+        return None
+    value = getattr(scores, f"{which}_score")
+    if value is None:
+        return None
+    return {
+        "score": round_or_none(value),
+        "parts": getattr(scores, f"{which}_score_parts"),
+    }
+
+
 # ── Sleep ───────────────────────────────────────────────────────────
 
 
@@ -63,13 +76,12 @@ SLEEP_DELTA_FIELDS = [
     "avg_asleep_hours",
     "avg_deep_minutes",
     "avg_rem_minutes",
-    "avg_score",
-    "avg_heart_rate",
-    "avg_respiration",
+    "avg_sleep_score",
+    "avg_sleeping_hr",
 ]
 
 
-def _sleep_dict(row: SleepSession) -> dict[str, Any]:
+def _sleep_dict(row: SleepSession, scores: DailyScores | None) -> dict[str, Any]:
     return {
         "day": row.day.isoformat(),
         "start": local_time(row.start_at),
@@ -80,45 +92,49 @@ def _sleep_dict(row: SleepSession) -> dict[str, Any]:
         "light_minutes": seconds_to_minutes(row.light_seconds),
         "rem_minutes": seconds_to_minutes(row.rem_seconds),
         "awake_minutes": seconds_to_minutes(row.awake_seconds),
-        "awake_count": row.awake_count,
-        "score": round_or_none(row.score),
-        "avg_heart_rate": round_or_none(row.avg_heart_rate),
-        "avg_respiration": round_or_none(row.avg_respiration),
-        "min_respiration": round_or_none(row.min_respiration),
-        "max_respiration": round_or_none(row.max_respiration),
-        "avg_stress": round_or_none(row.avg_stress),
         "nap_minutes": seconds_to_minutes(row.nap_seconds),
+        "has_stage_timeline": bool(row.stages),
+        "sleeping_hr_avg": round_or_none(scores.sleep_avg_hr) if scores else None,
+        "sleeping_hr_min": round_or_none(scores.sleep_min_hr) if scores else None,
+        "sleep_score": _scores_dict(scores, "sleep"),
         "provider": row.provider,
     }
 
 
+def _with_scores(stmt: Select) -> Select:
+    return stmt.outerjoin(DailyScores, DailyScores.day == SleepSession.day)
+
+
 async def _sleep_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
     stmt = _visible_between(
-        select(
-            func.count(SleepSession.id).label("nights"),
-            func.avg(SleepSession.asleep_seconds).label("asleep"),
-            func.avg(SleepSession.deep_seconds).label("deep"),
-            func.avg(SleepSession.light_seconds).label("light"),
-            func.avg(SleepSession.rem_seconds).label("rem"),
-            func.avg(SleepSession.awake_seconds).label("awake"),
-            func.avg(SleepSession.score).label("score"),
-            func.avg(SleepSession.avg_heart_rate).label("heart_rate"),
-            func.avg(SleepSession.avg_respiration).label("respiration"),
-            func.sum(SleepSession.nap_seconds).label("naps"),
+        _with_scores(
+            select(
+                func.count(SleepSession.id).label("nights"),
+                func.avg(SleepSession.asleep_seconds).label("asleep"),
+                func.avg(SleepSession.deep_seconds).label("deep"),
+                func.avg(SleepSession.light_seconds).label("light"),
+                func.avg(SleepSession.rem_seconds).label("rem"),
+                func.avg(SleepSession.awake_seconds).label("awake"),
+                func.sum(SleepSession.nap_seconds).label("naps"),
+                func.avg(DailyScores.sleep_score).label("score"),
+                func.avg(DailyScores.sleep_avg_hr).label("sleeping_hr"),
+            )
         ),
         SleepSession,
         start_date,
         end_date,
     )
     latest_stmt = _visible_between(
-        select(SleepSession).order_by(SleepSession.day.desc()).limit(1),
+        _with_scores(select(SleepSession, DailyScores))
+        .order_by(SleepSession.day.desc())
+        .limit(1),
         SleepSession,
         start_date,
         end_date,
     )
     async with readonly_session() as session:
         row = (await session.execute(stmt)).one()
-        latest = (await session.scalars(latest_stmt)).first()
+        latest = (await session.execute(latest_stmt)).first()
 
     nights = int(row.nights or 0)
     return {
@@ -130,11 +146,10 @@ async def _sleep_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
         "avg_light_minutes": seconds_to_minutes(row.light) if nights else None,
         "avg_rem_minutes": seconds_to_minutes(row.rem) if nights else None,
         "avg_awake_minutes": seconds_to_minutes(row.awake) if nights else None,
-        "avg_score": round_or_none(row.score),
-        "avg_heart_rate": round_or_none(row.heart_rate),
-        "avg_respiration": round_or_none(row.respiration),
+        "avg_sleep_score": round_or_none(row.score),
+        "avg_sleeping_hr": round_or_none(row.sleeping_hr),
         "total_nap_minutes": seconds_to_minutes(row.naps),
-        "latest_night": _sleep_dict(latest) if latest else None,
+        "latest_night": _sleep_dict(*latest) if latest else None,
     }
 
 
@@ -144,82 +159,67 @@ async def _sleep_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
 WELLNESS_DELTA_FIELDS = [
     "avg_resting_hr",
     "avg_hrv_ms",
-    "avg_stress",
-    "avg_body_battery_max",
     "avg_respiration",
+    "avg_spo2",
+    "avg_skin_temp_deviation_c",
     "avg_steps",
+    "avg_recovery_score",
 ]
 
 
-def _wellness_dict(row: DailyWellness) -> dict[str, Any]:
+def _wellness_dict(row: DailyWellness, scores: DailyScores | None) -> dict[str, Any]:
     return {
         "day": row.day.isoformat(),
         "resting_hr": round_or_none(row.resting_hr),
-        "min_hr": round_or_none(row.min_hr),
-        "max_hr": round_or_none(row.max_hr),
-        "hrv_avg_ms": round_or_none(row.hrv_avg_ms),
-        "hrv_5min_high_ms": round_or_none(row.hrv_5min_high_ms),
-        "hrv_weekly_avg_ms": round_or_none(row.hrv_weekly_avg_ms),
-        "hrv_baseline_ms": (
-            [
-                round_or_none(row.hrv_baseline_low_ms),
-                round_or_none(row.hrv_baseline_high_ms),
-            ]
-            if row.hrv_baseline_low_ms is not None
-            else None
-        ),
-        "hrv_status": row.hrv_status,
-        "avg_stress": round_or_none(row.avg_stress),
-        "max_stress": round_or_none(row.max_stress),
-        "body_battery_min": round_or_none(row.body_battery_min),
-        "body_battery_max": round_or_none(row.body_battery_max),
-        "body_battery_charged": round_or_none(row.body_battery_charged),
-        "body_battery_drained": round_or_none(row.body_battery_drained),
-        "avg_respiration": round_or_none(row.avg_respiration),
+        "hrv_ms": round_or_none(row.hrv_ms),
+        "respiration": round_or_none(row.respiration),
+        "spo2_avg": round_or_none(row.spo2_avg),
+        "spo2_min": round_or_none(row.spo2_min),
+        "skin_temp_deviation_c": round_or_none(row.skin_temp_deviation_c, 2),
         "steps": row.steps,
         "active_kcal": round_or_none(row.active_kcal),
         "total_kcal": round_or_none(row.total_kcal),
-        "intensity_minutes": (
-            None
-            if row.moderate_intensity_minutes is None
-            and row.vigorous_intensity_minutes is None
-            else {
-                "moderate": row.moderate_intensity_minutes,
-                "vigorous": row.vigorous_intensity_minutes,
-            }
-        ),
+        "recovery_score": _scores_dict(scores, "recovery"),
         "provider": row.provider,
     }
 
 
+def _wellness_with_scores(stmt: Select) -> Select:
+    return stmt.outerjoin(DailyScores, DailyScores.day == DailyWellness.day)
+
+
 async def _wellness_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
     stmt = _visible_between(
-        select(
-            func.count(DailyWellness.id).label("days"),
-            func.avg(DailyWellness.resting_hr).label("resting_hr"),
-            func.min(DailyWellness.resting_hr).label("min_resting_hr"),
-            func.max(DailyWellness.resting_hr).label("max_resting_hr"),
-            func.avg(DailyWellness.hrv_avg_ms).label("hrv"),
-            func.avg(DailyWellness.avg_stress).label("stress"),
-            func.avg(DailyWellness.body_battery_max).label("battery_max"),
-            func.avg(DailyWellness.body_battery_min).label("battery_min"),
-            func.avg(DailyWellness.avg_respiration).label("respiration"),
-            func.avg(DailyWellness.steps).label("steps"),
-            func.sum(DailyWellness.steps).label("total_steps"),
+        _wellness_with_scores(
+            select(
+                func.count(DailyWellness.id).label("days"),
+                func.avg(DailyWellness.resting_hr).label("resting_hr"),
+                func.min(DailyWellness.resting_hr).label("min_resting_hr"),
+                func.max(DailyWellness.resting_hr).label("max_resting_hr"),
+                func.avg(DailyWellness.hrv_ms).label("hrv"),
+                func.avg(DailyWellness.respiration).label("respiration"),
+                func.avg(DailyWellness.spo2_avg).label("spo2"),
+                func.avg(DailyWellness.skin_temp_deviation_c).label("skin_temp"),
+                func.avg(DailyWellness.steps).label("steps"),
+                func.sum(DailyWellness.steps).label("total_steps"),
+                func.avg(DailyScores.recovery_score).label("recovery"),
+            )
         ),
         DailyWellness,
         start_date,
         end_date,
     )
     latest_stmt = _visible_between(
-        select(DailyWellness).order_by(DailyWellness.day.desc()).limit(1),
+        _wellness_with_scores(select(DailyWellness, DailyScores))
+        .order_by(DailyWellness.day.desc())
+        .limit(1),
         DailyWellness,
         start_date,
         end_date,
     )
     async with readonly_session() as session:
         row = (await session.execute(stmt)).one()
-        latest = (await session.scalars(latest_stmt)).first()
+        latest = (await session.execute(latest_stmt)).first()
 
     return {
         "start_date": start_date.isoformat(),
@@ -229,13 +229,13 @@ async def _wellness_summary(*, start_date: date, end_date: date) -> dict[str, An
         "min_resting_hr": round_or_none(row.min_resting_hr),
         "max_resting_hr": round_or_none(row.max_resting_hr),
         "avg_hrv_ms": round_or_none(row.hrv),
-        "avg_stress": round_or_none(row.stress),
-        "avg_body_battery_max": round_or_none(row.battery_max),
-        "avg_body_battery_min": round_or_none(row.battery_min),
         "avg_respiration": round_or_none(row.respiration),
+        "avg_spo2": round_or_none(row.spo2),
+        "avg_skin_temp_deviation_c": round_or_none(row.skin_temp, 2),
         "avg_steps": round_or_none(row.steps, 0),
         "total_steps": int(row.total_steps) if row.total_steps is not None else None,
-        "latest_day": _wellness_dict(latest) if latest else None,
+        "avg_recovery_score": round_or_none(row.recovery),
+        "latest_day": _wellness_dict(*latest) if latest else None,
     }
 
 
@@ -276,8 +276,8 @@ def register_wellness_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def get_sleep_summary(start_date: str, end_date: str) -> dict[str, Any]:
         """Summarize sleep for a local date range (nights are dated by the day
-        they end): average time asleep, stage minutes, score, heart rate,
-        respiration, nap minutes, and the latest night."""
+        they end): average time asleep, stage minutes, sleep score, sleeping
+        heart rate, nap minutes, and the latest night."""
         return await _sleep_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -288,12 +288,12 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         start_date: str, end_date: str, limit: int | None = None
     ) -> dict[str, Any]:
         """List nights in a local date range, newest first, with stage
-        durations, score, heart rate, respiration, and stress. At most
-        ``limit`` nights (default 25, max 100)."""
+        durations, naps, sleeping heart rate, and the sleep score with its
+        parts. At most ``limit`` nights (default 25, max 100)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
-            select(SleepSession)
+            _with_scores(select(SleepSession, DailyScores))
             .order_by(SleepSession.day.desc())
             .limit(clamp_limit(limit)),
             SleepSession,
@@ -301,34 +301,35 @@ def register_wellness_tools(mcp: FastMCP) -> None:
             end,
         )
         async with readonly_session() as session:
-            rows = (await session.scalars(stmt)).all()
+            rows = (await session.execute(stmt)).all()
         return {
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
             "count": len(rows),
-            "nights": [_sleep_dict(row) for row in rows],
+            "nights": [_sleep_dict(*row) for row in rows],
         }
 
     @mcp.tool()
     async def get_night(day: str, max_points: int | None = None) -> dict[str, Any]:
-        """Return one night (dated by the day it ends) with its summary, that
-        day's wellness values, and the heart rate, HRV, and Body Battery
-        samples recorded between falling asleep and waking. Each series is
-        downsampled to at most ``max_points`` (default 300, max 2000). The
-        provider has no sleep-stage timeline, only stage totals."""
+        """Return one night (dated by the day it ends): its summary and sleep
+        score, the stage timeline when the provider has one, that day's
+        wellness values and recovery score, and the heart rate, HRV, and SpO2
+        samples between falling asleep and waking. Each series is downsampled
+        to at most ``max_points`` (default 300, max 2000)."""
         night_day = required_date(day, "day")
         points = _max_points(max_points)
         async with readonly_session() as session:
-            night = (
-                await session.scalars(
-                    select(SleepSession).where(
+            found = (
+                await session.execute(
+                    _with_scores(select(SleepSession, DailyScores)).where(
                         SleepSession.superseded_by == None,  # noqa: E711
                         SleepSession.day == night_day,
                     )
                 )
             ).first()
-            if night is None:
+            if found is None:
                 return {"available": False, "day": night_day.isoformat()}
+            night, scores = found
             wellness = (
                 await session.scalars(
                     select(DailyWellness).where(
@@ -345,8 +346,16 @@ def register_wellness_tools(mcp: FastMCP) -> None:
             }
         return {
             "available": True,
-            "night": _sleep_dict(night),
-            "wellness": _wellness_dict(wellness) if wellness else None,
+            "night": _sleep_dict(night, scores),
+            "stages": [
+                {
+                    "start": local_time(datetime.fromisoformat(stage["start"])),
+                    "end": local_time(datetime.fromisoformat(stage["end"])),
+                    "stage": stage["stage"],
+                }
+                for stage in night.stages or []
+            ],
+            "wellness": _wellness_dict(wellness, scores) if wellness else None,
             "series": {name: data for name, data in series.items() if data["count"]},
         }
 
@@ -357,9 +366,9 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         period_b_start: str,
         period_b_end: str,
     ) -> dict[str, Any]:
-        """Compare average sleep (time asleep, deep and REM minutes, score,
-        heart rate, respiration) between two local date ranges. Period A is
-        the baseline; ``delta_b_minus_a`` is B minus A."""
+        """Compare average sleep (time asleep, deep and REM minutes, sleep
+        score, sleeping heart rate) between two local date ranges. Period A
+        is the baseline; ``delta_b_minus_a`` is B minus A."""
         a = await _sleep_summary(
             start_date=required_date(period_a_start, "period_a_start"),
             end_date=required_date(period_a_end, "period_a_end"),
@@ -377,8 +386,8 @@ def register_wellness_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def get_wellness_summary(start_date: str, end_date: str) -> dict[str, Any]:
         """Summarize daily wellness for a local date range: resting heart
-        rate, overnight HRV, stress, Body Battery, respiration, and steps,
-        plus the latest day."""
+        rate, overnight HRV, respiration, SpO2, skin temperature deviation,
+        steps, and the recovery score, plus the latest day."""
         return await _wellness_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -389,13 +398,13 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         start_date: str, end_date: str, limit: int | None = None
     ) -> dict[str, Any]:
         """List daily wellness values in a local date range, newest first:
-        resting/min/max heart rate, HRV (night average, baseline, status),
-        stress, Body Battery, respiration, steps, calories, and intensity
-        minutes. At most ``limit`` days (default 25, max 100)."""
+        resting heart rate, HRV, respiration, SpO2, skin temperature
+        deviation, steps, calories, and the recovery score with its parts.
+        At most ``limit`` days (default 25, max 100)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
-            select(DailyWellness)
+            _wellness_with_scores(select(DailyWellness, DailyScores))
             .order_by(DailyWellness.day.desc())
             .limit(clamp_limit(limit)),
             DailyWellness,
@@ -403,12 +412,12 @@ def register_wellness_tools(mcp: FastMCP) -> None:
             end,
         )
         async with readonly_session() as session:
-            rows = (await session.scalars(stmt)).all()
+            rows = (await session.execute(stmt)).all()
         return {
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
             "count": len(rows),
-            "days": [_wellness_dict(row) for row in rows],
+            "days": [_wellness_dict(*row) for row in rows],
         }
 
     @mcp.tool()
@@ -418,9 +427,10 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         period_b_start: str,
         period_b_end: str,
     ) -> dict[str, Any]:
-        """Compare average resting heart rate, HRV, stress, Body Battery peak,
-        respiration, and steps between two local date ranges. Period A is
-        the baseline; ``delta_b_minus_a`` is B minus A."""
+        """Compare average resting heart rate, HRV, respiration, SpO2, skin
+        temperature deviation, steps, and recovery score between two local
+        date ranges. Period A is the baseline; ``delta_b_minus_a`` is B
+        minus A."""
         a = await _wellness_summary(
             start_date=required_date(period_a_start, "period_a_start"),
             end_date=required_date(period_a_end, "period_a_end"),
@@ -440,10 +450,9 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         metric: str, start_date: str, end_date: str, max_points: int | None = None
     ) -> dict[str, Any]:
         """Return one intraday series for whole local days start_date..end_date:
-        ``heart_rate`` (bpm, every 2 min), ``hrv`` (ms, every 5 min while
-        asleep), ``body_battery`` (a few points per day); ``stress``,
-        ``respiration``, and ``spo2`` are reserved and empty for Garmin.
-        Downsampled to at most ``max_points`` (default 300, max 2000)."""
+        ``heart_rate`` (bpm, two-minute averages), ``hrv`` (ms, every 5 min
+        while asleep), or ``spo2`` (%, during sleep, when the device records
+        it). Downsampled to at most ``max_points`` (default 300, max 2000)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         check_range(start, end)

@@ -14,6 +14,7 @@ import httpx
 import pytest
 from fixtures import payloads
 from providers import garmin
+from providers.base import RequestPacer
 from providers.feeds import BodyRecord
 from providers import garmin_client
 from providers.garmin_client import (
@@ -263,7 +264,7 @@ def _empty_token_cache():
 
 @pytest.fixture(autouse=True)
 def _no_pacing(monkeypatch):
-    monkeypatch.setattr(garmin_client, "_PACER", garmin_client._Pacer(0.0))
+    monkeypatch.setattr(garmin_client, "_PACER", RequestPacer(0.0))
 
 
 class _FakeGarmin:
@@ -379,7 +380,7 @@ def test_a_long_429_pauses_the_provider_until_the_next_sync():
 
 
 def test_pacer_spaces_requests_out():
-    pacer = garmin_client._Pacer(0.05)
+    pacer = RequestPacer(0.05)
 
     async def three():
         started = time.monotonic()

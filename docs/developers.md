@@ -74,7 +74,7 @@ Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 | wellness | `daily_wellness` | `PER_DAY` |
 | intraday | `wellness_samples` | `PER_DAY`, keyed by the local day of each sample |
 
-The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All seven providers live in [`app/providers/`](../app/providers/). The five activity providers are each their own `ActivityFeed`; Withings and FDDB return separate `BodyFeed` / `NutritionFeed` objects, and Garmin also returns body, sleep, wellness, and intraday feeds (the last three in [`garmin_wellness.py`](../app/providers/garmin_wellness.py)). A provider that gains a second kind returns one more feed from `feeds()`.
+The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All seven providers live in [`app/providers/`](../app/providers/). The five activity providers are each their own `ActivityFeed`; Withings and FDDB return separate `BodyFeed` / `NutritionFeed` objects, Garmin also returns body, sleep, wellness, and intraday feeds ([`garmin_wellness.py`](../app/providers/garmin_wellness.py)), and Google Health sleep, wellness, and intraday feeds ([`google_wellness.py`](../app/providers/google_wellness.py)). A provider that gains a second kind returns one more feed from `feeds()`.
 
 ### Non-activity kinds
 
@@ -92,6 +92,14 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 4. Add a config section in `app/config_loader.py`: a `_ProviderSection` (or `_OAuthProviderSection`) subclass with credentials marked `secret()` and `missing_credentials()`, plus a field on `ProvidersSection`.
 5. Register a builder in [`app/providers/registry.py`](../app/providers/registry.py).
 6. Add fixtures and mapper tests. `test_feeds_match_the_catalog_and_their_contracts` fails until the provider's feeds match its `ProviderSpec`. For an activity provider, `test_mappers_agree_on_the_column_set` fails until the mapper emits exactly the same columns as the others.
+
+### The wellness baseline and derived scores
+
+Sleep, wellness, and intraday records carry only fields most wearables report (see the record dataclasses in `providers/feeds.py`). Provider-specific scores (Garmin's sleep score, stress, Body Battery, HRV status) are deliberately not mapped: they are not comparable across providers and most APIs do not expose them. A new provider maps onto the baseline and leaves unknown fields `None`.
+
+Everything comparable that can be derived is derived in the core, from visible rows only: [`app/wellness_scores.py`](../app/wellness_scores.py) recomputes `daily_scores` (sleeping heart rate, sleep score, recovery score, each with its parts as JSON) after every sync, and [`app/resting_hr.py`](../app/resting_hr.py) supplies the 7-day median resting heart rate that replaces `athlete.rest_hr` for calories. The formulas are documented in [Sleep and recovery scores](sleep-and-recovery.md).
+
+OAuth providers whose kinds need different scopes (Google Health) report the readable kinds from `granted_kinds()`, based on the scopes stored in `oauth_tokens.scopes`. The sync skips a kind the token cannot read, and the status page asks for a reconnect.
 
 ### Adding a data kind
 
@@ -350,7 +358,7 @@ Tools, by area:
 | Athlete | `get_athlete_profile` (HR, FTP, zone boundaries; `rest_hr` is the imported 7-day median when available, see `rest_hr_source`) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 | Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
 | Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
-| Sleep | `get_sleep_summary`, `list_sleep`, `get_night` (one night with its heart rate, HRV, and Body Battery samples), `compare_sleep_periods` | [`mcp_server/wellness.py`](../app/mcp_server/wellness.py) |
+| Sleep | `get_sleep_summary`, `list_sleep`, `get_night` (one night with its sleep score, stage timeline, and heart rate, HRV, and SpO2 samples), `compare_sleep_periods` | [`mcp_server/wellness.py`](../app/mcp_server/wellness.py) |
 | Wellness | `get_wellness_summary`, `list_daily_wellness`, `compare_wellness_periods`, `get_intraday_samples` | [`mcp_server/wellness.py`](../app/mcp_server/wellness.py) |
 | Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 
@@ -377,7 +385,8 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 - `tests/test_provider_mappers.py` — per-provider activity mappers and stream normalizers against `tests/fixtures/payloads.py`, plus protocol conformance
 - `tests/test_fitfiles.py` — generic FIT-file analyzer: stream/summary derivation and message dispatch, against faked `fitdecode` frames
 - `tests/test_ingest_activities.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
-- `tests/test_garmin.py`, `tests/test_garmin_wellness.py` — Garmin activity, weight, sleep, wellness, and intraday mappers and feeds against recorded responses
+- `tests/test_garmin.py`, `tests/test_garmin_wellness.py`, `tests/test_google_wellness.py` — Garmin and Google Health mappers, feeds, scopes, pacing, and retries against recorded responses
+- `tests/test_wellness_scores.py` — sleep and recovery score parts, baselines, and bedtime regularity
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
 
 ## Demo data

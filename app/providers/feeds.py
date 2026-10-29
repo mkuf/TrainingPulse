@@ -65,12 +65,29 @@ class NutritionRecord:
         return self.day.isoformat()
 
 
+#: Stage names in ``SleepStage.stage`` and ``sleep_sessions.stages``. Devices
+#: that only tell asleep from awake use ``asleep``.
+SLEEP_STAGES = ("awake", "light", "deep", "rem", "asleep")
+
+
+@dataclass(frozen=True)
+class SleepStage:
+    """One stretch of a night spent in one stage."""
+
+    start: datetime
+    end: datetime
+    stage: str
+
+
 @dataclass(frozen=True)
 class SleepRecord:
     """One night's main sleep. Deduplicated per day.
 
-    ``day`` is the provider's own calendar day for the night, which is the
-    day the sleep ends (a 22:45–07:00 night belongs to the morning).
+    The baseline every sleep provider can fill: when, how long, and how the
+    time split into stages. ``day`` is the provider's own calendar day for the
+    night, which is the day the sleep ends (a 22:45–07:00 night belongs to the
+    morning). Scores and sleeping heart rate are not provider fields: the core
+    derives them the same way for everyone (see :mod:`wellness_scores`).
     """
 
     external_id: str
@@ -82,52 +99,34 @@ class SleepRecord:
     light_seconds: int | None = None
     rem_seconds: int | None = None
     awake_seconds: int | None = None
-    #: Provider's own 0–100 score. Not comparable across providers.
-    score: float | None = None
-    avg_heart_rate: float | None = None
-    avg_respiration: float | None = None
-    min_respiration: float | None = None
-    max_respiration: float | None = None
-    #: Provider's own stress scale (Garmin: 0–100).
-    avg_stress: float | None = None
-    awake_count: int | None = None
     #: Daytime naps on ``day``, in total. Not part of ``asleep_seconds``.
     nap_seconds: int | None = None
+    #: The night's stage timeline, when the provider has one.
+    stages: tuple[SleepStage, ...] | None = None
 
 
 @dataclass(frozen=True)
 class WellnessRecord:
     """One day's recovery values. Deduplicated per day.
 
-    Scores (stress, Body Battery, HRV status) are the provider's own and not
-    comparable across providers. HRV is the overnight average ending on
-    ``day``.
+    Only measurements most current wearables report, in the same units.
+    Night values (HRV, respiration, SpO2, skin temperature) belong to the day
+    the night ends.
     """
 
     day: date
     resting_hr: float | None = None
-    min_hr: float | None = None
-    max_hr: float | None = None
-    hrv_avg_ms: float | None = None
-    hrv_5min_high_ms: float | None = None
-    hrv_weekly_avg_ms: float | None = None
-    hrv_baseline_low_ms: float | None = None
-    hrv_baseline_high_ms: float | None = None
-    hrv_status: str | None = None
-    avg_stress: float | None = None
-    max_stress: float | None = None
-    body_battery_min: float | None = None
-    body_battery_max: float | None = None
-    body_battery_charged: float | None = None
-    body_battery_drained: float | None = None
-    avg_respiration: float | None = None
-    min_respiration: float | None = None
-    max_respiration: float | None = None
+    #: The night's average RMSSD, in milliseconds.
+    hrv_ms: float | None = None
+    #: Breaths per minute while asleep.
+    respiration: float | None = None
+    spo2_avg: float | None = None
+    spo2_min: float | None = None
+    #: Nightly skin temperature minus the provider's personal baseline, °C.
+    skin_temp_deviation_c: float | None = None
     steps: int | None = None
     active_kcal: float | None = None
     total_kcal: float | None = None
-    moderate_intensity_minutes: int | None = None
-    vigorous_intensity_minutes: int | None = None
 
     @property
     def external_id(self) -> str:
@@ -137,27 +136,13 @@ class WellnessRecord:
 #: Metric names in ``wellness_samples.metric``.
 METRIC_HEART_RATE = "heart_rate"
 METRIC_HRV = "hrv"
-METRIC_BODY_BATTERY = "body_battery"
-METRIC_STRESS = "stress"
-METRIC_RESPIRATION = "respiration"
 METRIC_SPO2 = "spo2"
-SAMPLE_METRICS = (
-    METRIC_HEART_RATE,
-    METRIC_HRV,
-    METRIC_BODY_BATTERY,
-    METRIC_STRESS,
-    METRIC_RESPIRATION,
-    METRIC_SPO2,
-)
+SAMPLE_METRICS = (METRIC_HEART_RATE, METRIC_HRV, METRIC_SPO2)
 #: Unit of each metric, for display.
-SAMPLE_UNITS = {
-    METRIC_HEART_RATE: "bpm",
-    METRIC_HRV: "ms",
-    METRIC_BODY_BATTERY: "level",
-    METRIC_STRESS: "level",
-    METRIC_RESPIRATION: "brpm",
-    METRIC_SPO2: "%",
-}
+SAMPLE_UNITS = {METRIC_HEART_RATE: "bpm", METRIC_HRV: "ms", METRIC_SPO2: "%"}
+#: Heart rate is stored as averages over windows of this many seconds, the
+#: resolution Garmin reports natively; finer streams are averaged down.
+HEART_RATE_WINDOW_SECONDS = 120
 
 
 @dataclass(frozen=True)

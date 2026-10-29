@@ -13,6 +13,7 @@ second kind returns a separate feed object for it from :meth:`Provider.feeds`.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import secrets
 import time
@@ -53,6 +54,28 @@ class SourceRateLimitExceeded(Exception):
         super().__init__(
             f"{source}: rate limit exceeded, resets in {reset_after:.0f}s"
         )
+
+
+class RequestPacer:
+    """Spaces requests out to stay under a provider's per-account rate limit.
+
+    Keep one per provider at module level: the sync, the status page, and
+    every feed build their own clients, but the provider counts requests per
+    account, so the schedule has to be shared.
+    """
+
+    def __init__(self, interval: float):
+        self._interval = interval
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            delay = self._next - now
+            self._next = max(now, self._next) + self._interval
+        if delay > 0:
+            await asyncio.sleep(delay)
 
 
 @dataclass

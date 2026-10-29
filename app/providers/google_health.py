@@ -1,14 +1,20 @@
-"""Google Health activity source.
+"""Google Health provider: activities, plus sleep, wellness, and samples.
 
 Google Health has no per-activity detail endpoint — the list payload is already
 complete — so ``supports_detail`` is False and the engine marks rows as
-detail-synced at upsert time.
+detail-synced at upsert time. Sleep, wellness, and intraday feeds live in
+:mod:`providers.google_wellness`. Each kind needs its own OAuth scopes; the
+connect flow asks only for the imported kinds' scopes, and
+:meth:`GoogleHealthSource.granted_kinds` reports which kinds the stored token
+can read.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Iterable
+from zoneinfo import ZoneInfo
 from xml.etree import ElementTree
 
 from fastapi import FastAPI
@@ -20,10 +26,19 @@ from models import Activity
 from providers.base import (
     OAuthStateGuard,
     RateLimitSnapshot,
-    granted_if_connected,
     prefixed_id,
 )
-from providers.google_health_client import DEFAULT_API_BASE, GoogleHealthClient
+from providers.google_health_client import (
+    DEFAULT_API_BASE,
+    KIND_SCOPES,
+    GoogleHealthClient,
+    scopes_for,
+)
+from providers.google_wellness import (
+    GoogleIntradayFeed,
+    GoogleSleepFeed,
+    GoogleWellnessFeed,
+)
 from providers.mapping import (
     as_float,
     clip_text,
@@ -88,9 +103,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     if not isinstance(exercise, dict):
         exercise = {}
 
-    exercise_type = (
-        exercise.get("exerciseType") or exercise.get("exercise_type") or ""
-    )
+    exercise_type = exercise.get("exerciseType") or exercise.get("exercise_type") or ""
 
     interval = (
         exercise.get("interval")
@@ -104,9 +117,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         or payload.get("startTime")
     )
     end = parse_dt(
-        interval.get("endTime")
-        or interval.get("end_time")
-        or payload.get("endTime")
+        interval.get("endTime") or interval.get("end_time") or payload.get("endTime")
     )
     if start is None:
         logger.warning(
@@ -123,9 +134,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     if end is not None:
         elapsed = max(active, int((end - start).total_seconds()))
 
-    summary = (
-        exercise.get("metricsSummary") or exercise.get("metrics_summary") or {}
-    )
+    summary = exercise.get("metricsSummary") or exercise.get("metrics_summary") or {}
     # MetricsSummary has no max heart rate; the engine derives it from the
     # heart-rate stream. Strava sessions synced via Health Connect arrive with
     # an empty summary.
@@ -259,9 +268,7 @@ def hr_points_to_streams(points: list[dict], start: datetime) -> dict[str, list]
         heart_rate = point.get("heartRate") or point.get("heart_rate") or {}
         bpm = None
         if isinstance(heart_rate, dict):
-            bpm = heart_rate.get("beatsPerMinute") or heart_rate.get(
-                "beats_per_minute"
-            )
+            bpm = heart_rate.get("beatsPerMinute") or heart_rate.get("beats_per_minute")
         if bpm is None and "value" in point:
             bpm = point["value"]
         sample_time = (
@@ -269,7 +276,9 @@ def hr_points_to_streams(points: list[dict], start: datetime) -> dict[str, list]
         ) or {}
         timestamp = parse_dt(
             sample_time.get("physicalTime")
-            or (point.get("timeInterval") or point.get("interval") or {}).get("startTime")
+            or (point.get("timeInterval") or point.get("interval") or {}).get(
+                "startTime"
+            )
             or point.get("startTime")
             or point.get("instantaneousTime")
         )
@@ -323,6 +332,8 @@ class GoogleHealthSource:
         client_secret: str,
         api_base: str = DEFAULT_API_BASE,
         app_base_url: str = "",
+        imports: Iterable[DataKind] = (DataKind.ACTIVITIES,),
+        timezone: str = "UTC",
     ):
         self._session_factory = session_factory
         self._client_id = client_id
@@ -332,6 +343,17 @@ class GoogleHealthSource:
         self._session = None
         self._client: GoogleHealthClient | None = None
         self._oauth_state = OAuthStateGuard()
+        #: Kinds the configuration imports; the connect flow asks only for
+        #: their scopes.
+        self._imports = tuple(imports)
+        #: Used to turn the engine's UTC windows back into local days.
+        self.timezone = ZoneInfo(timezone)
+        self._feeds: dict[DataKind, object] = {
+            DataKind.ACTIVITIES: self,
+            DataKind.SLEEP: GoogleSleepFeed(self),
+            DataKind.WELLNESS: GoogleWellnessFeed(self),
+            DataKind.INTRADAY: GoogleIntradayFeed(self),
+        }
 
     @property
     def redirect_uri(self) -> str:
@@ -386,7 +408,9 @@ class GoogleHealthSource:
                 )
             state = self._oauth_state.issue()
             async with self._session_factory() as session:
-                url = self._build_client(session).authorization_url(state=state)
+                url = self._build_client(session).authorization_url(
+                    scopes=scopes_for(self._imports), state=state
+                )
             return RedirectResponse(url=url, status_code=307)
 
         @app.get(CALLBACK_PATH)
@@ -437,18 +461,14 @@ class GoogleHealthSource:
 
     async def fetch_detail(self, activity_external_id: str) -> dict | None:
         """Never called: ``supports_detail`` is False."""
-        raise NotImplementedError(
-            "Google Health has no separate detail endpoint"
-        )
+        raise NotImplementedError("Google Health has no separate detail endpoint")
 
     async def fetch_streams(self, activity: Activity) -> dict[str, list]:
         start = activity.start_date
         if start.tzinfo is None:
             start = start.replace(tzinfo=timezone.utc)
         end = start + timedelta(seconds=max(activity.elapsed_time or 0, 60))
-        tcx = await self.client.export_exercise_tcx(
-            activity.id.removeprefix(ID_PREFIX)
-        )
+        tcx = await self.client.export_exercise_tcx(activity.id.removeprefix(ID_PREFIX))
         route = tcx_to_streams(tcx, start) if tcx else {}
         if "heartrate" in route:
             return route
@@ -461,12 +481,23 @@ class GoogleHealthSource:
             route["heartrate"] = _resample(heart_rate, route["time"])
         return route
 
-    def feeds(self) -> dict[DataKind, "GoogleHealthSource"]:
-        # Single-kind provider: the source is its own activities feed.
-        return {DataKind.ACTIVITIES: self}
+    def feeds(self) -> dict[DataKind, object]:
+        # The source is its own activities feed, plus the wellness feeds.
+        return dict(self._feeds)
 
     async def granted_kinds(self) -> frozenset[DataKind]:
-        return await granted_if_connected(self)
+        """Kinds whose scopes the stored token holds.
+
+        A token granted before a kind was imported (or before sleep was
+        requested at all) lacks its scope until the user reconnects.
+        """
+        if not self.is_configured():
+            return frozenset()
+        async with self._session_factory() as session:
+            granted = await self._build_client(session).granted_scopes()
+        return frozenset(
+            kind for kind in self._feeds if KIND_SCOPES[kind.value] <= granted
+        )
 
     def map_row(self, payload: dict, athlete_id: int) -> dict | None:
         return map_row(payload, athlete_id)

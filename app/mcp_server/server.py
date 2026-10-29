@@ -42,6 +42,7 @@ from models import (
     BodyMeasurement,
     DailyMetrics,
     DailyNutrition,
+    DailyScores,
     DailyWellness,
     SleepSession,
     WellnessSample,
@@ -463,7 +464,9 @@ async def get_gear_usage(
     start = parse_date(start_date, "start_date")
     end = parse_date(end_date, "end_date")
     check_range(start, end)
-    gear_label = func.coalesce(Activity.gear_name, "Unspecified gear").label("gear_name")
+    gear_label = func.coalesce(Activity.gear_name, "Unspecified gear").label(
+        "gear_name"
+    )
     distance_m = func.coalesce(func.sum(Activity.distance), 0).label("distance_m")
     stmt = select(
         gear_label,
@@ -598,7 +601,9 @@ async def get_athlete_profile() -> dict[str, Any]:
     async with readonly_session() as session:
         settings = (
             await session.scalars(
-                select(AthleteSettings).order_by(desc(AthleteSettings.updated_at)).limit(1)
+                select(AthleteSettings)
+                .order_by(desc(AthleteSettings.updated_at))
+                .limit(1)
             )
         ).first()
         max_hr = settings.max_hr if settings else athlete.max_hr
@@ -670,7 +675,8 @@ async def get_data_coverage() -> dict[str, Any]:
     activity_stmt = select(
         activity_count.filter(visible).label("count"),
         activity_count.filter(
-            Activity.superseded_by != None, ~gone  # noqa: E711
+            Activity.superseded_by != None,
+            ~gone,  # noqa: E711
         ).label("superseded"),
         activity_count.filter(gone).label("deleted_upstream"),
         func.min(Activity.start_date).filter(visible).label("earliest"),
@@ -716,6 +722,17 @@ async def get_data_coverage() -> dict[str, Any]:
                 .group_by(WellnessSample.metric)
             )
         ).all()
+        scored = (
+            await session.execute(
+                select(
+                    func.count(DailyScores.day).filter(DailyScores.sleep_score != None),  # noqa: E711
+                    func.count(DailyScores.day).filter(
+                        DailyScores.recovery_score != None
+                    ),  # noqa: E711
+                    func.max(DailyScores.updated_at),
+                )
+            )
+        ).one()
     intraday["by_metric"] = {metric: int(count) for metric, count in by_metric}
 
     return {
@@ -744,9 +761,13 @@ async def get_data_coverage() -> dict[str, Any]:
         "sleep": sleep,
         "wellness": wellness,
         "intraday": intraday,
+        "scores": {
+            "days_with_sleep_score": int(scored[0] or 0),
+            "days_with_recovery_score": int(scored[1] or 0),
+            "scored_as_of": local_time(scored[2]),
+        },
     }
 
 
 register_record_tools(mcp)
 register_wellness_tools(mcp)
-

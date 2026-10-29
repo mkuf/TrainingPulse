@@ -9,7 +9,7 @@
         "enable": true,
         "iconColor": "rgba(87, 148, 242, 0.25)",
         "name": "Sleep",
-        "rawQuery": "SELECT start_at AS time, end_at AS timeend,\n  'Sleep: ' || ROUND(COALESCE(asleep_seconds, 0) / 3600.0, 1) || ' h' || COALESCE(', score ' || ROUND(score::numeric), '') AS text\nFROM active_sleep_sessions\nWHERE start_at < $__timeTo() AND end_at > $__timeFrom()\nORDER BY start_at",
+        "rawQuery": "SELECT s.start_at AS time, s.end_at AS timeend,\n  'Sleep: ' || ROUND(COALESCE(s.asleep_seconds, 0) / 3600.0, 1) || ' h' || COALESCE(', score ' || ROUND(d.sleep_score::numeric), '') AS text\nFROM active_sleep_sessions s LEFT JOIN daily_scores d ON d.day = s.day\nWHERE s.start_at < $__timeTo() AND s.end_at > $__timeFrom()\nORDER BY s.start_at",
         "target": {
           "refId": "Anno"
         }
@@ -108,7 +108,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "The provider's own 0–100 score; not comparable across providers.",
+      "description": "TrainingPulse's own score, computed the same way for every provider.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -137,7 +137,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^score$/",
+          "fields": "/^sleep_score$/",
           "values": false
         },
         "textMode": "auto"
@@ -151,11 +151,66 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time, score FROM active_sleep_sessions WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time, sleep_score FROM daily_scores WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
       "title": "Sleep score",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "HRV and resting heart rate against your 30-day medians, plus the sleep score.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "#73BF69",
+            "mode": "fixed"
+          },
+          "decimals": 0,
+          "unit": "none",
+          "noValue": "–"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^recovery_score$/",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS time, recovery_score FROM daily_scores WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Recovery",
       "type": "stat"
     },
     {
@@ -179,10 +234,10 @@
       "gridPos": {
         "h": 5,
         "w": 4,
-        "x": 8,
+        "x": 12,
         "y": 1
       },
-      "id": 4,
+      "id": 5,
       "options": {
         "colorMode": "background",
         "graphMode": "area",
@@ -222,66 +277,11 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#73BF69",
+            "fixedColor": "#37872D",
             "mode": "fixed"
           },
           "decimals": 0,
           "unit": "ms",
-          "noValue": "–"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 12,
-        "y": 1
-      },
-      "id": 5,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "/^hrv_avg_ms$/",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "${DS_POSTGRESQL}"
-          },
-          "editorMode": "code",
-          "format": "time_series",
-          "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time, hrv_avg_ms FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
-          "refId": "A"
-        }
-      ],
-      "title": "HRV (night avg)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "${DS_POSTGRESQL}"
-      },
-      "description": "",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "fixedColor": "#FADE2A",
-            "mode": "fixed"
-          },
-          "decimals": 0,
-          "unit": "none",
           "noValue": "–"
         },
         "overrides": []
@@ -302,7 +302,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^body_battery_max$/",
+          "fields": "/^hrv_ms$/",
           "values": false
         },
         "textMode": "auto"
@@ -316,11 +316,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time, body_battery_max FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time, hrv_ms FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Body Battery peak",
+      "title": "HRV (night avg)",
       "type": "stat"
     },
     {
@@ -332,11 +332,11 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#FF9830",
+            "fixedColor": "#8AB8FF",
             "mode": "fixed"
           },
-          "decimals": 0,
-          "unit": "none",
+          "decimals": 1,
+          "unit": "percent",
           "noValue": "–"
         },
         "overrides": []
@@ -357,7 +357,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "/^avg_stress$/",
+          "fields": "/^spo2_avg$/",
           "values": false
         },
         "textMode": "auto"
@@ -371,11 +371,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time, avg_stress FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time, spo2_avg FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Avg stress",
+      "title": "SpO2",
       "type": "stat"
     },
     {
@@ -541,7 +541,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Score"
+              "options": "Sleep"
             },
             "properties": [
               {
@@ -549,6 +549,21 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "#8F3BB8"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Recovery"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
                 }
               }
             ]
@@ -582,11 +597,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time, score AS \"Score\" FROM active_sleep_sessions WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time, sleep_score AS \"Sleep\", recovery_score AS \"Recovery\" FROM daily_scores WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Sleep score",
+      "title": "Sleep and recovery score",
       "type": "timeseries"
     },
     {
@@ -594,7 +609,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "",
+      "description": "Each part scores 0–100. Weights: duration 35 %, efficiency 20 %, restfulness 15 %, regularity 10 %, physiology 20 %.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -611,40 +626,10 @@
             "barAlignment": 0
           },
           "unit": "none",
-          "decimals": 1
+          "decimals": 0,
+          "min": 0
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Avg sleeping HR"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#F2495C"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Avg respiration"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#37872D"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -673,11 +658,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time,\n  avg_heart_rate AS \"Avg sleeping HR\",\n  avg_respiration AS \"Avg respiration\"\nFROM active_sleep_sessions WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time,\n  (sleep_score_parts->'duration'->>'score')::float AS \"Duration\",\n  (sleep_score_parts->'efficiency'->>'score')::float AS \"Efficiency\",\n  (sleep_score_parts->'restfulness'->>'score')::float AS \"Restfulness\",\n  (sleep_score_parts->'regularity'->>'score')::float AS \"Regularity\",\n  (sleep_score_parts->'physiology'->>'score')::float AS \"Physiology\"\nFROM daily_scores WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date AND sleep_score IS NOT NULL ORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Overnight heart rate and respiration",
+      "title": "Sleep score parts",
       "type": "timeseries"
     },
     {
@@ -804,7 +789,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "",
+      "description": "Sleeping heart rate is TrainingPulse's average of the heart-rate samples while asleep.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -867,6 +852,21 @@
                 "value": 1
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Sleeping HR (avg)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8F3BB8"
+                }
+              }
+            ]
           }
         ]
       },
@@ -897,11 +897,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT d.day::timestamp AS time,\n  d.resting_hr AS \"Resting HR\",\n  percentile_cont(0.5) WITHIN GROUP (ORDER BY w.resting_hr) AS \"7-day median (used for calories)\"\nFROM active_daily_wellness d\nCROSS JOIN LATERAL (\n  SELECT resting_hr FROM active_daily_wellness w\n  WHERE w.day > d.day - 7 AND w.day <= d.day AND w.resting_hr IS NOT NULL\n) w\nWHERE d.day >= $__timeFrom()::date AND d.day <= $__timeTo()::date\nGROUP BY d.day, d.resting_hr ORDER BY 1",
+          "rawSql": "SELECT d.day::timestamp AS time,\n  d.resting_hr AS \"Resting HR\",\n  percentile_cont(0.5) WITHIN GROUP (ORDER BY w.resting_hr) AS \"7-day median (used for calories)\",\n  max(s.sleep_avg_hr) AS \"Sleeping HR (avg)\"\nFROM active_daily_wellness d\nLEFT JOIN daily_scores s ON s.day = d.day\nCROSS JOIN LATERAL (\n  SELECT resting_hr FROM active_daily_wellness w\n  WHERE w.day > d.day - 7 AND w.day <= d.day AND w.resting_hr IS NOT NULL\n) w\nWHERE d.day >= $__timeFrom()::date AND d.day <= $__timeTo()::date\nGROUP BY d.day, d.resting_hr ORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Resting heart rate",
+      "title": "Resting and sleeping heart rate",
       "type": "timeseries"
     },
     {
@@ -909,7 +909,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Garmin needs about three weeks of nights before it reports a baseline.",
+      "description": "The night's average RMSSD. Recovery compares each night with the 30-day median.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -947,7 +947,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "7-day avg"
+              "options": "30-day average"
             },
             "properties": [
               {
@@ -955,54 +955,6 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "#37872D"
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 3
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Baseline low"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#8AB8FF"
-                }
-              },
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    6,
-                    4
-                  ]
-                }
-              },
-              {
-                "id": "custom.lineWidth",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Baseline high"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#8AB8FF"
                 }
               },
               {
@@ -1050,7 +1002,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time,\n  hrv_avg_ms AS \"Night avg\",\n  hrv_weekly_avg_ms AS \"7-day avg\",\n  hrv_baseline_low_ms AS \"Baseline low\",\n  hrv_baseline_high_ms AS \"Baseline high\"\nFROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time,\n  hrv_ms AS \"Night avg\",\n  avg(hrv_ms) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS \"30-day average\"\nFROM active_daily_wellness WHERE hrv_ms IS NOT NULL\n  AND day >= $__timeFrom()::date - 30 AND day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
@@ -1062,7 +1014,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "",
+      "description": "Empty for devices that do not record SpO2 (Garmin with Pulse Ox off).",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1078,22 +1030,21 @@
             },
             "barAlignment": 0
           },
-          "unit": "none",
-          "decimals": 0,
-          "min": 0
+          "unit": "percent",
+          "decimals": 1
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "Body Battery peak"
+              "options": "Average"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#FADE2A"
+                  "fixedColor": "#8AB8FF"
                 }
               }
             ]
@@ -1101,14 +1052,14 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Body Battery low"
+              "options": "Low"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#E0B400"
+                  "fixedColor": "#5794F2"
                 }
               },
               {
@@ -1126,27 +1077,12 @@
                 "value": 1
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Avg stress"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#FF9830"
-                }
-              }
-            ]
           }
         ]
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 33
       },
@@ -1171,11 +1107,163 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time,\n  body_battery_max AS \"Body Battery peak\",\n  body_battery_min AS \"Body Battery low\",\n  avg_stress AS \"Avg stress\"\nFROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT day::timestamp AS time, spo2_avg AS \"Average\", spo2_min AS \"Low\" FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Body Battery and stress",
+      "title": "SpO2",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 4,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Breaths/min"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#37872D"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "id": 17,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS time, respiration AS \"Breaths/min\" FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Respiration while asleep",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Nightly skin temperature minus the device's personal baseline. Empty for devices without a temperature sensor.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 4,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0
+          },
+          "unit": "celsius",
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Deviation"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "id": 18,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS time, skin_temp_deviation_c AS \"Deviation\" FROM active_daily_wellness WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Skin temperature vs. baseline",
       "type": "timeseries"
     },
     {
@@ -1222,11 +1310,11 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 33
+        "w": 24,
+        "x": 0,
+        "y": 41
       },
-      "id": 17,
+      "id": 19,
       "options": {
         "tooltip": {
           "mode": "multi",
@@ -1260,12 +1348,101 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 49
       },
-      "id": 18,
+      "id": 20,
       "panels": [],
-      "title": "Intraday (zoom to a night; sleep is shaded)",
+      "title": "Night detail (zoom to a night; sleep is shaded)",
       "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Sleep stages over time, for providers that report a stage timeline (Google Health). Garmin reports stage totals only.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 85,
+            "lineWidth": 0
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "deep": {
+                  "color": "#1F60C4",
+                  "index": 0,
+                  "text": "Deep"
+                },
+                "light": {
+                  "color": "#5794F2",
+                  "index": 1,
+                  "text": "Light"
+                },
+                "rem": {
+                  "color": "#B877D9",
+                  "index": 2,
+                  "text": "REM"
+                },
+                "awake": {
+                  "color": "#FF9830",
+                  "index": 3,
+                  "text": "Awake"
+                },
+                "asleep": {
+                  "color": "#8AB8FF",
+                  "index": 4,
+                  "text": "Asleep"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "transparent"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "id": 21,
+      "options": {
+        "showValue": "never",
+        "rowHeight": 0.9,
+        "mergeValues": true,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "refId": "A",
+          "rawSql": "SELECT time, \"Stage\" FROM (\n  SELECT (e->>'start')::timestamptz AS time, e->>'stage' AS \"Stage\"\n  FROM active_sleep_sessions s, jsonb_array_elements(s.stages) e\n  WHERE s.end_at > $__timeFrom() AND s.start_at < $__timeTo()\n  UNION ALL\n  SELECT end_at, NULL FROM active_sleep_sessions\n  WHERE stages IS NOT NULL AND end_at > $__timeFrom() AND start_at < $__timeTo()\n) t ORDER BY 1"
+        }
+      ],
+      "title": "Sleep stages",
+      "type": "state-timeline"
     },
     {
       "datasource": {
@@ -1313,9 +1490,9 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 55
       },
-      "id": 19,
+      "id": 22,
       "options": {
         "tooltip": {
           "mode": "multi",
@@ -1389,9 +1566,9 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 50
+        "y": 63
       },
-      "id": 20,
+      "id": 23,
       "options": {
         "tooltip": {
           "mode": "multi",
@@ -1440,21 +1617,21 @@
             },
             "barAlignment": 0
           },
-          "unit": "none",
+          "unit": "percent",
           "decimals": 0
         },
         "overrides": [
           {
             "matcher": {
               "id": "byName",
-              "options": "Body Battery"
+              "options": "SpO2"
             },
             "properties": [
               {
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#FADE2A"
+                  "fixedColor": "#8AB8FF"
                 }
               }
             ]
@@ -1465,9 +1642,9 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 50
+        "y": 63
       },
-      "id": 21,
+      "id": 24,
       "options": {
         "tooltip": {
           "mode": "multi",
@@ -1488,11 +1665,11 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT measured_at AS time, value AS \"Body Battery\"\nFROM active_wellness_samples\nWHERE metric = 'body_battery' AND $__timeFilter(measured_at)\nORDER BY 1",
+          "rawSql": "SELECT measured_at AS time, value AS \"SpO2\"\nFROM active_wellness_samples\nWHERE metric = 'spo2' AND $__timeFilter(measured_at)\nORDER BY 1",
           "refId": "A"
         }
       ],
-      "title": "Body Battery",
+      "title": "SpO2",
       "type": "timeseries"
     }
   ],

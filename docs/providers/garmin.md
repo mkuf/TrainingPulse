@@ -56,9 +56,11 @@ TrainingPulse imports these data from Garmin:
 
 | Data kind | Data | Requests |
 |---|---|---|
-| `sleep` | One main sleep per night: start and end, time asleep, deep, light, REM, and awake time, sleep score, heart rate, respiration, sleep stress, and naps of that day | 1 for each 28 days |
-| `wellness` | One row per day: resting, minimum, and maximum heart rate, HRV (night average, 7-day average, baseline, status), stress, Body Battery, respiration, steps, calories, intensity minutes | 2 for each 90 days |
-| `intraday` | Heart rate every 2 minutes, HRV every 5 minutes while you sleep, and some Body Battery values each day | 2 for each day |
+| `sleep` | One main sleep per night: start and end, time asleep, deep, light, REM, and awake time, and naps of that day | 1 for each 28 days |
+| `wellness` | One row per day: resting heart rate, HRV (night average), respiration while asleep, SpO2 (if Pulse Ox is on), steps, active and total calories | 3 for each 90 days |
+| `intraday` | Heart rate every 2 minutes and HRV every 5 minutes while you sleep | 2 for each day |
+
+TrainingPulse does not import the Garmin sleep score, stress, Body Battery, or HRV status. These values exist only at Garmin. TrainingPulse calculates its own sleep score and recovery score from the values above, the same way for every provider. Refer to [Sleep and recovery scores](../sleep-and-recovery.md).
 
 Garmin puts a night on the day on which it ends. TrainingPulse uses `athlete.timezone` for Garmin's calendar days. Set it to the time zone of your Garmin account.
 
@@ -70,6 +72,8 @@ To import only some data kinds, add `imports`, for example `imports: [activities
 
 ### Data that the Personal API does not give
 
-The Garmin Connect app shows a sleep timeline with the sleep stages, respiration, and stress over the night. The Personal API does not give these timelines. It gives only the totals of each night. The **Sleep and recovery** dashboard shows the heart rate, HRV, and Body Battery values of a night instead.
+The Garmin Connect app shows a sleep timeline with the sleep stages, respiration, and stress over the night. The Personal API does not give these timelines. It gives only the totals of each night. For a Garmin night, the **Sleep and recovery** dashboard shows the heart rate and HRV values, but no stage timeline.
+
+Garmin has no skin temperature in the Personal API.
 
 SpO2 values are empty if Pulse Ox is off on the device. To record SpO2 during sleep, turn on Pulse Ox in the device settings in Garmin Connect. This uses more battery.

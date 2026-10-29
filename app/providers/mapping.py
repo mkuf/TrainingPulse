@@ -6,7 +6,9 @@ tested against recorded provider fixtures without HTTP or a database.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from typing import Iterator
+from zoneinfo import ZoneInfo
 
 
 def parse_dt(raw: object) -> datetime | None:
@@ -80,3 +82,23 @@ def clip_text(raw: object, length: int) -> str | None:
         return None
     text = str(raw).strip()
     return text[:length] if text else None
+
+
+def local_dates(start: datetime, end: datetime, tz: ZoneInfo) -> tuple[date, date]:
+    """Inclusive local dates covered by the half-open UTC window ``[start, end)``.
+
+    The record engine hands feeds windows that cover whole local days, so
+    this recovers exactly those days for APIs that take calendar dates.
+    """
+    first = start.astimezone(tz).date()
+    last = (end - timedelta(microseconds=1)).astimezone(tz).date()
+    return first, last
+
+
+def date_chunks(first: date, last: date, days: int) -> Iterator[tuple[date, date]]:
+    """Inclusive ``(from, to)`` ranges of at most ``days`` days covering first..last."""
+    current = first
+    while current <= last:
+        chunk_end = min(current + timedelta(days=days - 1), last)
+        yield current, chunk_end
+        current = chunk_end + timedelta(days=1)

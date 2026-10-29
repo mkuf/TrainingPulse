@@ -1,6 +1,6 @@
 # Google Health
 
-Google Health gives **activities** to TrainingPulse, with heart rate and GPS routes. Google Health uses OAuth. You connect it on the status page.
+Google Health gives **activities** (with heart rate and GPS routes), **sleep**, **daily wellness**, and **intraday** values to TrainingPulse. Google Health uses OAuth. You connect it on the status page.
 
 > **Note:** Google accepts only two types of redirect URI: `http://localhost`, or HTTPS on a public domain. Before you start, make sure that `app.base_url` is one of these types. If your server has a LAN name (for example `homeserver.lan` or `nas.local`), refer to [Use Google Health on a home server](#use-google-health-on-a-home-server) first.
 
@@ -18,6 +18,7 @@ Google Health gives **activities** to TrainingPulse, with heart rate and GPS rou
    - `googlehealth.activity_and_fitness.readonly`
    - `googlehealth.health_metrics_and_measurements.readonly`
    - `googlehealth.location.readonly` (for GPS routes)
+   - `googlehealth.sleep.readonly` (for sleep)
 6. Make an OAuth client of the type **Web application**.
 7. Add this authorized redirect URI. The URI must be exactly the same:
 
@@ -55,6 +56,22 @@ providers:
 2. Click **Connect** on the Google Health card.
 3. Log in with the Google account that you added as a test user.
 4. Accept all scopes.
+
+TrainingPulse asks only for the scopes of the data kinds that you import. If you add a data kind to `imports` later, the Google Health card shows **Reconnect needed**. Click **Disconnect** and **Connect** again, and accept the new scope.
+
+## Sleep, wellness, and intraday data
+
+| Data kind | Data |
+|---|---|
+| `sleep` | One main sleep per night: start and end, time asleep, deep, light, REM, and awake time, the sleep-stage timeline, and naps of that day |
+| `wellness` | One row per day: resting heart rate, HRV, respiration while asleep, SpO2, skin temperature deviation from your baseline, steps, active and total calories |
+| `intraday` | Heart rate (2-minute averages), HRV every 5 minutes while you sleep, SpO2 every minute while you sleep |
+
+Google puts a night on the day on which it ends. Naps are separate sessions in Google Health. TrainingPulse adds their time asleep to `nap_seconds` of that day.
+
+Steps and calories are Google's daily totals. If your phone and your tracker both count steps, Google counts each step one time.
+
+The Google Health API gives no sleep score, stress, or readiness. TrainingPulse calculates its own scores. Refer to [Sleep and recovery scores](../sleep-and-recovery.md).
 
 ## Token lifetime
 
@@ -116,4 +133,4 @@ Set the redirect URI in the Google Cloud Console to `{app.base_url}/auth/google/
 
 ## Limits
 
-Google does not publish its quota. The Google Health card on the status page does not show a budget.
+Google allows 300 requests per minute for each user. TrainingPulse sends at most 4 requests per second. If Google sends a temporary server error, TrainingPulse tries again two times. The Google Health card on the status page does not show a budget.

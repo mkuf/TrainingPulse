@@ -101,7 +101,15 @@ PROVIDERS: dict[str, ProviderSpec] = {
         ProviderSpec("icu", "intervals.icu", AuthMethod.API_KEY, (DataKind.ACTIVITIES,)),
         ProviderSpec("strava", "Strava", AuthMethod.OAUTH, (DataKind.ACTIVITIES,)),
         ProviderSpec(
-            "google_health", "Google Health", AuthMethod.OAUTH, (DataKind.ACTIVITIES,)
+            "google_health",
+            "Google Health",
+            AuthMethod.OAUTH,
+            (
+                DataKind.ACTIVITIES,
+                DataKind.SLEEP,
+                DataKind.WELLNESS,
+                DataKind.INTRADAY,
+            ),
         ),
         ProviderSpec("hammerhead", "Hammerhead", AuthMethod.OAUTH, (DataKind.ACTIVITIES,)),
         ProviderSpec(

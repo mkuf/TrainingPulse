@@ -2,7 +2,7 @@
     {% if setup %}
     <section class="card intro">
         <h2>Connect your first account</h2>
-        <p>TrainingPulse copies your activities, body measurements, and nutrition from the services below into its own database, so your Grafana dashboards work from one place. Turn the ones you use on in config.yaml, then connect any that ask for permission.</p>
+        <p>TrainingPulse copies your activities, sleep, wellness, body measurements, and nutrition from the services below into its own database, so your Grafana dashboards work from one place. Turn the ones you use on in config.yaml, then connect any that ask for permission.</p>
     </section>
     {% else %}
     <section class="status-bar status-{{ sync.state }}" aria-live="polite">
@@ -56,16 +56,6 @@
                     <h3>{{ p.label }}</h3>
                     <span class="pill pill-{{ p.tone }}">{{ p.status_label }}</span>
                 </header>
-                <p class="muted small">{{ p.kinds_label }}</p>
-
-                {% if p.counts %}
-                <p class="provider-counts">{{ p.counts|join(' · ') }}</p>
-                {% endif %}
-                {% if p.hidden %}
-                <p class="muted small" title="An account ranked higher has the same entries, so these aren't counted twice.">
-                    {{ p.hidden|num }} duplicate{{ '' if p.hidden == 1 else 's' }} hidden
-                </p>
-                {% endif %}
 
                 {% if p.quota %}
                 <div class="quota{{ ' quota-high' if p.quota.high }}">
@@ -95,7 +85,7 @@
     {% if kinds %}
     <section class="section">
         <h2 class="section-title">Where your data comes from</h2>
-        <p class="section-lead muted">When two accounts record the same workout or day, the first one in the list wins and the other copy is hidden. Change the order with <code>data.&lt;kind&gt;.precedence</code> in config.yaml.</p>
+        <p class="section-lead muted">When two accounts record the same workout or day, the first one in the list wins and the other copy is hidden; a grey <span class="chip-hidden">+N</span> counts those hidden copies. Change the order with <code>data.&lt;kind&gt;.precedence</code> in config.yaml.</p>
         <div class="card list-card">
             {% for k in kinds %}
             <div class="kind-row">
@@ -107,7 +97,7 @@
                     {% for c in k.chain %}
                     <li class="chip{{ ' chip-lead' if loop.first }}{{ ' chip-off' if c.off }}"
                         {% if c.off %}title="Turned off. Its earlier entries still count until another account replaces them."{% endif %}>
-                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}
+                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}{% if c.hidden %} <span class="chip-hidden" title="{{ c.hidden|num }} more hidden: an account ranked higher has the same entries">+{{ c.hidden|num }}</span>{% endif %}
                     </li>
                     {% endfor %}
                 </ol>

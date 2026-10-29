@@ -456,15 +456,185 @@ GARMIN_HRV_DAY = {
     ],
 }
 
-#: Body Battery reports repeat timestamps and use null for "no reading".
-GARMIN_BODY_BATTERY = [
-    {"date": "2026-10-28", "bodyBatteryValuesArray": [[1793142000000, None]]},
-    {
-        "date": "2026-10-29",
-        "bodyBatteryValuesArray": [
-            [1793228400000, 88],
-            [1793235240000, 99],
-            [1793235240000, 99],
+# ── Google Health wellness ──────────────────────────────────────────
+#
+# Recorded from the Google Health API with Fitbit Air data, trimmed to the
+# fields the mappers read (the stage timeline to its first three stretches).
+
+GOOGLE_SLEEP_MAIN = {
+    "name": "users/me/dataTypes/sleep/dataPoints/8217586939298100001",
+    "dataSource": {"recordingMethod": "PASSIVELY_MEASURED", "platform": "FITBIT"},
+    "sleep": {
+        "interval": {
+            "startTime": "2026-10-27T21:50:00Z",
+            "startUtcOffset": "3600s",
+            "endTime": "2026-10-28T06:19:00Z",
+            "endUtcOffset": "3600s",
+        },
+        "type": "STAGES",
+        "metadata": {"stagesStatus": "SUCCEEDED", "processed": True, "mainSleep": True},
+        "summary": {
+            "minutesInSleepPeriod": "509",
+            "minutesAfterWakeUp": "0",
+            "minutesToFallAsleep": "0",
+            "minutesAsleep": "494",
+            "minutesAwake": "15",
+            "stagesSummary": [
+                {"type": "AWAKE", "minutes": "15", "count": "2"},
+                {"type": "LIGHT", "minutes": "274", "count": "13"},
+                {"type": "DEEP", "minutes": "100", "count": "6"},
+                {"type": "REM", "minutes": "120", "count": "7"},
+            ],
+        },
+        "stages": [
+            {
+                "startTime": "2026-10-27T21:50:00Z",
+                "endTime": "2026-10-27T21:56:00Z",
+                "type": "AWAKE",
+            },
+            {
+                "startTime": "2026-10-27T21:56:00Z",
+                "endTime": "2026-10-27T22:09:00Z",
+                "type": "LIGHT",
+            },
+            {
+                "startTime": "2026-10-27T22:09:00Z",
+                "endTime": "2026-10-27T22:17:00Z",
+                "type": "DEEP",
+            },
+        ],
+        "shortAwakenings": [
+            {
+                "startTime": "2026-10-27T22:40:00Z",
+                "endTime": "2026-10-27T22:43:00Z",
+                "type": "LIGHT",
+            }
         ],
     },
-]
+}
+
+#: A nap is a separate session flagged ``nap``; this one on the same day.
+GOOGLE_SLEEP_NAP = {
+    "name": "users/me/dataTypes/sleep/dataPoints/8217586939298100002",
+    "sleep": {
+        "interval": {
+            "startTime": "2026-10-28T12:55:00Z",
+            "startUtcOffset": "3600s",
+            "endTime": "2026-10-28T14:44:00Z",
+            "endUtcOffset": "3600s",
+        },
+        "type": "STAGES",
+        "metadata": {"stagesStatus": "SUCCEEDED", "processed": True, "nap": True},
+        "summary": {"minutesAsleep": "98", "minutesAwake": "11"},
+    },
+}
+
+#: A manual log from an older device: no stages, no main-sleep flag.
+GOOGLE_SLEEP_CLASSIC = {
+    "name": "users/me/dataTypes/sleep/dataPoints/8217586939298100003",
+    "sleep": {
+        "interval": {
+            "startTime": "2026-08-15T21:00:00Z",
+            "startUtcOffset": "7200s",
+            "endTime": "2026-08-16T05:00:00Z",
+            "endUtcOffset": "7200s",
+        },
+        "type": "CLASSIC",
+        "metadata": {"processed": True, "manuallyEdited": True},
+        "summary": {
+            "minutesAsleep": "460",
+            "minutesAwake": "20",
+            "stagesSummary": [{"type": "ASLEEP", "minutes": "460", "count": "1"}],
+        },
+        "stages": [
+            {
+                "startTime": "2026-08-15T21:00:00Z",
+                "endTime": "2026-08-16T05:00:00Z",
+                "type": "ASLEEP",
+            }
+        ],
+    },
+}
+
+GOOGLE_DAILY = {
+    "daily-resting-heart-rate": {
+        "dailyRestingHeartRate": {
+            "date": {"year": 2026, "month": 10, "day": 28},
+            "beatsPerMinute": "55",
+            "dailyRestingHeartRateMetadata": {"calculationMethod": "WITH_SLEEP"},
+        }
+    },
+    "daily-heart-rate-variability": {
+        "dailyHeartRateVariability": {
+            "date": {"year": 2026, "month": 10, "day": 28},
+            "averageHeartRateVariabilityMilliseconds": 90.55,
+            "nonRemHeartRateBeatsPerMinute": "49",
+            "entropy": 3.719,
+            "deepSleepRootMeanSquareOfSuccessiveDifferencesMilliseconds": 74.8,
+        }
+    },
+    "daily-respiratory-rate": {
+        "dailyRespiratoryRate": {
+            "date": {"year": 2026, "month": 10, "day": 28},
+            "breathsPerMinute": 17.6,
+        }
+    },
+    "daily-oxygen-saturation": {
+        "dailyOxygenSaturation": {
+            "date": {"year": 2026, "month": 10, "day": 28},
+            "averagePercentage": 95.5,
+            "lowerBoundPercentage": 93,
+            "upperBoundPercentage": 98.4,
+            "standardDeviationPercentage": 1.6,
+        }
+    },
+    "daily-sleep-temperature-derivations": {
+        "dailySleepTemperatureDerivations": {
+            "date": {"year": 2026, "month": 10, "day": 28},
+            "nightlyTemperatureCelsius": 33.627952755905525,
+            "baselineTemperatureCelsius": 33.50781329999404,
+            "relativeNightlyStddev30dCelsius": 0.5006865693971184,
+        }
+    },
+}
+
+GOOGLE_ROLLUPS = {
+    "steps": {
+        "civilStartTime": {"date": {"year": 2026, "month": 10, "day": 28}, "time": {}},
+        "civilEndTime": {"date": {"year": 2026, "month": 10, "day": 29}, "time": {}},
+        "steps": {"countSum": "4012"},
+    },
+    "active-energy-burned": {
+        "civilStartTime": {"date": {"year": 2026, "month": 10, "day": 28}, "time": {}},
+        "activeEnergyBurned": {"kcalSum": 434.538273},
+    },
+    "total-calories": {
+        "civilStartTime": {"date": {"year": 2026, "month": 10, "day": 28}, "time": {}},
+        "totalCalories": {"kcalSum": 3313.539294},
+    },
+}
+
+GOOGLE_HEART_RATE_WINDOW = {
+    "startTime": "2026-10-20T02:06:00Z",
+    "endTime": "2026-10-20T02:08:00Z",
+    "heartRate": {
+        "beatsPerMinuteAvg": 46.25,
+        "beatsPerMinuteMax": 47,
+        "beatsPerMinuteMin": 45,
+    },
+}
+
+GOOGLE_HRV_SAMPLE = {
+    "heartRateVariability": {
+        "sampleTime": {"physicalTime": "2026-10-26T01:10:00Z", "utcOffset": "3600s"},
+        "rootMeanSquareOfSuccessiveDifferencesMilliseconds": 64.4,
+        "metadata": {"highFrequencyPower": 391.1, "lowFrequencyPower": 1955.4},
+    }
+}
+
+GOOGLE_SPO2_SAMPLE = {
+    "oxygenSaturation": {
+        "sampleTime": {"physicalTime": "2026-10-26T01:11:00Z", "utcOffset": "3600s"},
+        "percentage": 89.9,
+    }
+}

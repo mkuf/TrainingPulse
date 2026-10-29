@@ -172,6 +172,8 @@ class AthleteSection(_Section):
     #: are deduplicated per day, and a 00:30 weigh-in in Berlin belongs to the
     #: previous day in UTC.
     timezone: str = "UTC"
+    #: Hours of sleep that earn full marks for duration in the sleep score.
+    sleep_need_hours: float = Field(8.0, ge=4, le=12)
 
     @field_validator("timezone")
     @classmethod

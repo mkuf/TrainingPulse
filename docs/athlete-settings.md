@@ -8,6 +8,7 @@ The `athlete` block in `config.yaml` contains your personal values.
 | `rest_hr` | yes | Resting heart rate, for calories. An imported value replaces it |
 | `ftp` | yes | Functional threshold power, for power zones and calories |
 | `weight_kg` | no | Body weight, if no provider gives weigh-ins |
+| `sleep_need_hours` | no (default `8`) | Hours of sleep that give full points for duration in the [sleep score](sleep-and-recovery.md) |
 | `timezone` | no (default `UTC`) | Time zone, for example `Europe/Berlin`. TrainingPulse uses it to put each record on the correct day |
 
 ```yaml

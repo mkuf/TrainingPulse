@@ -36,6 +36,9 @@ class OAuthToken(Base):
     expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # Optional opaque subject / athlete id from the provider
     external_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: Space-separated scopes the user granted, or NULL for tokens stored
+    #: before scopes were recorded.
+    scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -277,6 +280,7 @@ class SleepSession(Base):
 
     One row per provider and wake ``day``. ``superseded_by`` works as for
     :class:`BodyMeasurement`; ``active_sleep_sessions`` holds visible rows.
+    Scores and sleeping heart rate are in :class:`DailyScores`.
     """
 
     __tablename__ = "sleep_sessions"
@@ -294,14 +298,10 @@ class SleepSession(Base):
     light_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rem_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     awake_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    avg_heart_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
-    avg_respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
-    min_respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
-    max_respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
-    avg_stress: Mapped[float | None] = mapped_column(Float, nullable=True)
-    awake_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nap_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: ``[{"start": iso, "end": iso, "stage": "deep"}, ...]`` or NULL when the
+    #: provider has no stage timeline.
+    stages: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -324,34 +324,41 @@ class DailyWellness(Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     resting_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
-    min_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
-    max_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
-    hrv_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    hrv_5min_high_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    hrv_weekly_avg_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    hrv_baseline_low_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    hrv_baseline_high_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
-    hrv_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    avg_stress: Mapped[float | None] = mapped_column(Float, nullable=True)
-    max_stress: Mapped[float | None] = mapped_column(Float, nullable=True)
-    body_battery_min: Mapped[float | None] = mapped_column(Float, nullable=True)
-    body_battery_max: Mapped[float | None] = mapped_column(Float, nullable=True)
-    body_battery_charged: Mapped[float | None] = mapped_column(Float, nullable=True)
-    body_battery_drained: Mapped[float | None] = mapped_column(Float, nullable=True)
-    avg_respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
-    min_respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
-    max_respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hrv_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    respiration: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spo2_avg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    spo2_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    skin_temp_deviation_c: Mapped[float | None] = mapped_column(Float, nullable=True)
     steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active_kcal: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_kcal: Mapped[float | None] = mapped_column(Float, nullable=True)
-    moderate_intensity_minutes: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )
-    vigorous_intensity_minutes: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )
     superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DailyScores(Base):
+    """Values TrainingPulse derives per day from the visible sleep, wellness,
+    and sample rows, identically for every provider.
+
+    Recomputed after every sync (see :mod:`wellness_scores`). Each score
+    keeps its parts so it can be explained.
+    """
+
+    __tablename__ = "daily_scores"
+
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    #: Mean and lowest of the heart-rate samples while asleep.
+    sleep_avg_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sleep_min_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Mean heart rate of the day's samples outside the night's sleep.
+    awake_avg_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sleep_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sleep_score_parts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    recovery_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    recovery_score_parts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 

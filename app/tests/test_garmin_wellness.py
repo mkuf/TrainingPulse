@@ -9,16 +9,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from fixtures import payloads
 
-from catalog import DataKind
+from catalog import KINDS, DataKind, Dedup
 from ingest.records import STORES
 from providers import garmin_wellness as gw
-from providers.feeds import (
-    METRIC_BODY_BATTERY,
-    METRIC_HEART_RATE,
-    METRIC_HRV,
-    SampleRecord,
-    WellnessRecord,
-)
+from providers.feeds import METRIC_HEART_RATE, METRIC_HRV, SampleRecord, WellnessRecord
+from providers.mapping import date_chunks, local_dates
 
 BERLIN = ZoneInfo("Europe/Berlin")
 
@@ -47,11 +42,11 @@ def _window(first: date, last: date, tz=BERLIN) -> tuple[datetime, datetime]:
 
 def test_local_dates_of_an_engine_window_are_exact():
     start, end = _window(date(2026, 10, 1), date(2026, 10, 29))
-    assert gw.local_dates(start, end, BERLIN) == (date(2026, 10, 1), date(2026, 10, 29))
+    assert local_dates(start, end, BERLIN) == (date(2026, 10, 1), date(2026, 10, 29))
 
 
 def test_date_chunks_cover_the_range_without_overlap():
-    chunks = list(gw.date_chunks(date(2026, 1, 1), date(2026, 3, 1), 28))
+    chunks = list(date_chunks(date(2026, 1, 1), date(2026, 3, 1), 28))
 
     assert chunks[0] == (date(2026, 1, 1), date(2026, 1, 28))
     assert chunks[-1][1] == date(2026, 3, 1)
@@ -63,7 +58,7 @@ def test_date_chunks_cover_the_range_without_overlap():
 # ── Sleep ───────────────────────────────────────────────────────────
 
 
-def test_sleep_maps_last_night():
+def test_sleep_maps_last_night_to_the_baseline():
     record = gw.map_sleep(payloads.GARMIN_SLEEP)
 
     assert record.external_id == "1793223963000"
@@ -78,16 +73,9 @@ def test_sleep_maps_last_night():
         7140,
     )
     assert record.awake_seconds == 180
-    assert record.score == 100
-    assert record.avg_heart_rate == 50
-    assert (record.min_respiration, record.avg_respiration, record.max_respiration) == (
-        9,
-        16,
-        23,
-    )
-    assert record.avg_stress == 5
-    assert record.awake_count == 0
     assert record.nap_seconds == 0
+    # The Personal API has no stage timeline.
+    assert record.stages is None
 
 
 def test_a_day_without_sleep_is_skipped():
@@ -116,77 +104,55 @@ def test_sleep_feed_requests_at_most_28_days_at_a_time():
 # ── Daily wellness ──────────────────────────────────────────────────
 
 
-def test_wellness_merges_summary_and_hrv():
+def test_wellness_maps_the_baseline_and_ignores_garmin_scores():
     record = gw.map_wellness(
         {
             "calendarDate": "2026-10-29",
             "summary": payloads.GARMIN_DAILY_SUMMARY,
             "hrv": payloads.GARMIN_HRV_SUMMARY,
+            "sleep": payloads.GARMIN_SLEEP,
         }
     )
 
     assert record == WellnessRecord(
         day=date(2026, 10, 29),
         resting_hr=44,
-        min_hr=43,
-        max_hr=78,
-        hrv_avg_ms=81,
-        hrv_5min_high_ms=127,
-        # First night: no weekly average, baseline, or status yet.
-        hrv_weekly_avg_ms=None,
-        hrv_baseline_low_ms=None,
-        hrv_baseline_high_ms=None,
-        hrv_status=None,
-        avg_stress=6,
-        max_stress=60,
-        body_battery_min=88,
-        body_battery_max=99,
-        body_battery_charged=11,
-        body_battery_drained=0,
-        avg_respiration=15,
-        min_respiration=9,
-        max_respiration=23,
+        hrv_ms=81,
+        # From the night, not the whole-day average (15).
+        respiration=16,
+        # Pulse Ox off: no SpO2, and Garmin has no skin temperature.
+        spo2_avg=None,
+        spo2_min=None,
+        skin_temp_deviation_c=None,
         steps=311,
         active_kcal=13,
         total_kcal=905,
-        moderate_intensity_minutes=0,
-        vigorous_intensity_minutes=0,
     )
 
 
-def test_wellness_reads_an_established_hrv_baseline_and_status():
-    hrv = {
-        **payloads.GARMIN_HRV_SUMMARY,
-        "weeklyAvg": 74,
-        "status": "BALANCED",
-        "baseline": {"lowUpper": 60, "balancedLow": 65, "balancedUpper": 85},
-    }
-    record = gw.map_wellness({"calendarDate": "2026-11-20", "hrv": hrv})
-
-    assert record.hrv_weekly_avg_ms == 74
-    assert (record.hrv_baseline_low_ms, record.hrv_baseline_high_ms) == (65, 85)
-    assert record.hrv_status == "BALANCED"
-    # No daily summary that day: those fields stay empty.
-    assert record.resting_hr is None
-
-
-def test_negative_garmin_values_mean_no_data():
+def test_pulse_ox_values_are_read_when_present():
     summary = {
         **payloads.GARMIN_DAILY_SUMMARY,
-        "stress": {"avgLevel": -1, "maxLevel": -2},
+        "pulseOx": {"avgValue": 95, "minValue": 89},
     }
     record = gw.map_wellness({"calendarDate": "2026-10-29", "summary": summary})
 
-    assert record.avg_stress is None
-    assert record.max_stress is None
+    assert (record.spo2_avg, record.spo2_min) == (95, 89)
+
+
+def test_negative_garmin_values_mean_no_data():
+    summary = {**payloads.GARMIN_DAILY_SUMMARY, "heartRate": {"restingValue": -1}}
+    record = gw.map_wellness({"calendarDate": "2026-10-29", "summary": summary})
+
+    assert record.resting_hr is None
 
 
 def test_a_day_without_any_value_is_skipped():
-    empty = {"heartRate": {}, "stress": {}, "bodyBattery": {}, "movement": {}}
+    empty = {"heartRate": {}, "movement": {}, "calories": {}}
     assert gw.map_wellness({"calendarDate": "2026-10-29", "summary": empty}) is None
 
 
-def test_wellness_feed_joins_both_endpoints_by_day():
+def test_wellness_feed_joins_summaries_hrv_and_sleep_by_day():
     class Client:
         async def get_daily_summaries(self, start_date, end_date):
             return [payloads.GARMIN_DAILY_SUMMARY]
@@ -197,6 +163,9 @@ def test_wellness_feed_joins_both_endpoints_by_day():
                 {**payloads.GARMIN_HRV_SUMMARY, "calendarDate": "2026-10-28"},
             ]
 
+        async def get_sleep_summaries(self, start_date, end_date):
+            return [payloads.GARMIN_SLEEP_EMPTY, payloads.GARMIN_SLEEP]
+
     start, end = _window(date(2026, 10, 28), date(2026, 10, 29))
     merged = asyncio.run(
         gw.GarminWellnessFeed(_Provider(Client())).list_records(start, end)
@@ -205,7 +174,7 @@ def test_wellness_feed_joins_both_endpoints_by_day():
     assert [entry["calendarDate"] for entry in merged] == ["2026-10-28", "2026-10-29"]
     assert "summary" not in merged[0]
     assert merged[1]["summary"] is payloads.GARMIN_DAILY_SUMMARY
-    assert merged[1]["hrv"]["lastNightAvg"] == 81
+    assert merged[1]["sleep"] is payloads.GARMIN_SLEEP
 
 
 # ── Intraday samples ────────────────────────────────────────────────
@@ -235,52 +204,30 @@ def test_hrv_readings_use_the_utc_reading_time():
     assert first.value == 68
 
 
-def test_body_battery_skips_nulls():
-    raw = [
-        sample
-        for report in payloads.GARMIN_BODY_BATTERY
-        for sample in gw.body_battery_samples(report)
-    ]
-    mapped = [gw.map_sample(payload) for payload in raw]
-
-    assert mapped[0] is None
-    assert {record.metric for record in mapped[1:]} == {METRIC_BODY_BATTERY}
-    assert [record.value for record in mapped[1:]] == [88, 99, 99]
-
-
-def test_intraday_feed_requests_each_day_once():
-    days = []
+def test_intraday_feed_requests_heart_rate_and_hrv_once_per_day():
+    calls = []
 
     class Client:
         async def get_daily_heart_rate(self, day):
-            days.append(("hr", day))
+            calls.append(("hr", day))
             return payloads.GARMIN_HEART_RATE_DAY
 
         async def get_hrv(self, day):
-            days.append(("hrv", day))
+            calls.append(("hrv", day))
             return payloads.GARMIN_HRV_DAY
-
-        async def get_body_battery(self, start_date, end_date):
-            days.append(("bb", start_date, end_date))
-            return payloads.GARMIN_BODY_BATTERY
 
     start, end = _window(date(2026, 10, 28), date(2026, 10, 29))
     raw = asyncio.run(
         gw.GarminIntradayFeed(_Provider(Client())).list_records(start, end)
     )
 
-    assert days == [
+    assert calls == [
         ("hr", date(2026, 10, 28)),
         ("hrv", date(2026, 10, 28)),
         ("hr", date(2026, 10, 29)),
         ("hrv", date(2026, 10, 29)),
-        ("bb", date(2026, 10, 28), date(2026, 10, 29)),
     ]
-    assert {payload["metric"] for payload in raw} == {
-        METRIC_HEART_RATE,
-        METRIC_HRV,
-        METRIC_BODY_BATTERY,
-    }
+    assert {payload["metric"] for payload in raw} == {METRIC_HEART_RATE, METRIC_HRV}
 
 
 def test_samples_get_their_local_day():
@@ -298,12 +245,11 @@ def test_sleep_rows_keep_the_providers_wake_day():
 
     assert values["day"] == date(2026, 10, 29)
     assert values["start_at"] == record.start
+    assert values["stages"] is None
 
 
 @pytest.mark.parametrize("kind", [DataKind.SLEEP, DataKind.WELLNESS, DataKind.INTRADAY])
-def test_new_kinds_are_stored_and_deduplicated_per_day(kind):
-    from catalog import KINDS, Dedup
-
+def test_wellness_kinds_are_stored_and_deduplicated_per_day(kind):
     assert KINDS[kind].dedup is Dedup.PER_DAY
     assert hasattr(STORES[kind].model, "day")
     assert hasattr(STORES[kind].model, "superseded_by")

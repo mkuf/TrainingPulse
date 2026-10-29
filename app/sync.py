@@ -60,6 +60,7 @@ from metrics import (
 from models import ACTIVITY_VISIBLE, Activity, ActivityStream, AthleteSettings
 from providers.base import ActivitySource, Provider, SourceRateLimitExceeded
 from providers.registry import build_enabled_providers
+from wellness_scores import SCORED_KINDS, recompute_daily_scores
 
 logger = logging.getLogger(__name__)
 
@@ -310,11 +311,25 @@ async def _sync_records(
 ) -> None:
     """List and deduplicate every non-activity kind, provider by provider."""
     tz = ZoneInfo(config.athlete.timezone)
+    granted: dict[str, frozenset[DataKind]] = {}
+    for provider in live:
+        try:
+            granted[provider.name] = await provider.granted_kinds()
+        except Exception as exc:  # noqa: BLE001 - treat as "everything", fail later
+            logger.warning("%s granted-kinds check failed: %s", provider.name, exc)
+            granted[provider.name] = frozenset(provider.feeds())
     for kind in RECORD_KINDS:
         settings = config.data.kind(kind)
         for provider in _in_precedence(live, kind):
             feed = provider.feeds().get(kind)
             if feed is None:
+                continue
+            if kind not in granted[provider.name]:
+                sync_state.last_error = (
+                    f"{provider.name} cannot read {kind} yet; reconnect it from "
+                    "the home page to grant access."
+                )
+                logger.warning(sync_state.last_error)
                 continue
             try:
                 await sync_record_feed(
@@ -344,6 +359,24 @@ async def _sync_records(
         # Always recompute: a precedence change needs no new rows to matter.
         sync_state.begin("deduplicating")
         await recompute_daily_supersessions(session, kind, settings.precedence)
+        if kind in SCORED_KINDS:
+            # Right away rather than after the whole sync, so a finished night
+            # shows its score while a later kind is still backfilling.
+            await _recompute_scores(session)
+
+
+async def _recompute_scores(session: AsyncSession) -> None:
+    sync_state.begin("scoring")
+    try:
+        await recompute_daily_scores(
+            session,
+            tz=ZoneInfo(config.athlete.timezone),
+            sleep_need_hours=config.athlete.sleep_need_hours,
+        )
+    except Exception as exc:  # noqa: BLE001 - scores must not fail a sync
+        await session.rollback()
+        sync_state.last_error = f"Scoring sleep and recovery failed: {exc}"
+        logger.exception("Scoring sleep and recovery failed")
 
 
 async def run_sync(session: AsyncSession, *, force_resync: bool = False) -> None:
