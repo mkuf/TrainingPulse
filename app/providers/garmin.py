@@ -1,4 +1,4 @@
-"""Garmin Connect provider: activities and weigh-ins via the Personal API.
+"""Garmin Connect provider: activities, weigh-ins, and wellness via the Personal API.
 
 Authenticated with a Personal API key the user creates in Garmin Connect, so
 there is no OAuth flow and no redirect URI. Activities follow the Hammerhead
@@ -10,8 +10,8 @@ Payload field names below match what Garmin Connect's web endpoints return;
 Garmin publishes no response schema for the Personal API, so check them
 against a real account before relying on them.
 
-Garmin also exposes sleep, HRV, stress, Body Battery, resting heart rate, and
-SpO2. None has a feed yet, because TrainingPulse has no tables for them.
+Sleep, daily wellness, and intraday samples live in
+:mod:`providers.garmin_wellness`.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import logging
 from collections import OrderedDict
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import FastAPI
@@ -41,6 +42,11 @@ from providers.garmin_client import (
     GarminAuthError,
     GarminClient,
     extract_fit,
+)
+from providers.garmin_wellness import (
+    GarminIntradayFeed,
+    GarminSleepFeed,
+    GarminWellnessFeed,
 )
 from providers.mapping import as_float, as_int, clip_text, parse_dt
 
@@ -262,7 +268,8 @@ class GarminBodyFeed:
 class GarminSource:
     """Garmin Connect, authenticated with a Personal API key.
 
-    The provider is its own activities feed, plus a separate body feed.
+    The provider is its own activities feed, plus separate body, sleep,
+    wellness, and intraday feeds sharing its client and token.
     Reconcile is on: one search request covers 100 activities, and
     :func:`map_row` keeps list and detail rows comparable, so only activities
     edited in Garmin Connect (sport, name, trimmed) are re-detailed. Their FIT
@@ -285,9 +292,12 @@ class GarminSource:
         api_key: str,
         api_base: str = DEFAULT_API_BASE,
         session_factory: async_sessionmaker | None = None,
+        timezone: str = "UTC",
     ):
         self._api_key = (api_key or "").strip()
         self._api_base = api_base
+        #: Garmin's calendar days are assumed to be ``athlete.timezone`` days.
+        self.timezone = ZoneInfo(timezone)
         # Needed only for permanent FIT file storage.
         self._session_factory = session_factory
         self._client: GarminClient | None = None
@@ -295,6 +305,9 @@ class GarminSource:
         self._feeds: dict[DataKind, Feed] = {
             DataKind.ACTIVITIES: self,
             DataKind.BODY: GarminBodyFeed(self),
+            DataKind.SLEEP: GarminSleepFeed(self),
+            DataKind.WELLNESS: GarminWellnessFeed(self),
+            DataKind.INTRADAY: GarminIntradayFeed(self),
         }
 
     @property

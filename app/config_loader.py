@@ -367,6 +367,12 @@ class DataSection(_Section):
         default_factory=DataKindSection, validate_default=True
     )
     sleep: DataKindSection = Field(default_factory=DataKindSection, validate_default=True)
+    wellness: DataKindSection = Field(
+        default_factory=DataKindSection, validate_default=True
+    )
+    intraday: DataKindSection = Field(
+        default_factory=DataKindSection, validate_default=True
+    )
 
     @field_validator(*(kind.value for kind in DataKind), mode="after")
     @classmethod

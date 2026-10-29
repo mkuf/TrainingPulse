@@ -4,7 +4,7 @@
 
 # TrainingPulse
 
-Self-hosted sync and dashboards for your training: activities from **intervals.icu**, **Strava**, **Google Health**, **Hammerhead** (Karoo bike computers), and **Garmin Connect**, body weight from **Withings** and **Garmin Connect**, and nutrition from **FDDB**. PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
+Self-hosted sync and dashboards for your training: activities from **intervals.icu**, **Strava**, **Google Health**, **Hammerhead** (Karoo bike computers), and **Garmin Connect**, body weight from **Withings** and **Garmin Connect**, nutrition from **FDDB**, and sleep, HRV, resting heart rate, stress, and Body Battery from **Garmin Connect**. PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
 
 ## Trademarks and API use
 
@@ -49,7 +49,7 @@ Start with [Setup](docs/setup.md). Then set up each provider that you use:
 | Strava | activities | [Strava](docs/providers/strava.md) |
 | Google Health | activities | [Google Health](docs/providers/google-health.md) |
 | Hammerhead | activities | [Hammerhead](docs/providers/hammerhead.md) |
-| Garmin Connect | activities, body | [Garmin Connect](docs/providers/garmin.md) |
+| Garmin Connect | activities, body, sleep, wellness, intraday | [Garmin Connect](docs/providers/garmin.md) |
 | Withings | body (weight, fat %, muscle mass) | [Withings](docs/providers/withings.md) |
 | FDDB | nutrition (kcal, macros) | [FDDB](docs/providers/fddb.md) |
 

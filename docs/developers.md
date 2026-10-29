@@ -62,7 +62,7 @@ flowchart TB
 
 Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 
-- A **data kind** (`activities`, `body`, `nutrition`, reserved `sleep`) is something TrainingPulse stores and shows. The core owns its table, its duplicate rule, its dashboards, and its MCP tools.
+- A **data kind** (`activities`, `body`, `nutrition`, `sleep`, `wellness`, `intraday`) is something TrainingPulse stores and shows. The core owns its table, its duplicate rule, its dashboards, and its MCP tools.
 - A **provider** is an account the user connects. It authenticates once, owns one rate budget, and offers a **feed** per kind it can supply. `ProviderSpec.kinds` lists the kinds that have a working feed; config validation rejects importing anything else.
 
 | Kind | Table | Duplicate rule |
@@ -70,9 +70,11 @@ Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 | activities | `activities` | `OVERLAP`: starts within 15 min and time ranges overlap |
 | body | `body_measurements` | `PER_DAY`: one provider wins each local day |
 | nutrition | `daily_nutrition` | `PER_DAY` |
-| sleep | — (no feed yet) | `OVERLAP` |
+| sleep | `sleep_sessions` | `PER_DAY`, keyed by the day the night ends |
+| wellness | `daily_wellness` | `PER_DAY` |
+| intraday | `wellness_samples` | `PER_DAY`, keyed by the local day of each sample |
 
-The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All six providers live in [`app/providers/`](../app/providers/). The four activity providers are each their own `ActivityFeed`; Withings and FDDB return separate `BodyFeed` / `NutritionFeed` objects. A provider that gains a second kind returns one more feed from `feeds()`.
+The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All seven providers live in [`app/providers/`](../app/providers/). The five activity providers are each their own `ActivityFeed`; Withings and FDDB return separate `BodyFeed` / `NutritionFeed` objects, and Garmin also returns body, sleep, wellness, and intraday feeds (the last three in [`garmin_wellness.py`](../app/providers/garmin_wellness.py)). A provider that gains a second kind returns one more feed from `feeds()`.
 
 ### Non-activity kinds
 
@@ -93,7 +95,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 
 ### Adding a data kind
 
-Add it to `DataKind` and `KINDS`, add a record dataclass and feed protocol in `providers/feeds.py`, a model and a `RecordStore` in `ingest/records.py` (for a per-day kind), a field on `DataSection`, its `active_*` view in `schema_migrate._ACTIVE_VIEWS`, and MCP tools. A session kind such as sleep needs the overlap rule from `ingest.activities.choose_winners` instead of `choose_daily_winners`.
+Add it to `DataKind` and `KINDS`, add a record dataclass and feed protocol in `providers/feeds.py`, a model and a `RecordStore` in `ingest/records.py` (for a per-day kind), a field on `DataSection`, its `active_*` view in `schema_migrate._ACTIVE_VIEWS`, and MCP tools. Every record kind so far is per-day: sleep is keyed by the day the night ends, intraday samples by the local day of their timestamp. A kind with several sessions per day would need the overlap rule from `ingest.activities.choose_winners` instead of `choose_daily_winners`.
 
 ## Activity providers
 
@@ -345,9 +347,11 @@ Tools, by area:
 | --- | --- | --- |
 | Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 | Training load | `get_training_load` (daily CTL / ATL / TSB) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
-| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
+| Athlete | `get_athlete_profile` (HR, FTP, zone boundaries; `rest_hr` is the imported 7-day median when available, see `rest_hr_source`) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 | Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
 | Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
+| Sleep | `get_sleep_summary`, `list_sleep`, `get_night` (one night with its heart rate, HRV, and Body Battery samples), `compare_sleep_periods` | [`mcp_server/wellness.py`](../app/mcp_server/wellness.py) |
+| Wellness | `get_wellness_summary`, `list_daily_wellness`, `compare_wellness_periods`, `get_intraday_samples` | [`mcp_server/wellness.py`](../app/mcp_server/wellness.py) |
 | Coverage | `get_data_coverage` (stored rows per kind and provider, hidden duplicates, activities gone upstream, gaps) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 
 Conventions, shared through [`app/mcp_server/common.py`](../app/mcp_server/common.py):
@@ -373,6 +377,7 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 - `tests/test_provider_mappers.py` — per-provider activity mappers and stream normalizers against `tests/fixtures/payloads.py`, plus protocol conformance
 - `tests/test_fitfiles.py` — generic FIT-file analyzer: stream/summary derivation and message dispatch, against faked `fitdecode` frames
 - `tests/test_ingest_activities.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
+- `tests/test_garmin.py`, `tests/test_garmin_wellness.py` — Garmin activity, weight, sleep, wellness, and intraday mappers and feeds against recorded responses
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
 
 ## Demo data

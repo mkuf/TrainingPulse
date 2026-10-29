@@ -358,3 +358,113 @@ GOOGLE_HEALTH_TCX = """<?xml version="1.0" encoding="UTF-8"?>
   </Track></Lap></Activity></Activities>
 </TrainingCenterDatabase>
 """
+
+# ── Garmin wellness ─────────────────────────────────────────────────
+#
+# Recorded from the Personal API with a Garmin CIRQA band (night of
+# 2026-10-28 → 29), trimmed to the fields the mappers read.
+
+GARMIN_SLEEP = {
+    "id": 1793223963000,
+    "calendarDate": "2026-10-29",
+    "sleepTimeSeconds": 29520,
+    "napTimeSeconds": 0,
+    "sleepStartTimestampGMT": 1793223963000,
+    "sleepEndTimestampGMT": 1793253663000,
+    "sleepStartTimestampLocal": 1793227563000,
+    "sleepEndTimestampLocal": 1793257263000,
+    "deepSleepSeconds": 7140,
+    "lightSleepSeconds": 15240,
+    "remSleepSeconds": 7140,
+    "awakeSleepSeconds": 180,
+    "averageRespirationValue": 16.0,
+    "lowestRespirationValue": 9.0,
+    "highestRespirationValue": 23.0,
+    "awakeCount": 0,
+    "avgSleepStress": 5.0,
+    "avgHeartRate": 50.0,
+    "sleepScores": {"overall": {"value": 100, "qualifierKey": "EXCELLENT"}},
+}
+
+#: A day without sleep in ``dailySleepSummariesByDate``: every field null.
+GARMIN_SLEEP_EMPTY = {
+    "id": None,
+    "calendarDate": None,
+    "sleepTimeSeconds": None,
+    "sleepStartTimestampGMT": None,
+    "sleepEndTimestampGMT": None,
+}
+
+GARMIN_DAILY_SUMMARY = {
+    "calendarDate": "2026-10-29",
+    "heartRate": {"minValue": 43, "maxValue": 78, "restingValue": 44},
+    "stress": {"avgLevel": 6, "maxLevel": 60},
+    "bodyBattery": {
+        "minValue": 88,
+        "maxValue": 99,
+        "chargedValue": 11,
+        "drainedValue": 0,
+        "latestValue": 99,
+    },
+    "respiration": {"avgValue": 15, "maxValue": 23, "minValue": 9},
+    "movement": {"steps": {"goal": 10000, "value": 311, "distanceInMeters": 262.0}},
+    "calories": {"burnedResting": 892, "burnedActive": 13, "burnedTotal": 905},
+    "intensityMinutes": {"goal": 150, "moderate": 0, "vigorous": 0},
+    "pulseOx": {},
+}
+
+#: First night: no weekly average or baseline yet. The baseline's shape
+#: (``balancedLow``/``balancedUpper``) comes from Garmin Connect's web app and
+#: is not yet confirmed for the Personal API.
+GARMIN_HRV_SUMMARY = {
+    "calendarDate": "2026-10-29",
+    "weeklyAvg": None,
+    "lastNightAvg": 81,
+    "lastNight5MinHigh": 127,
+    "baseline": None,
+    "status": "NONE",
+    "feedbackPhrase": "ONBOARDING_1",
+}
+
+GARMIN_HEART_RATE_DAY = {
+    "calendarDate": "2026-10-29",
+    "restingHeartRate": 44,
+    "heartRateValueDescriptors": [
+        {"index": 0, "key": "timestamp"},
+        {"index": 1, "key": "heartrate"},
+    ],
+    "heartRateValues": [
+        [1793228400000, 56],
+        [1793228520000, 58],
+        [1793228640000, None],
+    ],
+}
+
+GARMIN_HRV_DAY = {
+    "hrvSummary": GARMIN_HRV_SUMMARY,
+    "hrvReadings": [
+        {
+            "hrvValue": 68,
+            "readingTimeGMT": "2026-10-28T21:49:08.0",
+            "readingTimeLocal": "2026-10-28T22:49:08.0",
+        },
+        {
+            "hrvValue": 46,
+            "readingTimeGMT": "2026-10-28T21:54:08.0",
+            "readingTimeLocal": "2026-10-28T22:54:08.0",
+        },
+    ],
+}
+
+#: Body Battery reports repeat timestamps and use null for "no reading".
+GARMIN_BODY_BATTERY = [
+    {"date": "2026-10-28", "bodyBatteryValuesArray": [[1793142000000, None]]},
+    {
+        "date": "2026-10-29",
+        "bodyBatteryValuesArray": [
+            [1793228400000, 88],
+            [1793235240000, 99],
+            [1793235240000, 99],
+        ],
+    },
+]

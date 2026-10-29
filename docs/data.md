@@ -6,9 +6,16 @@ A **provider** is an account that you connect. A provider gives one or more **da
 
 | Data kind | Providers |
 |---|---|
-| `activities` | intervals.icu, Strava, Google Health, Hammerhead |
-| `body` | Withings |
+| `activities` | intervals.icu, Strava, Google Health, Hammerhead, Garmin Connect |
+| `body` | Withings, Garmin Connect |
 | `nutrition` | FDDB |
+| `sleep` | Garmin Connect |
+| `wellness` | Garmin Connect |
+| `intraday` | Garmin Connect |
+
+- `sleep`: one main sleep per night, with times, sleep stages, score, heart rate, respiration, and naps of that day.
+- `wellness`: one row per day with resting heart rate, HRV, stress, Body Battery, respiration, steps, and calories.
+- `intraday`: values with a time stamp, for example heart rate every 2 minutes, HRV every 5 minutes while you sleep, and Body Battery.
 
 Each data kind has one table, one set of dashboards, and one set of MCP tools. This is the same for all providers.
 
@@ -29,9 +36,9 @@ data:
 TrainingPulse uses these rules to find duplicates:
 
 - **Activities:** two activities are duplicates if they start less than 15 minutes apart *and* their time ranges overlap.
-- **Body and nutrition:** TrainingPulse compares each calendar day in `athlete.timezone`. The provider with the highest priority that has data on that day gives all data for that day.
+- **All other data kinds:** TrainingPulse compares each calendar day in `athlete.timezone`. The provider with the highest priority that has data on that day gives all data for that day. A night belongs to the day on which it ends. Intraday values belong to the day of their time stamp.
 
-A hidden row keeps `superseded_by`, which points to the row that TrainingPulse shows. The Grafana dashboards, the MCP tools, and the views `active_activities`, `active_body_measurements`, and `active_daily_nutrition` use only the rows that TrainingPulse shows. Thus, TrainingPulse does not count an item two times.
+A hidden row keeps `superseded_by`, which points to the row that TrainingPulse shows. The Grafana dashboards, the MCP tools, and the views `active_activities`, `active_body_measurements`, `active_daily_nutrition`, `active_sleep_sessions`, `active_daily_wellness`, and `active_wellness_samples` use only the rows that TrainingPulse shows. Thus, TrainingPulse does not count an item two times.
 
 TrainingPulse does not fetch the detail and the streams of a hidden activity. Thus, a provider with a small budget, for example Strava, does not spend requests on activities that you do not see.
 
@@ -62,8 +69,9 @@ A provider can stop to give an activity. For example, you delete it there, or it
 - For Hammerhead: the `.fit` file of each activity. TrainingPulse downloads it one time and keeps it permanently. Refer to [Hammerhead](providers/hammerhead.md).
 - Activities that a provider deleted. TrainingPulse hides them but keeps them.
 - Body measurements (weight, fat %, muscle mass) and daily nutrition totals, with the name of the provider.
+- Sleep, daily wellness values, and intraday values, with the name of the provider.
 - OAuth tokens for Strava, Google Health, Hammerhead, and Withings. TrainingPulse refreshes them automatically. intervals.icu and FDDB use the credentials in `config.yaml`.
-- Athlete settings from `config.yaml`. TrainingPulse does not request a profile, zones, or FTP from a provider.
+- Athlete settings from `config.yaml`. TrainingPulse does not request a profile, zones, or FTP from a provider. An imported resting heart rate replaces `athlete.rest_hr`. Refer to [Athlete settings](athlete-settings.md).
 
 **Calculated by TrainingPulse:**
 

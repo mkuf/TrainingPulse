@@ -6,7 +6,9 @@ read-only and pull-only. A Personal API key, created by the user in Garmin
 Connect's settings, is exchanged for a JWT bearer token valid for 24 hours (or
 until the key expires). There are no refresh tokens: a new bearer token is
 simply requested with the same key. Garmin documents no rate limits and no
-rate-limit headers.
+rate-limit headers; in practice it answered HTTP 429 with ``Retry-After: 41``
+after about 100 requests in 17 seconds, so requests are spaced out (see
+:class:`_Pacer`).
 """
 
 from __future__ import annotations
@@ -38,6 +40,14 @@ _TOKEN_REFRESH_WINDOW = 60 * 60
 
 #: Used when a 429 arrives without ``Retry-After``. Garmin documents no limits.
 _DEFAULT_RATE_LIMIT_RESET = 900.0
+
+#: Minimum gap between requests: about 90 a minute, below the burst at which
+#: Garmin started answering 429.
+_MIN_REQUEST_INTERVAL = 0.65
+
+#: A 429 whose ``Retry-After`` is at most this long is waited out and retried
+#: once; a longer one pauses the provider until the next sync.
+_MAX_INLINE_RETRY_AFTER = 120.0
 
 #: Caps how much of one activity download this client will buffer. Same order
 #: of magnitude as ``fitfiles.store.MAX_RAW_DATA_BYTES``.
@@ -84,6 +94,31 @@ def extract_fit(archive: bytes) -> bytes:
     except zipfile.BadZipFile as exc:
         raise ValueError("Garmin activity download is not a ZIP archive") from exc
     raise ValueError("Garmin activity download contains no .fit file")
+
+
+class _Pacer:
+    """Spaces requests out across every Garmin client in this process.
+
+    Each feed builds its requests through the provider's one client, but the
+    status page and the sync can run their own, and Garmin's limit is per
+    account, so the schedule is shared.
+    """
+
+    def __init__(self, interval: float):
+        self._interval = interval
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            delay = self._next - now
+            self._next = max(now, self._next) + self._interval
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+
+_PACER = _Pacer(_MIN_REQUEST_INTERVAL)
 
 
 #: Bearer tokens shared by every client in this process, keyed by
@@ -148,19 +183,34 @@ class GarminClient:
             # exchange the key again instead of reusing the cached token.
             self._forget_token()
         if response.status_code == 429:
-            retry_after = response.headers.get("Retry-After")
-            reset = float(retry_after) if retry_after else _DEFAULT_RATE_LIMIT_RESET
-            logger.warning("Got 429 from Garmin (Retry-After=%s)", retry_after)
-            raise SourceRateLimitExceeded(source=SOURCE_NAME, reset_after=reset)
+            raise SourceRateLimitExceeded(
+                source=SOURCE_NAME, reset_after=_retry_after(response)
+            )
 
     async def _get(self, path: str, *, params: dict | None = None):
-        """GET a path and return decoded JSON, or ``None`` for an empty body."""
-        token = await self._ensure_token()
-        response = await self._http.get(
-            f"{self.api_base}{path}",
-            params=params,
-            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
-        )
+        """GET a path and return decoded JSON, or ``None`` for an empty body.
+
+        A short 429 is waited out and retried once, so a backfill keeps going
+        instead of stopping until the next sync.
+        """
+        for attempt in (1, 2):
+            token = await self._ensure_token()
+            await _PACER.wait()
+            response = await self._http.get(
+                f"{self.api_base}{path}",
+                params=params,
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
+            )
+            if response.status_code == 429 and attempt == 1:
+                wait = _retry_after(response)
+                if wait <= _MAX_INLINE_RETRY_AFTER:
+                    logger.warning("Got 429 from Garmin; retrying in %.0fs", wait)
+                    await asyncio.sleep(wait)
+                    continue
+            break
         self._check_status(response)
         response.raise_for_status()
         if not response.content:
@@ -200,6 +250,73 @@ class GarminClient:
         )
         return data if isinstance(data, dict) else {}
 
+    # ── Wellness ────────────────────────────────────────────────────
+    #
+    # Range limits measured against the live API: sleep summaries reject
+    # ranges over 31 days; daily summaries and HRV summaries accept a year.
+    # The intraday endpoints take a single calendar date.
+
+    async def get_sleep_summaries(self, start_date: date, end_date: date) -> list[dict]:
+        """One sleep record per day in an inclusive range (at most 31 days).
+
+        Days without sleep come back as an entry whose fields are all null.
+        """
+        data = await self._get(
+            "/sleep-service/sleep/dailySleepSummariesByDate",
+            params={
+                "startDate": start_date.isoformat(),
+                "endDate": end_date.isoformat(),
+            },
+        )
+        return data if isinstance(data, list) else []
+
+    async def get_daily_summaries(self, start_date: date, end_date: date) -> list[dict]:
+        """Daily wellness summaries for an inclusive range; days without data
+        are left out."""
+        data = await self._get(
+            "/usersummary-service/v2/dailysummaries",
+            params={
+                "startDate": start_date.isoformat(),
+                "endDate": end_date.isoformat(),
+            },
+        )
+        if not isinstance(data, dict):
+            return []
+        return data.get("data") or []
+
+    async def get_hrv_summaries(self, start_date: date, end_date: date) -> list[dict]:
+        """Overnight HRV summaries for an inclusive range."""
+        data = await self._get(
+            f"/hrv-service/hrv/daily/{start_date.isoformat()}/{end_date.isoformat()}"
+        )
+        if not isinstance(data, dict):
+            return []
+        return data.get("hrvSummaries") or []
+
+    async def get_daily_heart_rate(self, day: date) -> dict:
+        """Heart rate every two minutes for one local day."""
+        data = await self._get(
+            "/wellness-service/wellness/dailyHeartRate",
+            params={"date": day.isoformat()},
+        )
+        return data if isinstance(data, dict) else {}
+
+    async def get_hrv(self, day: date) -> dict:
+        """The overnight HRV readings (every five minutes) ending on ``day``."""
+        data = await self._get(f"/hrv-service/hrv/{day.isoformat()}")
+        return data if isinstance(data, dict) else {}
+
+    async def get_body_battery(self, start_date: date, end_date: date) -> list[dict]:
+        """Body Battery reports, one per day, each with a few key samples."""
+        data = await self._get(
+            "/wellness-service/wellness/bodyBattery/reports/daily",
+            params={
+                "startDate": start_date.isoformat(),
+                "endDate": end_date.isoformat(),
+            },
+        )
+        return data if isinstance(data, list) else []
+
     async def download_activity(self, activity_id: str) -> bytes:
         """The original activity file as ZIP bytes, streamed with a size cap."""
         token = await self._ensure_token()
@@ -211,6 +328,7 @@ class GarminClient:
         }
         chunks: list[bytes] = []
         total = 0
+        await _PACER.wait()
         async with self._http.stream("GET", url, headers=headers) as response:
             self._check_status(response)
             response.raise_for_status()
@@ -223,3 +341,12 @@ class GarminClient:
                     )
                 chunks.append(chunk)
         return b"".join(chunks)
+
+
+def _retry_after(response: httpx.Response) -> float:
+    """Seconds Garmin asks to wait after a 429."""
+    raw = response.headers.get("Retry-After")
+    try:
+        return float(raw) if raw else _DEFAULT_RATE_LIMIT_RESET
+    except ValueError:
+        return _DEFAULT_RATE_LIMIT_RESET

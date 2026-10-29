@@ -27,6 +27,7 @@ from database import async_session, engine
 from ingest.records import RECORD_KINDS, STORES
 from models import ACTIVITY_VISIBLE, Activity, AthleteSettings
 from providers.registry import build_all_providers
+from resting_hr import resting_hr_on
 from schema_migrate import ensure_schema
 from sync import run_sync, sync_state
 
@@ -109,6 +110,9 @@ KIND_UNITS: dict[DataKind, tuple[str, str]] = {
     DataKind.ACTIVITIES: ("activity", "activities"),
     DataKind.BODY: ("measurement", "measurements"),
     DataKind.NUTRITION: ("day", "days"),
+    DataKind.SLEEP: ("night", "nights"),
+    DataKind.WELLNESS: ("day", "days"),
+    DataKind.INTRADAY: ("sample", "samples"),
 }
 
 SHOWN_KINDS: tuple[DataKind, ...] = (DataKind.ACTIVITIES, *RECORD_KINDS)
@@ -459,10 +463,18 @@ async def _live_context() -> dict:
 async def home(request: Request):
     """Status page: accounts, sync progress, and where data comes from."""
     context = await _live_context()
+    async with async_session() as session:
+        resting_hr = await resting_hr_on(
+            session,
+            datetime.now(ZoneInfo(config.athlete.timezone)).date(),
+            fallback=config.athlete.rest_hr,
+            max_hr=config.athlete.max_hr,
+        )
     context.update(
         app_name=APP_DISPLAY_NAME,
         grafana_url=_grafana_url(),
         athlete=config.athlete,
+        resting_hr=resting_hr,
     )
     return templates.TemplateResponse(request, "index.html", context)
 

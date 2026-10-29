@@ -58,7 +58,7 @@ athlete:
 #   strava          activities
 #   google_health   activities
 #   hammerhead      activities
-#   garmin          activities, body
+#   garmin          activities, body, sleep, wellness, intraday
 #   withings        body
 #   fddb            nutrition
 
@@ -140,10 +140,10 @@ providers:
 # ── What to keep, and who wins a duplicate ───────────────────────────
 #
 # Every provider's rows are stored; precedence decides which are visible.
-# Activities compete when their time ranges overlap. Body measurements and
-# nutrition compete per calendar day: the highest-ranked provider with any
-# data that day wins the whole day, so nothing is double-counted. Only the
-# winning activity spends detail and stream API calls.
+# Activities compete when their time ranges overlap. Every other kind
+# competes per calendar day: the highest-ranked provider with any data that
+# day wins the whole day, so nothing is double-counted. A night belongs to the
+# day it ends. Only the winning activity spends detail and stream API calls.
 #
 # Precedence ignores `enabled`, so disabling a provider keeps its history
 # ranked where it was. Providers that can supply a kind but are left out of
@@ -166,6 +166,25 @@ data:
     precedence: [fddb]
     history_days: 365
     refresh_days: 7
+  # One main sleep per night: times, stages, score, heart rate, respiration.
+  sleep:
+    precedence: [garmin]
+    history_days: 3650
+    refresh_days: 7
+  # Daily recovery values: resting heart rate, HRV, stress, Body Battery,
+  # respiration, steps. An imported resting heart rate replaces
+  # athlete.rest_hr (median of the last 7 days).
+  wellness:
+    precedence: [garmin]
+    history_days: 3650
+    refresh_days: 7
+  # Heart rate (every 2 min), HRV (every 5 min asleep), and Body Battery
+  # samples. Garmin needs two requests per day, so the default history is
+  # short; raise history_days for a longer backfill.
+  intraday:
+    precedence: [garmin]
+    history_days: 30
+    refresh_days: 1
 
 sync:
   interval_minutes: 15

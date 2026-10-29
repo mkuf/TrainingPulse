@@ -30,7 +30,7 @@ _CONFIG.close()
 _previous = os.environ.get("TP_CONFIG_FILE")
 os.environ["TP_CONFIG_FILE"] = _CONFIG.name
 try:
-    from mcp_server import common, server  # noqa: E402
+    from mcp_server import common, server, wellness  # noqa: E402
 finally:
     if _previous is None:
         os.environ.pop("TP_CONFIG_FILE", None)
@@ -57,6 +57,14 @@ EXPECTED_TOOLS = {
     "get_nutrition_summary",
     "list_daily_nutrition",
     "compare_nutrition_periods",
+    "get_sleep_summary",
+    "list_sleep",
+    "get_night",
+    "compare_sleep_periods",
+    "get_wellness_summary",
+    "list_daily_wellness",
+    "compare_wellness_periods",
+    "get_intraday_samples",
 }
 
 
@@ -121,3 +129,17 @@ def test_downsample_keeps_ends_and_size():
     assert len(sampled) == 50
     assert sampled[0] == 0 and sampled[-1] == 999
     assert server._downsample(data[:10], 50) == data[:10]
+
+
+def test_intraday_metric_names_are_checked():
+    import pytest
+
+    assert wellness._check_metric("hrv") == "hrv"
+    with pytest.raises(ValueError, match="heart_rate"):
+        wellness._check_metric("steps")
+
+
+def test_max_points_is_clamped():
+    assert wellness._max_points(None) == wellness.DEFAULT_MAX_POINTS
+    assert wellness._max_points(1) == 2
+    assert wellness._max_points(10**6) == wellness.MAX_POINTS

@@ -34,6 +34,7 @@ from calories import (
     kilojoules_from_stream,
 )
 from ingest.state import SyncState
+from resting_hr import resting_hr_on
 from metrics import (
     calculate_best_interval,
     calculate_power_curve,
@@ -144,8 +145,9 @@ class EngineContext:
     streams_concurrency: int
     hr_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
     power_zone_boundaries: list[tuple[float, float]] = field(default_factory=list)
-    #: Athlete values for computed calories; ``weight_kg`` is the configured
-    #: fallback, replaced per activity by the nearest weigh-in.
+    #: Athlete values for computed calories; ``weight_kg`` and ``rest_hr`` are
+    #: the configured fallbacks, replaced per activity by the nearest weigh-in
+    #: and the imported resting heart rate (see :mod:`resting_hr`).
     energy_athlete: AthleteEnergyInputs | None = None
 
 
@@ -874,6 +876,11 @@ async def _computed_energy(
     )
     if weight is not None:
         athlete = dataclasses.replace(athlete, weight_kg=weight)
+    rest = await resting_hr_on(
+        session, day, fallback=athlete.rest_hr, max_hr=athlete.max_hr
+    )
+    if rest.bpm != athlete.rest_hr:
+        athlete = dataclasses.replace(athlete, rest_hr=rest.bpm)
     energy = compute_energy(inputs, athlete, stream_kilojoules=stream_kilojoules)
     return {
         "computed_calories": energy.kcal,

@@ -1,6 +1,6 @@
 # Garmin Connect
 
-Garmin Connect gives **activities** and **body measurements** (weight, fat %, muscle mass) to TrainingPulse. TrainingPulse uses a Garmin Connect Personal API key. You do not connect Garmin on the status page.
+Garmin Connect gives **activities**, **body measurements** (weight, fat %, muscle mass), **sleep**, **daily wellness**, and **intraday** values to TrainingPulse. TrainingPulse uses a Garmin Connect Personal API key. You do not connect Garmin on the status page.
 
 > **Note:** This provider is a first version. Garmin does not publish response schemas for the Personal API. Some field names are taken from the Garmin Connect web app and are not yet checked against a real account.
 
@@ -50,6 +50,26 @@ TrainingPulse downloads the original `.fit` file of each activity one time. It k
 
 Garmin does not publish rate limits for the Personal API. The Garmin Connect card on the status page does not show a budget.
 
-## Health data
+## Sleep, wellness, and intraday data
 
-Garmin also has sleep, HRV, stress, Body Battery, resting heart rate, and SpO2 data. TrainingPulse does not import these data yet.
+TrainingPulse imports these data from Garmin:
+
+| Data kind | Data | Requests |
+|---|---|---|
+| `sleep` | One main sleep per night: start and end, time asleep, deep, light, REM, and awake time, sleep score, heart rate, respiration, sleep stress, and naps of that day | 1 for each 28 days |
+| `wellness` | One row per day: resting, minimum, and maximum heart rate, HRV (night average, 7-day average, baseline, status), stress, Body Battery, respiration, steps, calories, intensity minutes | 2 for each 90 days |
+| `intraday` | Heart rate every 2 minutes, HRV every 5 minutes while you sleep, and some Body Battery values each day | 2 for each day |
+
+Garmin puts a night on the day on which it ends. TrainingPulse uses `athlete.timezone` for Garmin's calendar days. Set it to the time zone of your Garmin account.
+
+The `intraday` data kind needs many requests. Thus, the first sync gets only the last 30 days. To get more, increase `data.intraday.history_days`.
+
+The imported resting heart rate replaces `athlete.rest_hr`. Refer to [Athlete settings](../athlete-settings.md#resting-heart-rate).
+
+To import only some data kinds, add `imports`, for example `imports: [activities, sleep, wellness]`.
+
+### Data that the Personal API does not give
+
+The Garmin Connect app shows a sleep timeline with the sleep stages, respiration, and stress over the night. The Personal API does not give these timelines. It gives only the totals of each night. The **Sleep and recovery** dashboard shows the heart rate, HRV, and Body Battery values of a night instead.
+
+SpO2 values are empty if Pulse Ox is off on the device. To record SpO2 during sleep, turn on Pulse Ox in the device settings in Garmin Connect. This uses more battery.

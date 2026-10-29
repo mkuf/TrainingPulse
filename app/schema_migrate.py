@@ -391,6 +391,9 @@ _ACTIVE_VIEWS = {
     ),
     "active_body_measurements": ("body_measurements", "superseded_by IS NULL"),
     "active_daily_nutrition": ("daily_nutrition", "superseded_by IS NULL"),
+    "active_sleep_sessions": ("sleep_sessions", "superseded_by IS NULL"),
+    "active_daily_wellness": ("daily_wellness", "superseded_by IS NULL"),
+    "active_wellness_samples": ("wellness_samples", "superseded_by IS NULL"),
 }
 
 

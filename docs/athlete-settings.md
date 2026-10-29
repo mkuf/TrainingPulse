@@ -4,8 +4,8 @@ The `athlete` block in `config.yaml` contains your personal values.
 
 | Key | Necessary | Function |
 |---|---|---|
-| `max_hr` | yes | Maximum heart rate, for heart-rate zones |
-| `rest_hr` | yes | Resting heart rate, for heart-rate zones |
+| `max_hr` | yes | Maximum heart rate, for heart-rate zones and calories |
+| `rest_hr` | yes | Resting heart rate, for calories. An imported value replaces it |
 | `ftp` | yes | Functional threshold power, for power zones and calories |
 | `weight_kg` | no | Body weight, if no provider gives weigh-ins |
 | `timezone` | no (default `UTC`) | Time zone, for example `Europe/Berlin`. TrainingPulse uses it to put each record on the correct day |
@@ -19,9 +19,17 @@ athlete:
   timezone: Europe/Berlin
 ```
 
-> **Caution:** `max_hr`, `rest_hr`, and `ftp` have no default values. TrainingPulse does not read a profile from a provider. These three values are the only source of your zones. Thus, they control TRIMP, CTL, ATL, and TSB. Incorrect values give incorrect numbers that look correct. Make sure that the values are correct.
+> **Caution:** `max_hr`, `rest_hr`, and `ftp` have no default values. TrainingPulse does not read a profile from a provider. `max_hr` and `ftp` are the only source of your zones. Thus, they control TRIMP, CTL, ATL, and TSB. Incorrect values give incorrect numbers that look correct. Make sure that the values are correct.
 
-TrainingPulse calculates five heart-rate zones from `max_hr` and `rest_hr`. It uses the standard percentage model.
+TrainingPulse calculates five heart-rate zones from `max_hr`. It uses the standard percentage model (50–60 %, 60–70 %, and so on).
+
+## Resting heart rate
+
+TrainingPulse uses the resting heart rate to estimate the calories of an activity from its heart rate. This estimate applies only to activities without power that are not a run or a walk.
+
+If a provider gives daily wellness data (for example Garmin Connect), TrainingPulse uses the median of the imported resting heart rates of the last 7 days before each activity. One bad night does not change the value much. It does not matter which provider gives the values. `rest_hr` applies only if there are no imported values in these 7 days.
+
+The status page shows the value that TrainingPulse uses now, and where it comes from. Activities that TrainingPulse calculated before the import keep their values. To calculate them again, do a full resync.
 
 ## Change a value
 

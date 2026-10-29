@@ -261,6 +261,11 @@ def _empty_token_cache():
     garmin_client._TOKEN_CACHE.clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_pacing(monkeypatch):
+    monkeypatch.setattr(garmin_client, "_PACER", garmin_client._Pacer(0.0))
+
+
 class _FakeGarmin:
     """Serves the token endpoint and an empty activity search."""
 
@@ -334,3 +339,52 @@ def test_rejected_token_is_forgotten():
     _search(fake.client())
 
     assert len(fake.token_requests) == 2
+
+
+class _RateLimitedGarmin(_FakeGarmin):
+    """Answers the first search with 429 and the given ``Retry-After``."""
+
+    def __init__(self, retry_after: str):
+        super().__init__()
+        self.retry_after = retry_after
+        self.searches = 0
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == garmin_client.TOKEN_PATH:
+            return super().handler(request)
+        self.searches += 1
+        if self.searches == 1:
+            return httpx.Response(429, headers={"Retry-After": self.retry_after})
+        return httpx.Response(200, json=[])
+
+
+def test_a_short_429_is_waited_out_and_retried():
+    fake = _RateLimitedGarmin(retry_after="0")
+
+    _search(fake.client())
+
+    assert fake.searches == 2
+
+
+def test_a_long_429_pauses_the_provider_until_the_next_sync():
+    from providers.base import SourceRateLimitExceeded
+
+    fake = _RateLimitedGarmin(retry_after="600")
+
+    with pytest.raises(SourceRateLimitExceeded) as excinfo:
+        _search(fake.client())
+
+    assert fake.searches == 1
+    assert excinfo.value.reset_after == 600
+
+
+def test_pacer_spaces_requests_out():
+    pacer = garmin_client._Pacer(0.05)
+
+    async def three():
+        started = time.monotonic()
+        for _ in range(3):
+            await pacer.wait()
+        return time.monotonic() - started
+
+    assert asyncio.run(three()) >= 0.1

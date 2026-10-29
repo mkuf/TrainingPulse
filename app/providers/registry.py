@@ -72,6 +72,7 @@ def _build_garmin(config: Config, session_factory: async_sessionmaker) -> Provid
         api_key=section.api_key,
         api_base=section.api_base,
         session_factory=session_factory,
+        timezone=config.athlete.timezone,
     )
 
 

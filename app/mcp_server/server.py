@@ -1,6 +1,7 @@
 """The FastMCP instance, plus the activity, training-load, athlete, and coverage tools.
 
-Body and nutrition tools are in :mod:`mcp_server.records`. Shared conventions
+Body and nutrition tools are in :mod:`mcp_server.records`; sleep, daily
+wellness, and intraday tools in :mod:`mcp_server.wellness`. Shared conventions
 (local days, ``b - a`` deltas) are in :mod:`mcp_server.common`.
 """
 
@@ -15,6 +16,7 @@ from config import config
 from mcp_server.common import (
     check_range,
     clamp_limit,
+    downsample as _downsample,
     iso_day,
     local_day,
     local_day_bounds,
@@ -30,6 +32,7 @@ from mcp_server.common import (
     today_local,
 )
 from mcp_server.records import register_record_tools
+from mcp_server.wellness import register_wellness_tools
 from metrics import get_hr_zone_boundaries, get_power_zone_boundaries
 from models import (
     ACTIVITY_VISIBLE,
@@ -39,7 +42,11 @@ from models import (
     BodyMeasurement,
     DailyMetrics,
     DailyNutrition,
+    DailyWellness,
+    SleepSession,
+    WellnessSample,
 )
+from resting_hr import resting_hr_on
 
 APP_NAME = "TrainingPulse MCP"
 
@@ -284,18 +291,6 @@ ALL_STREAM_TYPES = frozenset(
         "temp",
     }
 )
-
-
-def _downsample(data: list, max_points: int) -> list:
-    """Downsample a list using nth-point decimation, always keeping first and last."""
-    length = len(data)
-    if length <= max_points:
-        return data
-    step = (length - 1) / (max_points - 1)
-    indices = {0, length - 1}
-    indices.update(int(round(i * step)) for i in range(max_points))
-    sorted_indices = sorted(indices)[:max_points]
-    return [data[i] for i in sorted_indices]
 
 
 @mcp.tool()
@@ -595,17 +590,24 @@ def _zones(bounds: list[tuple[float, float]], unit: str) -> list[dict[str, Any]]
 @mcp.tool()
 async def get_athlete_profile() -> dict[str, Any]:
     """Return the athlete's max/resting HR, FTP (configured and estimated),
-    time zone, and the HR and power zone boundaries used for zone seconds."""
+    time zone, and the HR and power zone boundaries used for zone seconds.
+    ``rest_hr`` is the value in use today: the median of the last 7 imported
+    days when there are any, else the configured value (see
+    ``rest_hr_source``)."""
+    athlete = config.athlete
     async with readonly_session() as session:
         settings = (
             await session.scalars(
                 select(AthleteSettings).order_by(desc(AthleteSettings.updated_at)).limit(1)
             )
         ).first()
+        max_hr = settings.max_hr if settings else athlete.max_hr
+        configured_rest_hr = settings.rest_hr if settings else athlete.rest_hr
+        resting = await resting_hr_on(
+            session, today_local(), fallback=configured_rest_hr, max_hr=max_hr
+        )
 
-    athlete = config.athlete
-    max_hr = settings.max_hr if settings else athlete.max_hr
-    rest_hr = settings.rest_hr if settings else athlete.rest_hr
+    rest_hr = resting.bpm
     ftp = settings.ftp if settings else athlete.ftp
     hr_bounds = get_hr_zone_boundaries(
         max_hr, rest_hr, settings.hr_zones if settings else None
@@ -613,6 +615,8 @@ async def get_athlete_profile() -> dict[str, Any]:
     return {
         "max_hr": max_hr,
         "rest_hr": rest_hr,
+        "rest_hr_source": resting.as_payload(),
+        "configured_rest_hr": configured_rest_hr,
         "ftp": ftp,
         "estimated_ftp": settings.estimated_ftp if settings else None,
         "timezone": athlete.timezone,
@@ -702,6 +706,17 @@ async def get_data_coverage() -> dict[str, Any]:
         load = (await session.execute(load_stmt)).one()
         body = await _record_coverage(session, BodyMeasurement)
         nutrition = await _record_coverage(session, DailyNutrition)
+        sleep = await _record_coverage(session, SleepSession)
+        wellness = await _record_coverage(session, DailyWellness)
+        intraday = await _record_coverage(session, WellnessSample)
+        by_metric = (
+            await session.execute(
+                select(WellnessSample.metric, func.count(WellnessSample.id))
+                .where(WellnessSample.superseded_by == None)  # noqa: E711
+                .group_by(WellnessSample.metric)
+            )
+        ).all()
+    intraday["by_metric"] = {metric: int(count) for metric, count in by_metric}
 
     return {
         "activities": {
@@ -726,8 +741,12 @@ async def get_data_coverage() -> dict[str, Any]:
         },
         "body": body,
         "nutrition": nutrition,
+        "sleep": sleep,
+        "wellness": wellness,
+        "intraday": intraday,
     }
 
 
 register_record_tools(mcp)
+register_wellness_tools(mcp)
 

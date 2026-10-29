@@ -21,11 +21,11 @@
         <div class="card">
             <dl class="settings">
                 <div><dt>Max heart rate</dt><dd>{{ athlete.max_hr }} <span>bpm</span></dd></div>
-                <div><dt>Resting heart rate</dt><dd>{{ athlete.rest_hr }} <span>bpm</span></dd></div>
+                <div><dt>Resting heart rate</dt><dd>{{ resting_hr.bpm }} <span>bpm</span>{% if resting_hr.source == "imported" %} <span class="muted small" title="Median of the last {{ resting_hr.days }} imported days; athlete.rest_hr ({{ athlete.rest_hr }}) applies when there are none.">from {{ resting_hr.provider }}</span>{% endif %}</dd></div>
                 <div><dt>FTP</dt><dd>{{ athlete.ftp }} <span>W</span></dd></div>
                 <div><dt>Time zone</dt><dd class="small-value">{{ athlete.timezone }}</dd></div>
             </dl>
-            <p class="muted small">Heart-rate and power zones come from these values. Change them under <code>athlete</code> in config.yaml.</p>
+            <p class="muted small">Heart-rate and power zones come from these values. Change them under <code>athlete</code> in config.yaml. An imported resting heart rate (median of the last 7 days) replaces <code>rest_hr</code>; the configured value applies only when none is imported.</p>
 
             <details class="advanced">
                 <summary>Full resync</summary>

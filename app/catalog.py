@@ -25,6 +25,10 @@ class DataKind(StrEnum):
     BODY = "body"
     NUTRITION = "nutrition"
     SLEEP = "sleep"
+    #: Daily recovery values: resting heart rate, HRV, stress, Body Battery.
+    WELLNESS = "wellness"
+    #: Timestamped samples through the day and night (heart rate, HRV, ...).
+    INTRADAY = "intraday"
 
 
 class Dedup(StrEnum):
@@ -78,10 +82,14 @@ KINDS: dict[DataKind, KindSpec] = {
         KindSpec(DataKind.ACTIVITIES, "Activities", Dedup.OVERLAP, 3650, 90),
         KindSpec(DataKind.BODY, "Body measurements", Dedup.PER_DAY, 3650, 7),
         KindSpec(DataKind.NUTRITION, "Nutrition", Dedup.PER_DAY, 365, 7),
-        # Reserved: no provider has a sleep feed yet. Google Health and
-        # Withings both expose sleep sessions, and intervals.icu reports
-        # nightly sleep in its wellness data.
-        KindSpec(DataKind.SLEEP, "Sleep", Dedup.OVERLAP, 3650, 7),
+        # One main sleep per night, keyed by the day it ends. Every provider
+        # reports sleep that way, so the per-day rule fits and no overlap
+        # engine is needed.
+        KindSpec(DataKind.SLEEP, "Sleep", Dedup.PER_DAY, 3650, 7),
+        KindSpec(DataKind.WELLNESS, "Daily wellness", Dedup.PER_DAY, 3650, 7),
+        # Samples cost a request per day and metric, so the default history is
+        # short. Today's samples keep growing, hence the one-day refresh.
+        KindSpec(DataKind.INTRADAY, "Intraday samples", Dedup.PER_DAY, 30, 1),
     )
 }
 
@@ -100,7 +108,13 @@ PROVIDERS: dict[str, ProviderSpec] = {
             "garmin",
             "Garmin Connect",
             AuthMethod.API_KEY,
-            (DataKind.ACTIVITIES, DataKind.BODY),
+            (
+                DataKind.ACTIVITIES,
+                DataKind.BODY,
+                DataKind.SLEEP,
+                DataKind.WELLNESS,
+                DataKind.INTRADAY,
+            ),
         ),
         ProviderSpec("withings", "Withings", AuthMethod.OAUTH, (DataKind.BODY,)),
         ProviderSpec("fddb", "FDDB", AuthMethod.SESSION, (DataKind.NUTRITION,)),
@@ -116,7 +130,9 @@ DEFAULT_PRECEDENCE: dict[DataKind, tuple[str, ...]] = {
     # A dedicated scale beats a phone app that often just mirrors the scale.
     DataKind.BODY: ("withings", "garmin", "google_health"),
     DataKind.NUTRITION: ("fddb", "google_health"),
-    DataKind.SLEEP: ("withings", "google_health", "icu"),
+    DataKind.SLEEP: ("garmin", "withings", "google_health", "icu"),
+    DataKind.WELLNESS: ("garmin", "withings", "google_health", "icu"),
+    DataKind.INTRADAY: ("garmin", "withings", "google_health"),
 }
 
 

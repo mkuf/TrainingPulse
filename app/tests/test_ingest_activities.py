@@ -447,15 +447,29 @@ def test_list_upsert_fields_include_suffer_score():
 # ── Stream application ──────────────────────────────────────────────
 
 
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def one(self):
+        return self._row
+
+
 class _FakeSession:
     """Records ``update(Activity)`` values; mimics no real database."""
 
-    def __init__(self, weight_kg: float | None = 80.0):
+    def __init__(
+        self, weight_kg: float | None = 80.0, resting_hr: float | None = None
+    ):
         self.updates: list[dict] = []
         self.rolled_back = False
         self.weight_kg = weight_kg
+        #: Median imported resting heart rate; None means none imported.
+        self.resting_hr = resting_hr
 
     async def scalar(self, stmt):
+        if "daily_wellness" in str(stmt):
+            return "garmin"
         return self.weight_kg
 
     async def execute(self, stmt):
@@ -463,6 +477,9 @@ class _FakeSession:
             self.updates.append(
                 {col.key: val.value for col, val in stmt._values.items()}
             )
+            return None
+        count = 0 if self.resting_hr is None else 7
+        return _FakeResult((self.resting_hr, count))
 
     async def commit(self):
         pass
@@ -595,6 +612,27 @@ async def test_apply_streams_computes_hr_power_for_gym_sessions():
     (values,) = session.updates
     assert values["computed_calories_method"] == "hr_power"
     assert values["computed_kilojoules"] is None
+
+
+@pytest.mark.asyncio
+async def test_hr_power_uses_the_imported_resting_heart_rate():
+    """An imported resting HR (median of the last week) replaces rest_hr=60."""
+    from ingest.activities import _apply_streams
+
+    streams = {"time": list(range(600)), "heartrate": [140] * 600}
+    results = {}
+    for imported in (None, 50.0):
+        session = _FakeSession(resting_hr=imported)
+        activity = _stream_activity(
+            sport_type="Crossfit", device_watts=False, average_watts=None
+        )
+        await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+        (values,) = session.updates
+        results[imported] = values["computed_calories"]
+
+    # Heart-rate reserve at the summary's 150 bpm with max_hr 190: 90/130 with
+    # the configured 60, 100/140 with the imported 50.
+    assert results[50.0] == pytest.approx(results[None] * (100 / 140) / (90 / 130))
 
 
 @pytest.mark.asyncio

@@ -118,6 +118,18 @@ def local_day(value: datetime) -> date:
     return value.astimezone(LOCAL_TZ).date()
 
 
+def downsample(data: list, max_points: int) -> list:
+    """Downsample a list using nth-point decimation, always keeping first and last."""
+    length = len(data)
+    if length <= max_points:
+        return data
+    step = (length - 1) / (max_points - 1)
+    indices = {0, length - 1}
+    indices.update(int(round(i * step)) for i in range(max_points))
+    sorted_indices = sorted(indices)[:max_points]
+    return [data[i] for i in sorted_indices]
+
+
 def period_deltas(
     period_a: Mapping[str, Any], period_b: Mapping[str, Any], fields: list[str]
 ) -> dict[str, float | None]:

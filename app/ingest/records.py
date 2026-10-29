@@ -5,12 +5,13 @@ this module does the rest identically for every provider: choosing the window,
 upserting into the kind's core table, and deciding which provider's rows are
 visible for each day.
 
-Only per-day kinds (body, nutrition) have a table today. Sleep will need the
-overlap rule from :func:`ingest.activities.choose_winners` instead.
+Every record kind is per-day: body, nutrition, sleep (keyed by the day the
+night ends), daily wellness, and intraday samples (keyed by their local day).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -24,8 +25,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from catalog import DataKind
 from ingest.activities import date_windows
 from ingest.state import SyncState
-from models import BodyMeasurement, DailyNutrition, RecordSyncCursor
-from providers.feeds import BodyRecord, NutritionRecord, RecordFeed
+from models import (
+    BodyMeasurement,
+    DailyNutrition,
+    DailyWellness,
+    RecordSyncCursor,
+    SleepSession,
+    WellnessSample,
+)
+from providers.feeds import (
+    BodyRecord,
+    NutritionRecord,
+    RecordFeed,
+    SampleRecord,
+    SleepRecord,
+    WellnessRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +80,47 @@ def _nutrition_values(
     }
 
 
+def _sleep_values(record: SleepRecord, provider: str, tz: ZoneInfo) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "external_id": record.external_id,
+        "day": record.day,
+        "start_at": record.start,
+        "end_at": record.end,
+        "asleep_seconds": record.asleep_seconds,
+        "deep_seconds": record.deep_seconds,
+        "light_seconds": record.light_seconds,
+        "rem_seconds": record.rem_seconds,
+        "awake_seconds": record.awake_seconds,
+        "score": record.score,
+        "avg_heart_rate": record.avg_heart_rate,
+        "avg_respiration": record.avg_respiration,
+        "min_respiration": record.min_respiration,
+        "max_respiration": record.max_respiration,
+        "avg_stress": record.avg_stress,
+        "awake_count": record.awake_count,
+        "nap_seconds": record.nap_seconds,
+    }
+
+
+def _wellness_values(
+    record: WellnessRecord, provider: str, tz: ZoneInfo
+) -> dict[str, Any]:
+    values = dataclasses.asdict(record)
+    values["provider"] = provider
+    return values
+
+
+def _sample_values(record: SampleRecord, provider: str, tz: ZoneInfo) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "metric": record.metric,
+        "measured_at": record.measured_at,
+        "day": record.measured_at.astimezone(tz).date(),
+        "value": record.value,
+    }
+
+
 @dataclass(frozen=True)
 class RecordStore:
     """Where one kind's records live and how a record becomes a row."""
@@ -82,6 +138,18 @@ STORES: dict[DataKind, RecordStore] = {
     ),
     DataKind.NUTRITION: RecordStore(
         DataKind.NUTRITION, DailyNutrition, ("provider", "day"), _nutrition_values
+    ),
+    DataKind.SLEEP: RecordStore(
+        DataKind.SLEEP, SleepSession, ("provider", "day"), _sleep_values
+    ),
+    DataKind.WELLNESS: RecordStore(
+        DataKind.WELLNESS, DailyWellness, ("provider", "day"), _wellness_values
+    ),
+    DataKind.INTRADAY: RecordStore(
+        DataKind.INTRADAY,
+        WellnessSample,
+        ("provider", "metric", "measured_at"),
+        _sample_values,
     ),
 }
 
