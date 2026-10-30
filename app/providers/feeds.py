@@ -141,8 +141,14 @@ SAMPLE_METRICS = (METRIC_HEART_RATE, METRIC_HRV, METRIC_SPO2)
 #: Unit of each metric, for display.
 SAMPLE_UNITS = {METRIC_HEART_RATE: "bpm", METRIC_HRV: "ms", METRIC_SPO2: "%"}
 #: Heart rate is stored as averages over windows of this many seconds, the
-#: resolution Garmin reports natively; finer streams are averaged down.
+#: resolution Garmin reports natively; finer streams are averaged down, so
+#: heart-rate samples are comparable across providers.
 HEART_RATE_WINDOW_SECONDS = 120
+#: Metrics stored at each device's native resolution (Google: per-minute SpO2;
+#: Garmin: hourly averages). Their curves are for display only: nothing
+#: derives a minimum or average from them; comparable numbers come from the
+#: daily values in ``WellnessRecord`` (``spo2_avg``, ``spo2_min``).
+DISPLAY_ONLY_METRICS = frozenset({METRIC_SPO2})
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,13 @@ from fixtures import payloads
 from catalog import KINDS, DataKind, Dedup
 from ingest.records import STORES
 from providers import garmin_wellness as gw
-from providers.feeds import METRIC_HEART_RATE, METRIC_HRV, SampleRecord, WellnessRecord
+from providers.feeds import (
+    METRIC_HEART_RATE,
+    METRIC_HRV,
+    METRIC_SPO2,
+    SampleRecord,
+    WellnessRecord,
+)
 from providers.mapping import date_chunks, local_dates
 
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -204,7 +210,30 @@ def test_hrv_readings_use_the_utc_reading_time():
     assert first.value == 68
 
 
-def test_intraday_feed_requests_heart_rate_and_hrv_once_per_day():
+def test_spo2_hourly_averages_become_samples():
+    samples = [gw.map_sample(p) for p in gw.spo2_samples(payloads.GARMIN_SPO2_DAY)]
+
+    assert [s.metric for s in samples] == [METRIC_SPO2] * 3
+    assert samples[0].measured_at == datetime.fromtimestamp(
+        1_793_314_800, tz=timezone.utc
+    )
+    assert [s.value for s in samples] == [90, 99, 96]
+
+
+def test_spo2_single_readings_win_over_hourly_averages():
+    report = {
+        **payloads.GARMIN_SPO2_DAY,
+        "spO2SingleValues": [[1793314860000, 94, True], [1793314920000, 93, True]],
+    }
+    assert [p["value"] for p in gw.spo2_samples(report)] == [94, 93]
+
+
+def test_spo2_with_pulse_ox_off_has_no_samples():
+    off = {"spO2SingleValues": None, "spO2HourlyAverages": None}
+    assert gw.spo2_samples(off) == []
+
+
+def test_intraday_feed_requests_each_metric_once_per_day():
     calls = []
 
     class Client:
@@ -216,6 +245,10 @@ def test_intraday_feed_requests_heart_rate_and_hrv_once_per_day():
             calls.append(("hrv", day))
             return payloads.GARMIN_HRV_DAY
 
+        async def get_spo2(self, day):
+            calls.append(("spo2", day))
+            return payloads.GARMIN_SPO2_DAY
+
     start, end = _window(date(2026, 10, 28), date(2026, 10, 29))
     raw = asyncio.run(
         gw.GarminIntradayFeed(_Provider(Client())).list_records(start, end)
@@ -224,10 +257,16 @@ def test_intraday_feed_requests_heart_rate_and_hrv_once_per_day():
     assert calls == [
         ("hr", date(2026, 10, 28)),
         ("hrv", date(2026, 10, 28)),
+        ("spo2", date(2026, 10, 28)),
         ("hr", date(2026, 10, 29)),
         ("hrv", date(2026, 10, 29)),
+        ("spo2", date(2026, 10, 29)),
     ]
-    assert {payload["metric"] for payload in raw} == {METRIC_HEART_RATE, METRIC_HRV}
+    assert {payload["metric"] for payload in raw} == {
+        METRIC_HEART_RATE,
+        METRIC_HRV,
+        METRIC_SPO2,
+    }
 
 
 def test_samples_get_their_local_day():

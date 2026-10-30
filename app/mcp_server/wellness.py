@@ -29,7 +29,7 @@ from mcp_server.common import (
     seconds_to_minutes,
 )
 from models import DailyScores, DailyWellness, SleepSession, WellnessSample
-from providers.feeds import SAMPLE_METRICS, SAMPLE_UNITS
+from providers.feeds import DISPLAY_ONLY_METRICS, SAMPLE_METRICS, SAMPLE_UNITS
 
 DEFAULT_MAX_POINTS = 300
 MAX_POINTS = 2000
@@ -257,17 +257,41 @@ async def _samples(
             .order_by(WellnessSample.measured_at)
         )
     ).all()
-    values = [value for _, value in rows]
-    sampled = downsample(list(rows), max_points)
-    return {
+    return series_payload(metric, list(rows), max_points)
+
+
+def series_payload(
+    metric: str, rows: list[tuple[datetime, float]], max_points: int
+) -> dict[str, Any]:
+    """One series for a tool response. Pure.
+
+    ``interval_seconds`` is the typical gap between samples, which differs
+    by device for display-only metrics. Those get no min/max/avg: a curve of
+    hourly averages hides dips a per-minute one shows, so the comparable
+    numbers are the day's ``spo2_avg`` and ``spo2_min`` in the wellness row.
+    """
+    sampled = downsample(rows, max_points)
+    gaps = sorted(
+        (later - earlier).total_seconds()
+        for (earlier, _), (later, _) in zip(rows, rows[1:])
+    )
+    payload: dict[str, Any] = {
         "unit": SAMPLE_UNITS[metric],
         "count": len(rows),
         "returned": len(sampled),
-        "min": round_or_none(min(values)) if values else None,
-        "max": round_or_none(max(values)) if values else None,
-        "avg": round_or_none(sum(values) / len(values)) if values else None,
-        "points": [[local_time(at), round_or_none(value)] for at, value in sampled],
+        "interval_seconds": round(gaps[len(gaps) // 2]) if gaps else None,
     }
+    values = [value for _, value in rows]
+    if metric in DISPLAY_ONLY_METRICS:
+        payload["display_only"] = True
+    else:
+        payload["min"] = round_or_none(min(values)) if values else None
+        payload["max"] = round_or_none(max(values)) if values else None
+        payload["avg"] = round_or_none(sum(values) / len(values)) if values else None
+    payload["points"] = [
+        [local_time(at), round_or_none(value)] for at, value in sampled
+    ]
+    return payload
 
 
 def register_wellness_tools(mcp: FastMCP) -> None:
@@ -314,7 +338,9 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         """Return one night (dated by the day it ends): its summary and sleep
         score, the stage timeline when the provider has one, that day's
         wellness values and recovery score, and the heart rate, HRV, and SpO2
-        samples between falling asleep and waking. Each series is downsampled
+        samples between falling asleep and waking. Each series reports its
+        typical ``interval_seconds``; SpO2 is ``display_only`` (no min/max/avg,
+        use the wellness ``spo2_avg``/``spo2_min``). Each series is downsampled
         to at most ``max_points`` (default 300, max 2000)."""
         night_day = required_date(day, "day")
         points = _max_points(max_points)
@@ -452,7 +478,10 @@ def register_wellness_tools(mcp: FastMCP) -> None:
         """Return one intraday series for whole local days start_date..end_date:
         ``heart_rate`` (bpm, two-minute averages), ``hrv`` (ms, every 5 min
         while asleep), or ``spo2`` (%, during sleep, when the device records
-        it). Downsampled to at most ``max_points`` (default 300, max 2000)."""
+        it, at the device's own resolution: per minute for some, hourly
+        averages for others). SpO2 is ``display_only``: it has no min/max/avg;
+        compare nights with ``spo2_avg``/``spo2_min`` from the wellness tools.
+        Downsampled to at most ``max_points`` (default 300, max 2000)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         check_range(start, end)

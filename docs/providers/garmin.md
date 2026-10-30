@@ -58,7 +58,7 @@ TrainingPulse imports these data from Garmin:
 |---|---|---|
 | `sleep` | One main sleep per night: start and end, time asleep, deep, light, REM, and awake time, and naps of that day | 1 for each 28 days |
 | `wellness` | One row per day: resting heart rate, HRV (night average), respiration while asleep, SpO2 (if Pulse Ox is on), steps, active and total calories | 3 for each 90 days |
-| `intraday` | Heart rate every 2 minutes and HRV every 5 minutes while you sleep | 2 for each day |
+| `intraday` | Heart rate every 2 minutes, HRV every 5 minutes while you sleep, and SpO2 as hourly averages (if Pulse Ox is on) | 3 for each day |
 
 TrainingPulse does not import the Garmin sleep score, stress, Body Battery, or HRV status. These values exist only at Garmin. TrainingPulse calculates its own sleep score and recovery score from the values above, the same way for every provider. Refer to [Sleep and recovery scores](../sleep-and-recovery.md).
 

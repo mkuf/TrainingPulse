@@ -143,3 +143,32 @@ def test_max_points_is_clamped():
     assert wellness._max_points(None) == wellness.DEFAULT_MAX_POINTS
     assert wellness._max_points(1) == 2
     assert wellness._max_points(10**6) == wellness.MAX_POINTS
+
+
+def _rows(start_minute: int, step_minutes: int, values: list[float]) -> list:
+    from datetime import timedelta
+
+    first = datetime(2026, 10, 30, 0, start_minute, tzinfo=timezone.utc)
+    return [
+        (first + timedelta(minutes=step_minutes * i), value)
+        for i, value in enumerate(values)
+    ]
+
+
+def test_comparable_series_report_their_statistics():
+    payload = wellness.series_payload("heart_rate", _rows(0, 2, [50, 46, 54]), 300)
+
+    assert payload["interval_seconds"] == 120
+    assert (payload["min"], payload["max"], payload["avg"]) == (46, 54, 50)
+    assert "display_only" not in payload
+
+
+def test_spo2_series_are_display_only_whatever_their_resolution():
+    hourly = wellness.series_payload("spo2", _rows(0, 60, [90, 99, 96]), 300)
+    minutely = wellness.series_payload("spo2", _rows(0, 1, [95, 94, 77]), 300)
+
+    for payload in (hourly, minutely):
+        assert payload["display_only"] is True
+        assert "min" not in payload and "avg" not in payload
+    assert (hourly["interval_seconds"], minutely["interval_seconds"]) == (3600, 60)
+    assert len(hourly["points"]) == 3

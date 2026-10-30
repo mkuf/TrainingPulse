@@ -1601,7 +1601,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "",
+      "description": "At the device's own resolution: one value per minute from Google Health, hourly averages from Garmin. For display only; compare nights with the daily SpO2 panel.",
       "fieldConfig": {
         "defaults": {
           "custom": {

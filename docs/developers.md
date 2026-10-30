@@ -95,7 +95,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 
 ### The wellness baseline and derived scores
 
-Sleep, wellness, and intraday records carry only fields most wearables report (see the record dataclasses in `providers/feeds.py`). Provider-specific scores (Garmin's sleep score, stress, Body Battery, HRV status) are deliberately not mapped: they are not comparable across providers and most APIs do not expose them. A new provider maps onto the baseline and leaves unknown fields `None`.
+Sleep, wellness, and intraday records carry only fields most wearables report (see the record dataclasses in `providers/feeds.py`). Provider-specific scores (Garmin's sleep score, stress, Body Battery, HRV status) are deliberately not mapped: they are not comparable across providers and most APIs do not expose them. A new provider maps onto the baseline and leaves unknown fields `None`. Heart-rate samples are normalized to two-minute averages (`HEART_RATE_WINDOW_SECONDS`) and are comparable; metrics in `DISPLAY_ONLY_METRICS` (SpO2) keep each device's native resolution, and nothing derives statistics from them: MCP series mark them `display_only` and report `interval_seconds`, and comparable SpO2 numbers come from the daily `spo2_avg`/`spo2_min`.
 
 Everything comparable that can be derived is derived in the core, from visible rows only: [`app/wellness_scores.py`](../app/wellness_scores.py) recomputes `daily_scores` (sleeping heart rate, sleep score, recovery score, each with its parts as JSON) after every sync, and [`app/resting_hr.py`](../app/resting_hr.py) supplies the 7-day median resting heart rate that replaces `athlete.rest_hr` for calories. The formulas are documented in [Sleep and recovery scores](sleep-and-recovery.md).
 

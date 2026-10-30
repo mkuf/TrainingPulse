@@ -638,3 +638,18 @@ GOOGLE_SPO2_SAMPLE = {
         "percentage": 89.9,
     }
 }
+
+#: Garmin SpO2 for one day with Pulse Ox on during sleep (CIRQA band):
+#: hourly averages only, single readings stay null. Trimmed to three hours.
+GARMIN_SPO2_DAY = {
+    "calendarDate": "2026-10-30",
+    "averageSpO2": 95.0,
+    "lowestSpO2": 77,
+    "avgSleepSpO2": 96.0,
+    "spO2SingleValues": None,
+    "spO2HourlyAverages": [
+        [1793314800000, 90, None],
+        [1793318400000, 99, None],
+        [1793322000000, 96, None],
+    ],
+}

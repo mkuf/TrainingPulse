@@ -20,6 +20,7 @@ from catalog import DataKind
 from providers.feeds import (
     METRIC_HEART_RATE,
     METRIC_HRV,
+    METRIC_SPO2,
     SampleRecord,
     SleepRecord,
     WellnessRecord,
@@ -130,8 +131,7 @@ def map_wellness(payload: dict) -> WellnessRecord | None:
     sleep = payload.get("sleep") or {}
 
     heart = summary.get("heartRate") or {}
-    # Empty while Pulse Ox is off; the key names follow the other summary
-    # blocks and are not yet confirmed with readings.
+    # Empty while Pulse Ox is off.
     pulse_ox = summary.get("pulseOx") or {}
     steps = ((summary.get("movement") or {}).get("steps") or {}).get("value")
     calories = summary.get("calories") or {}
@@ -212,6 +212,21 @@ def hrv_samples(report: dict) -> list[dict]:
     ]
 
 
+def spo2_samples(report: dict) -> list[dict]:
+    """SpO2 readings at Garmin's native resolution: single readings when the
+    device reports them, otherwise hourly averages (``[epoch ms, %, ...]``).
+
+    SpO2 samples are for display only (see ``providers.feeds``), so the
+    coarser hourly curve is stored as it is rather than made comparable.
+    """
+    rows = report.get("spO2SingleValues") or report.get("spO2HourlyAverages") or []
+    return [
+        {"metric": METRIC_SPO2, "at": row[0], "value": row[1]}
+        for row in rows
+        if isinstance(row, list) and len(row) >= 2
+    ]
+
+
 def map_sample(payload: dict) -> SampleRecord | None:
     """Map a sample payload; ``at`` is epoch milliseconds or a UTC timestamp.
 
@@ -232,10 +247,10 @@ def map_sample(payload: dict) -> SampleRecord | None:
 
 
 class GarminIntradayFeed:
-    """Heart rate and HRV samples as an ``IntradayFeed``.
+    """Heart rate, HRV, and SpO2 samples as an ``IntradayFeed``.
 
-    Costs two requests per day, which is why the kind's default history is
-    short. Garmin has no SpO2 sample endpoint in the Personal API.
+    Costs three requests per day, which is why the kind's default history is
+    short. SpO2 comes as hourly averages while Pulse Ox is on, else nothing.
     """
 
     kind = DataKind.INTRADAY
@@ -251,6 +266,7 @@ class GarminIntradayFeed:
         while day <= last:
             out.extend(heart_rate_samples(await client.get_daily_heart_rate(day)))
             out.extend(hrv_samples(await client.get_hrv(day)))
+            out.extend(spo2_samples(await client.get_spo2(day)))
             day += timedelta(days=1)
         return out
 

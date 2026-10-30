@@ -17,6 +17,8 @@ A **provider** is an account that you connect. A provider gives one or more **da
 - `wellness`: one row per day: resting heart rate, HRV, respiration while asleep, SpO2, skin temperature deviation, steps, and calories.
 - `intraday`: values with a time stamp: heart rate (2-minute averages), HRV every 5 minutes while you sleep, and SpO2.
 
+Heart-rate values have the same resolution for all providers, so you can compare them. SpO2 values keep the resolution of the device: Google Health gives one value per minute, Garmin gives hourly averages. Thus, the SpO2 curve of a night is only for display. To compare nights, use the daily SpO2 average and low in `wellness`.
+
 TrainingPulse imports only these values, because most wearables give them. It does not import scores that only one provider calculates, for example the Garmin sleep score, stress, or Body Battery. These scores are different for each provider and cannot be compared. Instead, TrainingPulse calculates its own sleep score and recovery score from the values above. Refer to [Sleep and recovery scores](sleep-and-recovery.md).
 
 Each data kind has one table, one set of dashboards, and one set of MCP tools. This is the same for all providers.

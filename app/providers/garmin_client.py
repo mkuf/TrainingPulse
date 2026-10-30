@@ -284,6 +284,17 @@ class GarminClient:
         data = await self._get(f"/hrv-service/hrv/{day.isoformat()}")
         return data if isinstance(data, dict) else {}
 
+    async def get_spo2(self, day: date) -> dict:
+        """SpO2 for one local day: daily values plus hourly averages.
+
+        Every value is null while Pulse Ox is off. ``spO2SingleValues`` stayed
+        null on a CIRQA band even with Pulse Ox on during sleep.
+        """
+        data = await self._get(
+            f"/wellness-service/wellness/daily/spo2acclimation/{day.isoformat()}"
+        )
+        return data if isinstance(data, dict) else {}
+
     async def download_activity(self, activity_id: str) -> bytes:
         """The original activity file as ZIP bytes, streamed with a size cap."""
         token = await self._ensure_token()
