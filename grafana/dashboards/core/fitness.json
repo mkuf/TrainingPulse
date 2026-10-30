@@ -720,7 +720,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  id AS \"ID\",\n  CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\",\n  training_load AS \"Load\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
+          "rawSql": "SELECT\n  id AS \"ID\",\n  CASE source WHEN 'icu' THEN 'intervals.icu' WHEN 'strava' THEN 'Strava' WHEN 'google_health' THEN 'Google Health' WHEN 'hammerhead' THEN 'Hammerhead' ELSE source END AS \"Source\",\n  start_date AS \"Date\",\n  name AS \"Activity\",\n  sport_type AS \"Sport\",\n  moving_time AS \"Duration\",\n  distance AS \"Distance\",\n  ROUND(COALESCE(total_elevation_gain, 0)::numeric, 0) AS \"Elev (m)\",\n  ROUND(average_heartrate::numeric, 0) AS \"Avg HR\",\n  ROUND(COALESCE(trimp, 0)::numeric, 0) AS \"TRIMP\"\nFROM active_activities\nWHERE $__timeFilter(start_date)\nORDER BY start_date DESC\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }

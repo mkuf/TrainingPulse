@@ -48,7 +48,13 @@ from providers.garmin_wellness import (
     GarminSleepFeed,
     GarminWellnessFeed,
 )
-from providers.mapping import as_float, as_int, clip_text, parse_dt
+from providers.mapping import (
+    as_float,
+    as_int,
+    clip_text,
+    parse_dt,
+    steps_per_minute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,11 +132,16 @@ def flatten_detail(detail: dict) -> dict:
         "movingDuration": summary.get("movingDuration"),
         "elevationGain": summary.get("elevationGain"),
         "averageSpeed": summary.get("averageSpeed"),
+        "maxSpeed": summary.get("maxSpeed"),
+        "elevationLoss": summary.get("elevationLoss"),
+        "averageBikingCadenceInRevPerMinute": summary.get("averageBikeCadence"),
+        "maxBikingCadenceInRevPerMinute": summary.get("maxBikeCadence"),
+        "averageRunningCadenceInStepsPerMinute": summary.get("averageRunCadence"),
+        "maxRunningCadenceInStepsPerMinute": summary.get("maxRunCadence"),
         "averageHR": summary.get("averageHR"),
         "maxHR": summary.get("maxHR"),
         "avgPower": summary.get("averagePower"),
         "maxPower": summary.get("maxPower"),
-        "normPower": summary.get("normalizedPower"),
         "calories": summary.get("calories"),
         "lastUpdateDate": metadata.get("lastUpdateDate"),
     }
@@ -176,13 +187,16 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     device_watts = average_watts is not None
     # The search payload carries float32 noise (30394.099609375 vs 30394.1).
     distance = round(as_float(payload.get("distance")) or 0.0, 1)
-    kilojoules = (
-        average_watts * moving / 1000.0
-        if device_watts and average_watts and moving
-        else None
-    )
 
     activity_type = payload.get("activityType") or {}
+    sport = sport_type(activity_type.get("typeKey"))
+
+    # Garmin's JSON counts both legs on foot; the FIT file counts one.
+    def cadence(stat: str, fit_key: str) -> float | None:
+        value = as_float(payload.get(f"{stat}BikingCadenceInRevPerMinute"))
+        if value is None:
+            value = as_float(payload.get(f"{stat}RunningCadenceInStepsPerMinute"))
+        return value if value is not None else steps_per_minute(fit.get(fit_key), sport)
 
     return {
         "id": activity_id(raw_id),
@@ -191,7 +205,7 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "name": clip_text(payload.get("activityName"), 500) or "",
         "description": clip_text(payload.get("description"), 10000),
         "private_note": None,
-        "sport_type": sport_type(activity_type.get("typeKey")),
+        "sport_type": sport,
         "start_date": start,
         "elapsed_time": elapsed,
         "moving_time": moving,
@@ -202,16 +216,18 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "average_watts": average_watts,
         "max_watts": as_float(payload.get("maxPower")),
         "average_speed": pick("averageSpeed", "average_speed"),
+        "max_speed": pick("maxSpeed", "max_speed"),
+        "average_cadence": cadence("average", "average_cadence"),
+        "max_cadence": cadence("max", "max_cadence"),
         "total_elevation_gain": pick("elevationGain", "total_elevation_gain"),
-        "kilojoules": kilojoules,
+        "total_descent": pick("elevationLoss", "total_descent"),
+        # Garmin's JSON reports no work; the stream phase computes it.
+        "kilojoules": None,
         "calories": pick("calories", "calories"),
         "device_watts": device_watts,
         "device_name": clip_text(fit.get("device_name"), 255),
         "gear_id": None,
         "gear_name": None,
-        "weighted_average_watts": pick("normPower", "weighted_average_watts"),
-        "suffer_score": None,
-        "training_load": None,
         "provider_updated_at": parse_dt(payload.get("lastUpdateDate")),
     }
 

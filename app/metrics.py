@@ -5,6 +5,7 @@ Implements:
 - CTL (Chronic Training Load) — 42-day exponential moving average ("Fitness")
 - ATL (Acute Training Load) — 7-day exponential moving average ("Fatigue")
 - TSB (Training Stress Balance) — CTL - ATL ("Form")
+- Normalized power — 4th-power mean of 30-second rolling power
 """
 
 import logging
@@ -161,6 +162,31 @@ def calculate_best_interval(power_stream: list[int], window_seconds: int) -> flo
             max_sum = current_sum
 
     return max_sum / window_seconds
+
+
+#: Rolling window, in samples, that normalized power smooths over.
+NORMALIZED_POWER_WINDOW = 30
+
+
+def calculate_normalized_power(power_stream: list[int]) -> float | None:
+    """Normalized power: the 4th-power mean of 30-second rolling averages.
+
+    Assumes 1 Hz samples, like :func:`calculate_best_interval`.
+    """
+    window = NORMALIZED_POWER_WINDOW
+    if not power_stream or len(power_stream) < window:
+        return None
+
+    current_sum = float(sum(power_stream[:window]))
+    fourth_powers = (current_sum / window) ** 4
+    count = 1
+    for i in range(len(power_stream) - window):
+        current_sum = current_sum - power_stream[i] + power_stream[i + window]
+        fourth_powers += (current_sum / window) ** 4
+        count += 1
+
+    normalized = (fourth_powers / count) ** 0.25
+    return normalized if normalized > 0 else None
 
 
 def calculate_power_zones(

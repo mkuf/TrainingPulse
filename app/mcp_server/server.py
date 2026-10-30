@@ -247,6 +247,15 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
         "description": activity.description,
         "elapsed_time_minutes": seconds_to_minutes(activity.elapsed_time),
         "average_speed_kmh": average_speed_kmh,
+        "max_speed_kmh": (
+            round(activity.max_speed * 3.6, 1)
+            if activity.max_speed is not None
+            else None
+        ),
+        # Revolutions per minute when cycling, steps per minute on foot.
+        "average_cadence": round_or_none(activity.average_cadence, 0),
+        "max_cadence": round_or_none(activity.max_cadence, 0),
+        "descent_m": round_or_none(activity.total_descent, 0),
         "kilojoules": round_or_none(
             activity.computed_kilojoules
             if activity.computed_kilojoules is not None
@@ -257,7 +266,6 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
         "weighted_average_power": round_or_none(activity.weighted_average_watts, 0),
         "max_power": round_or_none(activity.max_watts, 0),
         "best_20min_power": round_or_none(activity.best_20min_power, 0),
-        "provider_training_load": round_or_none(activity.training_load, 0),
         "device_name": activity.device_name,
         "hr_zone_seconds": _zone_seconds(activity.hr_zone_seconds),
         "power_zone_seconds": _zone_seconds(activity.power_zone_seconds),

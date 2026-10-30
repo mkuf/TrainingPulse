@@ -71,9 +71,13 @@ class FitSummary:
     average_watts: float | None = None
     max_watts: float | None = None
     device_watts: bool = False
-    weighted_average_watts: float | None = None
     average_speed: float | None = None
+    max_speed: float | None = None
+    #: One leg on foot, as FIT stores it; see ``mapping.steps_per_minute``.
+    average_cadence: float | None = None
+    max_cadence: float | None = None
     total_elevation_gain: float | None = None
+    total_descent: float | None = None
     calories: float | None = None
     device_name: str | None = None
 
@@ -197,11 +201,16 @@ def _extract_session(frame: "fitdecode.FitDataMessage") -> dict:
         "total_distance": frame.get_value("total_distance", fallback=None),
         "total_calories": frame.get_value("total_calories", fallback=None),
         "total_ascent": frame.get_value("total_ascent", fallback=None),
+        "total_descent": frame.get_value("total_descent", fallback=None),
         "avg_heart_rate": frame.get_value("avg_heart_rate", fallback=None),
         "max_heart_rate": frame.get_value("max_heart_rate", fallback=None),
         "avg_power": frame.get_value("avg_power", fallback=None),
         "max_power": frame.get_value("max_power", fallback=None),
         "avg_speed": frame.get_value("avg_speed", fallback=None),
+        "max_speed": frame.get_value("enhanced_max_speed", fallback=None)
+        or frame.get_value("max_speed", fallback=None),
+        "avg_cadence": frame.get_value("avg_cadence", fallback=None),
+        "max_cadence": frame.get_value("max_cadence", fallback=None),
     }
 
 
@@ -313,9 +322,12 @@ def _build_summary(
         average_watts=avg_watts,
         max_watts=max_watts,
         device_watts=bool(watts_stream) or avg_watts is not None,
-        weighted_average_watts=None,
         average_speed=average_speed,
+        max_speed=_as_number(session.get("max_speed")),
+        average_cadence=_as_number(session.get("avg_cadence")),
+        max_cadence=_as_number(session.get("max_cadence")),
         total_elevation_gain=_as_number(session.get("total_ascent")),
+        total_descent=_as_number(session.get("total_descent")),
         calories=_as_number(session.get("total_calories")),
         device_name=device_name,
     )

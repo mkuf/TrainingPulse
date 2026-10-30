@@ -20,7 +20,14 @@ from providers.base import (
     prefixed_id,
 )
 from providers.intervals_client import DEFAULT_API_BASE, IntervalsClient
-from providers.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
+from providers.mapping import (
+    as_float,
+    as_int,
+    clip_text,
+    normal_gear_id,
+    parse_dt,
+    steps_per_minute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,16 +92,6 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
 
     avg_watts = payload.get("average_watts") or payload.get("icu_average_watts")
     max_watts = payload.get("max_watts") or payload.get("icu_max_watts")
-    weighted = as_float(
-        payload.get("weighted_average_watts") or payload.get("icu_weighted_avg_watts")
-    )
-
-    device_watts = bool(
-        payload.get("device_watts")
-        or payload.get("icu_pm_ftp")
-        or avg_watts
-        or weighted
-    )
 
     gear = payload.get("gear")
     gear_name = None
@@ -112,8 +109,6 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         or payload.get("activity_type")
         or ""
     )
-    training_load = payload.get("icu_training_load") or payload.get("training_load")
-
     kilojoules = as_float(payload.get("kilojoules"))
     if kilojoules is None:
         joules = as_float(payload.get("icu_joules"))
@@ -137,19 +132,20 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "average_watts": as_float(avg_watts),
         "max_watts": as_float(max_watts),
         "average_speed": as_float(payload.get("average_speed")),
+        "max_speed": as_float(payload.get("max_speed")),
+        "average_cadence": steps_per_minute(payload.get("average_cadence"), sport),
+        "max_cadence": None,
         "total_elevation_gain": as_float(payload.get("total_elevation_gain")),
+        "total_descent": as_float(payload.get("total_elevation_loss")),
         # ``icu_joules`` is the mechanical work in joules: kJ, never kcal.
         "kilojoules": kilojoules,
         "calories": as_float(payload.get("calories")),
-        "device_watts": device_watts,
+        "device_watts": bool(payload.get("device_watts")),
         "device_name": clip_text(
             payload.get("device_name") or payload.get("icu_device"), 255
         ),
         "gear_id": gear_id,
         "gear_name": gear_name,
-        "weighted_average_watts": weighted,
-        "suffer_score": None,
-        "training_load": as_float(training_load),
         "provider_updated_at": provider_updated_at(payload),
     }
 

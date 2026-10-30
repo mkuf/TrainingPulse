@@ -14,6 +14,16 @@ An upgrade keeps your activity history. TrainingPulse changes the database schem
    docker compose up -d --build
    ```
 
+## From a release with provider scores
+
+TrainingPulse does not keep scores that only one provider calculates.
+
+- TrainingPulse deletes the columns `suffer_score` (the Strava "relative effort") and `training_load` (the intervals.icu load) and their values. Make a backup first if you want to keep them. The **Load** column on the Fitness dashboard is removed. TRIMP replaces it.
+- TrainingPulse calculates the normalized power (`weighted_average_watts`) again from the stored power streams. The values can be slightly different from the values of your provider.
+- TrainingPulse adds maximum speed, average and maximum cadence, and total descent. It fills maximum speed and cadence from the stored streams. Total descent comes with the next detail fetch of an activity.
+
+TrainingPulse does all of this one time, when it starts. It does not download data again from a provider.
+
 ## From a release without Strava
 
 In these releases, TrainingPulse did not have Strava.
@@ -22,8 +32,6 @@ In these releases, TrainingPulse did not have Strava.
 2. Start the stack.
 3. Open the status page.
 4. Click **Connect** on the Strava card. You must connect Strava one time again, because the Strava tokens moved to a different table.
-
-TrainingPulse adds the `suffer_score` column again. It fetches the detail of the old `strava_<id>` rows again to get this value. It fetches only the rows that show. It does not fetch the streams again, because they are still in the database.
 
 Old numeric Strava activity IDs change to `strava_<id>`.
 

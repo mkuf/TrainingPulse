@@ -12,14 +12,17 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from metrics import calculate_normalized_power
 from models import Base
+from providers.mapping import steps_per_minute
 
 logger = logging.getLogger(__name__)
 
-#: How far back to re-queue preserved Strava activities for a detail refresh
-#: when ``suffer_score`` is restored. Bounded so the migration cannot consume
-#: an entire day's tight Strava read budget on multi-year-old history.
-_SUFFER_SCORE_BACKFILL_WINDOW_DAYS = 90
+#: Provider scores dropped from ``activities``: proprietary, so never columns.
+_PROVIDER_SCORE_COLUMNS = ("suffer_score", "training_load")
+#: Activities whose stored streams are re-read per query by
+#: :func:`_adopt_core_activity_metrics`, bounding the rows held in memory.
+_STREAM_BACKFILL_BATCH = 50
 
 
 async def _table_exists(
@@ -183,13 +186,6 @@ async def _migrate_strava_era_schema(conn: AsyncConnection) -> bool:
         )
         logger.info("Added activities.superseded_by column")
 
-    # 4. Add training_load column
-    if not await _column_exists(conn, "activities", "training_load"):
-        await conn.execute(
-            text("ALTER TABLE activities ADD COLUMN training_load FLOAT")
-        )
-        logger.info("Added activities.training_load column")
-
     # 5. Rename strava_detail_synced → detail_synced
     if has_strava_col:
         if not await _column_exists(conn, "activities", "detail_synced"):
@@ -224,9 +220,6 @@ async def _migrate_strava_era_schema(conn: AsyncConnection) -> bool:
                     "ALTER TABLE activities DROP COLUMN IF EXISTS strava_updated_at"
                 )
             )
-
-    # 7. suffer_score is Strava-only but no longer dropped: Strava is a
-    #    first-class source again, so a Strava-era database keeps its values.
 
     # strava_tokens is migrated into oauth_tokens and dropped later in
     # ``ensure_schema``, once oauth_tokens is guaranteed to exist.
@@ -268,58 +261,6 @@ async def _migrate_strava_tokens(conn: AsyncConnection) -> None:
 
     await conn.execute(text("DROP TABLE IF EXISTS strava_tokens CASCADE"))
     logger.info("Dropped strava_tokens table")
-
-
-async def _restore_suffer_score(conn: AsyncConnection) -> None:
-    """Re-add ``activities.suffer_score`` and adopt preserved Strava rows.
-
-    An earlier release dropped this column when Strava was replaced by
-    intervals.icu and Google Health. Strava is a source again, so the column
-    comes back and the preserved ``strava_<id>`` rows — whose ids are still real
-    Strava activity ids — are re-queued for a detail fetch to recover the lost
-    values and pick up any upstream edits.
-
-    Guarded on the column's absence, so it runs exactly once per database.
-    ``create_all`` adds the column on a fresh database, where there is nothing
-    to adopt; a Strava-era database still has its values and is left alone.
-
-    The re-queue is bounded to the last ``_SUFFER_SCORE_BACKFILL_WINDOW_DAYS``
-    days rather than a user's entire history: Strava's read budget is tight
-    (100/15min, 1000/day), and unconditionally re-queuing years of already-synced
-    activities right after an upgrade would consume that whole budget on old
-    data instead of the current sync. Older rows simply keep ``suffer_score``
-    unset until a future detail fetch (e.g. a manual full resync) touches them.
-
-    Streams are deliberately *not* re-queued: the earlier migration re-prefixed
-    ``activity_streams`` rather than deleting them, so the time series survived.
-    Re-fetching them would burn Strava's tight read budget to replace data we
-    already hold.
-    """
-    if not await _table_exists(conn, "activities"):
-        return
-    if await _column_exists(conn, "activities", "suffer_score"):
-        return
-
-    await conn.execute(text("ALTER TABLE activities ADD COLUMN suffer_score FLOAT"))
-    logger.info("Re-added activities.suffer_score column")
-
-    result = await conn.execute(
-        text(
-            "UPDATE activities SET detail_synced = false "
-            "WHERE source = 'strava' AND detail_synced = true "
-            "AND start_date >= now() - make_interval(days => :window_days)"
-        ),
-        {"window_days": _SUFFER_SCORE_BACKFILL_WINDOW_DAYS},
-    )
-    adopted = result.rowcount or 0
-    if adopted:
-        logger.info(
-            "Queued %d preserved Strava activities (last %d days) for a "
-            "detail refresh; only the ones that win on precedence will be "
-            "fetched",
-            adopted,
-            _SUFFER_SCORE_BACKFILL_WINDOW_DAYS,
-        )
 
 
 async def _add_deleted_upstream_at(conn: AsyncConnection) -> None:
@@ -420,23 +361,124 @@ async def _add_computed_energy(conn: AsyncConnection) -> None:
             logger.info("Added activities.%s column", new)
 
 
-async def _backfill_hammerhead_kilojoules(conn: AsyncConnection) -> None:
-    """Derive ``kilojoules`` for Hammerhead rides mapped before it was.
+async def _add_activity_summary_columns(conn: AsyncConnection) -> None:
+    """Add the max speed, cadence and descent columns.
 
-    Same rule as ``hammerhead.map_row``; rows that already have a value are
-    left alone, so this is a no-op after the first run.
+    Rows synced before them stay NULL until :func:`_adopt_core_activity_metrics`
+    reads their stored streams, or their detail is fetched again.
     """
     if not await _table_exists(conn, "activities"):
         return
+    for column in ("max_speed", "average_cadence", "max_cadence", "total_descent"):
+        if await _column_exists(conn, "activities", column):
+            continue
+        await conn.execute(text(f"ALTER TABLE activities ADD COLUMN {column} FLOAT"))
+        logger.info("Added activities.%s column", column)
+
+
+async def _adopt_core_activity_metrics(conn: AsyncConnection) -> None:
+    """Drop provider scores and take over what the core computes.
+
+    Runs once, while a provider score column still exists:
+
+    - ``suffer_score`` and ``training_load`` are dropped with their values.
+    - ``kilojoules`` derived by the Garmin and Hammerhead mappers (average
+      power x moving time) is cleared; ``computed_kilojoules`` holds the work.
+    - ``weighted_average_watts`` is recomputed from the stored power stream
+      instead of the provider's figure, and empty max speed and cadence are
+      filled from the stored streams. Nothing is fetched from a provider.
+
+    The ``active_*`` views select every column, so they are dropped first;
+    :func:`_ensure_active_views` recreates them.
+    """
+    if not await _table_exists(conn, "activities"):
+        return
+    present = [
+        column
+        for column in _PROVIDER_SCORE_COLUMNS
+        if await _column_exists(conn, "activities", column)
+    ]
+    if not present:
+        return
+
+    for view in _ACTIVE_VIEWS:
+        await conn.execute(text(f"DROP VIEW IF EXISTS {view}"))
+    for column in present:
+        await conn.execute(text(f"ALTER TABLE activities DROP COLUMN {column}"))
+        logger.info("Dropped activities.%s", column)
+
     result = await conn.execute(
         text(
-            "UPDATE activities SET kilojoules = average_watts * moving_time / 1000.0 "
-            "WHERE source = 'hammerhead' AND kilojoules IS NULL AND device_watts "
-            "AND average_watts > 0 AND moving_time > 0"
+            "UPDATE activities SET kilojoules = NULL "
+            "WHERE source IN ('garmin', 'hammerhead') AND kilojoules IS NOT NULL"
         )
     )
     if result.rowcount:
-        logger.info("Derived kilojoules for %d Hammerhead activities", result.rowcount)
+        logger.info("Cleared derived kilojoules on %d activities", result.rowcount)
+
+    await conn.execute(text("UPDATE activities SET weighted_average_watts = NULL"))
+    ids = (
+        await conn.execute(
+            text(
+                "SELECT s.activity_id FROM activity_streams s "
+                "JOIN activities a ON a.id = s.activity_id "
+                "WHERE s.data ?| array['watts', 'velocity_smooth', 'cadence']"
+            )
+        )
+    ).scalars().all()
+    for offset in range(0, len(ids), _STREAM_BACKFILL_BATCH):
+        rows = await conn.execute(
+            text(
+                "SELECT a.id, a.sport_type, a.max_speed, a.average_cadence, "
+                "a.max_cadence, s.data->'watts', s.data->'velocity_smooth', "
+                "s.data->'cadence' "
+                "FROM activities a JOIN activity_streams s ON s.activity_id = a.id "
+                "WHERE a.id = ANY(:ids)"
+            ),
+            {"ids": list(ids[offset : offset + _STREAM_BACKFILL_BATCH])},
+        )
+        for row in rows.all():
+            values = _stream_metrics(*row[1:])
+            if values:
+                await conn.execute(
+                    text(
+                        "UPDATE activities SET "
+                        + ", ".join(f"{name} = :{name}" for name in values)
+                        + " WHERE id = :id"
+                    ),
+                    {**values, "id": row[0]},
+                )
+    if ids:
+        logger.info("Recomputed stream metrics for %d activities", len(ids))
+
+
+def _stream_metrics(
+    sport_type: str | None,
+    max_speed: float | None,
+    average_cadence: float | None,
+    max_cadence: float | None,
+    watts: list | None,
+    speeds: list | None,
+    cadences: list | None,
+) -> dict:
+    """Column values one stored stream set yields, as the stream phase does."""
+    values: dict = {}
+    if watts:
+        normalized = calculate_normalized_power([v or 0 for v in watts])
+        if normalized is not None:
+            values["weighted_average_watts"] = normalized
+    speeds = [v for v in speeds or [] if v]
+    if max_speed is None and speeds:
+        values["max_speed"] = float(max(speeds))
+    cadences = [v for v in cadences or [] if v and v > 0]
+    if cadences:
+        if average_cadence is None:
+            values["average_cadence"] = steps_per_minute(
+                sum(cadences) / len(cadences), sport_type
+            )
+        if max_cadence is None:
+            values["max_cadence"] = steps_per_minute(max(cadences), sport_type)
+    return values
 
 
 #: View name → (table, condition). Each holds only the visible rows.
@@ -458,9 +500,7 @@ async def _ensure_active_views(conn: AsyncConnection) -> None:
 
     Each view is dropped and rebuilt rather than replaced: it is a
     ``SELECT *``, whose column list is fixed at creation time, and
-    ``CREATE OR REPLACE VIEW`` can only *append* columns. Re-adding
-    ``suffer_score`` puts a column back in the middle of ``activities``, which
-    a replace would reject.
+    ``CREATE OR REPLACE VIEW`` can only *append* columns, never drop one.
     """
     for view, (table, condition) in _ACTIVE_VIEWS.items():
         await conn.execute(text(f"DROP VIEW IF EXISTS {view}"))
@@ -614,10 +654,10 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
     await _json_null_to_sql_null(conn)
     await _migrate_strava_tokens(conn)
     await migrate_fitbit_labels(conn)
-    await _restore_suffer_score(conn)
     await _add_deleted_upstream_at(conn)
     await _add_computed_energy(conn)
-    await _backfill_hammerhead_kilojoules(conn)
+    await _add_activity_summary_columns(conn)
+    await _adopt_core_activity_metrics(conn)
     await _migrate_withings_plugin(conn, timezone)
     await _migrate_fddb_plugin(conn)
     await _ensure_active_views(conn)

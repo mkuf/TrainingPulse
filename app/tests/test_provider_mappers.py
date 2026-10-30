@@ -187,14 +187,16 @@ def test_icu_map_row():
     assert row["has_heartrate"] is True
     assert row["average_heartrate"] == pytest.approx(148.2)
     assert row["average_watts"] == pytest.approx(212.4)
-    assert row["weighted_average_watts"] == pytest.approx(228.9)
     assert row["device_watts"] is True
-    assert row["training_load"] == pytest.approx(96.0)
+    assert row["max_speed"] == pytest.approx(16.2)
+    assert row["average_cadence"] == pytest.approx(88.0)
+    assert row["total_descent"] == pytest.approx(305.0)
     assert row["gear_id"] == "b1234567"
     assert row["device_name"] == "Wahoo KICKR"
     assert row["provider_updated_at"] == _utc("2026-03-14T19:00:00Z")
-    # suffer_score is a Strava-only concept.
-    assert row["suffer_score"] is None
+    # Normalized power is computed from the stream; load is proprietary.
+    assert "weighted_average_watts" not in row
+    assert "training_load" not in row
 
 
 def test_icu_map_row_reads_icu_prefixed_aliases():
@@ -209,10 +211,10 @@ def test_icu_map_row_reads_icu_prefixed_aliases():
     assert row["moving_time"] == 1700
     assert row["average_heartrate"] == pytest.approx(130.0)
     assert row["max_watts"] == pytest.approx(400.0)
-    assert row["weighted_average_watts"] == pytest.approx(190.0)
     assert row["gear_id"] == "b999"
     assert row["device_name"] == "Garmin Edge"
-    assert row["training_load"] == pytest.approx(44.0)
+    # Only the provider's own flag says the power was measured.
+    assert row["device_watts"] is False
     # icu_joules is work in joules: kilojoules, never calories.
     assert row["kilojoules"] == pytest.approx(306.0)
     assert row["calories"] is None
@@ -277,6 +279,9 @@ def test_strava_map_row():
     assert row["has_heartrate"] is True
     assert row["average_heartrate"] == pytest.approx(152.0)
     assert row["device_watts"] is False
+    assert row["max_speed"] == pytest.approx(4.6)
+    # Strava counts one leg; runs store steps per minute.
+    assert row["average_cadence"] == pytest.approx(173.0)
     assert row["gear_id"] == "g7654321"
     assert row["provider_updated_at"] == _utc("2026-03-14T08:00:00Z")
 
@@ -289,14 +294,15 @@ def test_strava_map_row_never_uses_the_provider_athlete_id():
     assert row["athlete_id"] == ATHLETE_ID
 
 
-def test_strava_map_row_merges_detail_fields_and_suffer_score():
+def test_strava_map_row_merges_detail_fields():
     row = strava.map_row(payloads.STRAVA_DETAIL_ACTIVITY, ATHLETE_ID)
 
     assert row["description"] == "Easy shakeout"
     assert row["private_note"] == "felt flat"
     assert row["calories"] == pytest.approx(612.0)
     assert row["device_name"] == "Garmin Forerunner 965"
-    assert row["suffer_score"] == pytest.approx(74.0)
+    # Relative effort is proprietary and never mapped.
+    assert "suffer_score" not in row
     # Resolved by fetch_detail so map_row can stay pure.
     assert row["gear_name"] == "Nike Pegasus 41"
 
@@ -539,18 +545,19 @@ def test_hammerhead_map_row_merges_fit_summary():
     assert row["has_heartrate"] is True
     assert row["average_watts"] == pytest.approx(212.4)
     assert row["device_watts"] is True
-    # Derived like Strava: average power x moving time.
-    assert row["kilojoules"] == pytest.approx(212.4 * 3600 / 1000)
-    assert row["weighted_average_watts"] == pytest.approx(228.9)
+    # FIT has no work total; the stream phase computes it.
+    assert row["kilojoules"] is None
+    assert row["max_speed"] == pytest.approx(18.0)
+    assert row["average_cadence"] == pytest.approx(88.0)
+    assert row["max_cadence"] == pytest.approx(120.0)
     assert row["total_elevation_gain"] == pytest.approx(312.0)
+    assert row["total_descent"] == pytest.approx(300.0)
     assert row["calories"] == pytest.approx(820.0)
     assert row["device_name"] == "Hammerhead Karoo 3"
     assert row["provider_updated_at"] == _utc("2026-03-14T19:00:00Z")
-    # Hammerhead/FIT don't track gear or a proprietary training-load score.
+    # Hammerhead/FIT don't track gear.
     assert row["gear_id"] is None
     assert row["gear_name"] is None
-    assert row["suffer_score"] is None
-    assert row["training_load"] is None
 
 
 @pytest.mark.parametrize(
@@ -603,3 +610,14 @@ def test_hammerhead_analysis_cache_round_trips_and_is_bounded():
     for i in range(hammerhead._ANALYSIS_CACHE_MAX + 5):
         source._cache_analysis(f"hammerhead_{i}", object())
     assert len(source._analysis_cache) <= hammerhead._ANALYSIS_CACHE_MAX
+
+
+@pytest.mark.parametrize(
+    ("sport", "expected"),
+    [("Run", 172.0), ("Trail Run", 172.0), ("Walk", 172.0), ("Ride", 86.0), ("", 86.0)],
+)
+def test_steps_per_minute_doubles_one_leg_cadence_on_foot(sport, expected):
+    from providers.mapping import steps_per_minute
+
+    assert steps_per_minute(86, sport) == pytest.approx(expected)
+    assert steps_per_minute(None, sport) is None

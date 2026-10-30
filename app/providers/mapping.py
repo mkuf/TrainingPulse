@@ -10,6 +10,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterator
 from zoneinfo import ZoneInfo
 
+from calories import on_foot
+
 
 def parse_dt(raw: object) -> datetime | None:
     """Parse a provider timestamp into an aware UTC-ish datetime."""
@@ -102,3 +104,15 @@ def date_chunks(first: date, last: date, days: int) -> Iterator[tuple[date, date
         chunk_end = min(current + timedelta(days=days - 1), last)
         yield current, chunk_end
         current = chunk_end + timedelta(days=1)
+
+
+def steps_per_minute(raw: object, sport_type: str | None) -> float | None:
+    """Turn a one-leg cadence (FIT, Strava) into the stored cadence.
+
+    On foot the stored cadence counts both legs, as Garmin reports it;
+    cycling cadence is revolutions per minute either way.
+    """
+    value = as_float(raw)
+    if value is None:
+        return None
+    return value * 2 if on_foot(sport_type) else value

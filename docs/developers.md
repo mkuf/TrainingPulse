@@ -93,6 +93,12 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 5. Register a builder in [`app/providers/registry.py`](../app/providers/registry.py).
 6. Add fixtures and mapper tests. `test_feeds_match_the_catalog_and_their_contracts` fails until the provider's feeds match its `ProviderSpec`. For an activity provider, `test_mappers_agree_on_the_column_set` fails until the mapper emits exactly the same columns as the others.
 
+### The activity baseline
+
+Activity columns follow the same rule as wellness records: a column exists only for a standard concept that most wearables report, a provider without it leaves it `None`, and proprietary scores (Strava's relative effort, intervals.icu's training load) are never mapped. Mappers only pass on what the provider reports, never derive a value: normalized power, work (`computed_kilojoules`), TRIMP, zones and the power curve come from the stream phase. Where a provider reports a summary value (average heart rate, max speed, cadence) its figure is kept; the stream phase only fills the ones it left empty, so reconcile keeps comparing provider values with provider values.
+
+Cadence is stored as revolutions per minute when cycling and steps per minute (both legs) on foot. FIT files, Strava and intervals.icu report one leg; `mapping.steps_per_minute` doubles those for walking and running sports.
+
 ### The wellness baseline and derived scores
 
 Sleep, wellness, and intraday records carry only fields most wearables report (see the record dataclasses in `providers/feeds.py`). Provider-specific scores (Garmin's sleep score, stress, Body Battery, HRV status) are deliberately not mapped: they are not comparable across providers and most APIs do not expose them. A new provider maps onto the baseline and leaves unknown fields `None`. Heart-rate samples are normalized to two-minute averages (`HEART_RATE_WINDOW_SECONDS`) and are comparable; metrics in `DISPLAY_ONLY_METRICS` (SpO2) keep each device's native resolution, and nothing derives statistics from them: MCP series mark them `display_only` and report `interval_seconds`, and comparable SpO2 numbers come from the daily `spo2_avg`/`spo2_min`.
@@ -155,7 +161,7 @@ Sport-settings are deliberately not requested; see [HR and FTP](#hr-and-ftp).
 | Method | Endpoint | Role |
 |--------|----------|------|
 | List | `GET /athlete/activities?after=&before=&per_page=200` | Paged window list |
-| Detail | `GET /activities/{id}` | Description, calories, device, suffer score |
+| Detail | `GET /activities/{id}` | Description, calories, device |
 | Gear | `GET /gear/{id}` | Display name; cached per client |
 | Streams | `GET /activities/{id}/streams?key_by_type=true` | HR / power / GPS |
 | Athlete | `GET /athlete` | Credential check and athlete id only |
@@ -163,8 +169,6 @@ Sport-settings are deliberately not requested; see [HR and FTP](#hr-and-ftp).
 Auth: OAuth, scopes `activity:read_all,profile:read_all`. Tokens live in `oauth_tokens` (`provider=strava`), refreshed automatically. Callback is `{app.base_url}/auth/strava/callback`.
 
 Strava publishes **two** budgets per response: `X-RateLimit-*` (overall) and `X-ReadRateLimit-*` (reads only), defaulting to 200/2000 and 100/1000. Almost every call here is a read, so the client gates on whichever budget is closer to its limit. The 15-minute window resets on the quarter hour; the client sleeps until then, and a daily exhaustion raises `SourceRateLimitExceeded` so the phase resumes next sync.
-
-`suffer_score` is Strava's relative effort and is NULL for every other source.
 
 ### Google Health
 
@@ -325,7 +329,8 @@ On startup [`app/schema_migrate.py`](../app/schema_migrate.py) migrates **in pla
 
 - Strava-era bigint `activities.id` becomes `VARCHAR(128)` and is prefixed `strava_`; `activity_streams.activity_id` is migrated and re-prefixed to match, not dropped.
 - `strava_detail_synced` → `detail_synced`, `strava_updated_at` → `provider_updated_at`; `source` and `superseded_by` are added.
-- `suffer_score` is re-added if missing, and in the same guarded branch preserved `strava` rows are re-queued for a detail fetch. Streams are deliberately left alone because the earlier migration kept them, and refetching them would waste Strava's read budget. The guard is the column's absence, so this runs exactly once per database.
+- `max_speed`, `average_cadence`, `max_cadence` and `total_descent` are added if missing.
+- While `suffer_score` or `training_load` still exists, both are dropped with their values (the `active_*` views are dropped first and rebuilt at the end). In the same branch, `kilojoules` that the Garmin and Hammerhead mappers derived from average power is cleared, `weighted_average_watts` is recomputed from the stored power streams, and empty max speed and cadence are filled from the stored streams. Nothing is fetched from a provider.
 - `strava_tokens` is dropped; Strava OAuth lives in `oauth_tokens` now, so Strava must be reconnected once.
 - `activities.deleted_upstream_at` is added if missing (`create_all` never adds columns to existing tables). New tables such as `record_sync_cursors` are created by `create_all`.
 - Short-lived `fitbit` labels are renamed to `google_health`, including the `fitbit_` id prefix.
@@ -344,6 +349,7 @@ Computed in [`app/metrics.py`](../app/metrics.py) and stored alongside activitie
 | ATL | Fatigue | 7-day EMA of daily TRIMP |
 | TSB | Form | CTL − ATL |
 | Estimated FTP | — | 95% of best 20-minute power across activities |
+| Normalized power | NP, `weighted_average_watts` | 4th-power mean of 30-second rolling power, from the power stream |
 
 ## MCP
 

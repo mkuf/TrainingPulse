@@ -58,6 +58,14 @@ RUNNING = {
     for s in ("Run", "TrailRun", "VirtualRun", "Running", "TreadmillRunning")
 }
 
+
+
+def on_foot(sport_type: str | None) -> bool:
+    """True for walking and running sports, whose cadence counts steps."""
+    sport = _key(sport_type)
+    return sport in WALKING or sport in RUNNING
+
+
 #: Compendium of Physical Activities (2024), general-intensity METs.
 SPORT_METS = {
     _key(sport): met

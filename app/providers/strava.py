@@ -20,7 +20,14 @@ from providers.base import (
     granted_if_connected,
     prefixed_id,
 )
-from providers.mapping import as_float, as_int, clip_text, normal_gear_id, parse_dt
+from providers.mapping import (
+    as_float,
+    as_int,
+    clip_text,
+    normal_gear_id,
+    parse_dt,
+    steps_per_minute,
+)
 from providers.strava_client import DEFAULT_API_BASE, StravaClient
 
 logger = logging.getLogger(__name__)
@@ -117,16 +124,17 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "average_watts": as_float(payload.get("average_watts")),
         "max_watts": as_float(payload.get("max_watts")),
         "average_speed": as_float(payload.get("average_speed")),
+        "max_speed": as_float(payload.get("max_speed")),
+        "average_cadence": steps_per_minute(payload.get("average_cadence"), sport),
+        "max_cadence": None,
         "total_elevation_gain": as_float(payload.get("total_elevation_gain")),
+        "total_descent": None,
         "kilojoules": as_float(payload.get("kilojoules")),
         "calories": as_float(payload.get("calories")),
         "device_watts": bool(payload.get("device_watts")),
         "device_name": clip_text(payload.get("device_name"), 255),
         "gear_id": gear_id,
         "gear_name": gear_name,
-        "weighted_average_watts": as_float(payload.get("weighted_average_watts")),
-        "suffer_score": as_float(payload.get("suffer_score")),
-        "training_load": None,
         "provider_updated_at": parse_dt(payload.get("updated_at")),
     }
 

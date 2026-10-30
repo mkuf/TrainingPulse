@@ -37,6 +37,7 @@ from ingest.state import SyncState
 from resting_hr import resting_hr_on
 from metrics import (
     calculate_best_interval,
+    calculate_normalized_power,
     calculate_power_curve,
     calculate_power_zones,
     calculate_trimp_from_streams,
@@ -44,6 +45,7 @@ from metrics import (
 )
 from models import ACTIVITY_VISIBLE, Activity, ActivityStream, BodyMeasurement
 from providers.base import ActivitySource, SourceRateLimitExceeded, external_id
+from providers.mapping import steps_per_minute
 
 logger = logging.getLogger(__name__)
 
@@ -71,17 +73,22 @@ LIST_UPSERT_FIELDS = (
     "max_watts",
     "average_speed",
     "total_elevation_gain",
+    "total_descent",
     "kilojoules",
     "device_watts",
     "gear_id",
-    "weighted_average_watts",
-    "suffer_score",
-    "training_load",
     "provider_updated_at",
 )
 
 #: Summary columns the stream phase derives when a source omits them.
-_STREAM_DERIVED_FIELDS = ("average_heartrate", "max_heartrate", "average_speed")
+_STREAM_DERIVED_FIELDS = (
+    "average_heartrate",
+    "max_heartrate",
+    "average_speed",
+    "max_speed",
+    "average_cadence",
+    "max_cadence",
+)
 
 #: Columns compared to decide whether a re-listed activity was edited upstream.
 _DIFF_FIELDS = (
@@ -99,7 +106,6 @@ _DIFF_FIELDS = (
     "gear_id",
     "kilojoules",
     "device_watts",
-    "training_load",
 )
 
 _FLOAT_FIELDS = {
@@ -111,8 +117,6 @@ _FLOAT_FIELDS = {
     "kilojoules",
     "average_speed",
     "total_elevation_gain",
-    "weighted_average_watts",
-    "training_load",
 }
 
 #: Rows per INSERT. An activity row has ~30 columns, so this keeps a busy
@@ -364,6 +368,7 @@ async def _mark_for_full_refresh(session: AsyncSession, ids: Sequence[str]) -> N
             power_zone_seconds=None,
             best_20min_power=None,
             power_curve=None,
+            weighted_average_watts=None,
         )
     )
     await session.commit()
@@ -893,7 +898,8 @@ def _missing_summary(activity: Activity, streams: dict[str, list]) -> dict:
     """Summary values derived from the streams for fields the source left empty.
 
     Some sources (Google Health) report no max and often no average heart rate,
-    and no distance for sessions whose route only exists as a track.
+    and no distance for sessions whose route only exists as a track. Stream
+    cadence counts one leg on foot, like FIT.
     """
     derived: dict = {}
     samples = [value for value in streams.get("heartrate") or [] if value and value > 0]
@@ -912,6 +918,22 @@ def _missing_summary(activity: Activity, streams: dict[str, list]) -> dict:
         derived["distance"] = distance
     if activity.average_speed is None and distance > 0 and activity.moving_time:
         derived["average_speed"] = distance / activity.moving_time
+
+    speeds = [value for value in streams.get("velocity_smooth") or [] if value]
+    if activity.max_speed is None and speeds:
+        derived["max_speed"] = float(max(speeds))
+
+    # Zero cadence is coasting or standing; devices leave it out of the average.
+    cadences = [value for value in streams.get("cadence") or [] if value and value > 0]
+    if cadences:
+        if activity.average_cadence is None:
+            derived["average_cadence"] = steps_per_minute(
+                sum(cadences) / len(cadences), activity.sport_type
+            )
+        if activity.max_cadence is None:
+            derived["max_cadence"] = steps_per_minute(
+                max(cadences), activity.sport_type
+            )
     return derived
 
 
@@ -973,6 +995,7 @@ async def _apply_streams(
                     power_zone_seconds=None,
                     best_20min_power=None,
                     power_curve=None,
+                    weighted_average_watts=None,
                     synced_streams=True,
                     **await _computed_energy(
                         session, ctx, energy_inputs, activity_day
@@ -1006,9 +1029,11 @@ async def _apply_streams(
         best_20min = None
         power_curve = None
         power_zones = None
+        normalized_power = None
         if power_stream:
             best_20min = calculate_best_interval(power_stream, 1200)
             power_curve = calculate_power_curve(power_stream)
+            normalized_power = calculate_normalized_power(power_stream)
             if time_stream:
                 usable = min(len(time_stream), len(power_stream))
                 if usable > 0:
@@ -1039,6 +1064,7 @@ async def _apply_streams(
                 power_zone_seconds=power_zones,
                 best_20min_power=best_20min,
                 power_curve=power_curve,
+                weighted_average_watts=normalized_power,
                 synced_streams=True,
             )
         )

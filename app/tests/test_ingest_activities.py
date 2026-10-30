@@ -347,7 +347,6 @@ class _Existing:
             "gear_id": "b1",
             "kilojoules": 700.0,
             "device_watts": True,
-            "training_load": 90.0,
             "provider_updated_at": BASE,
             "detail_synced": True,
         }
@@ -395,7 +394,7 @@ def test_older_provider_timestamp_does_not_trigger_refresh():
         ("average_heartrate", 145.0),
         ("gear_id", "b2"),
         ("device_watts", False),
-        ("training_load", 91.0),
+        ("max_watts", 510.0),
     ],
 )
 def test_changed_list_field_triggers_refresh(field, value):
@@ -427,6 +426,7 @@ def test_list_upsert_fields_do_not_include_derived_or_detail_columns():
         "power_zone_seconds",
         "best_20min_power",
         "power_curve",
+        "weighted_average_watts",
         "synced_streams",
         "superseded_by",
         "description",
@@ -438,10 +438,6 @@ def test_list_upsert_fields_do_not_include_derived_or_detail_columns():
     }
 
     assert forbidden.isdisjoint(LIST_UPSERT_FIELDS)
-
-
-def test_list_upsert_fields_include_suffer_score():
-    assert "suffer_score" in LIST_UPSERT_FIELDS
 
 
 # ── Stream application ──────────────────────────────────────────────
@@ -516,6 +512,9 @@ def _stream_activity(**overrides):
         average_heartrate=150.0,
         max_heartrate=175.0,
         average_speed=8.0,
+        max_speed=None,
+        average_cadence=None,
+        max_cadence=None,
         calories=None,
     )
     fields.update(overrides)
@@ -751,3 +750,108 @@ async def test_apply_streams_keeps_source_distance():
     (values,) = session.updates
     assert "distance" not in values
     assert "average_speed" not in values
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_computes_normalized_power():
+    from ingest.activities import _apply_streams
+
+    n = 1200
+    # Alternating 100 W / 300 W minutes: average 200 W, normalized power higher.
+    watts = [100 if (i // 60) % 2 == 0 else 300 for i in range(n)]
+    streams = {"time": list(range(n)), "watts": watts, "heartrate": [150] * n}
+    session = _FakeSession()
+
+    await _apply_streams(session, _FakeSource(streams), _stream_activity(), _stream_ctx())
+
+    (values,) = session.updates
+    assert values["weighted_average_watts"] > 200
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_without_power_clears_normalized_power():
+    from ingest.activities import _apply_streams
+
+    session = _FakeSession()
+    activity = _stream_activity(
+        has_heartrate=False, device_watts=False, average_watts=None
+    )
+
+    await _apply_streams(session, _FakeSource({}), activity, _stream_ctx())
+
+    (values,) = session.updates
+    assert values["weighted_average_watts"] is None
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_derives_missing_cadence_and_max_speed():
+    from ingest.activities import _apply_streams
+
+    n = 600
+    streams = {
+        "time": list(range(n)),
+        "heartrate": [150] * n,
+        # Zeros are standing still and stay out of the average.
+        "cadence": [0] * 10 + [85] * (n - 20) + [95] * 10,
+        "velocity_smooth": [3.0] * (n - 1) + [4.5],
+    }
+    session = _FakeSession()
+    activity = _stream_activity(sport_type="Run", device_watts=False, average_watts=None)
+
+    await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+
+    (values,) = session.updates
+    # Stream cadence counts one leg; runs store steps per minute.
+    assert values["average_cadence"] == pytest.approx(2 * (85 * 580 + 95 * 10) / 590)
+    assert values["max_cadence"] == pytest.approx(190.0)
+    assert values["max_speed"] == pytest.approx(4.5)
+
+
+@pytest.mark.asyncio
+async def test_apply_streams_keeps_source_cadence():
+    from ingest.activities import _apply_streams
+
+    streams = {"time": list(range(600)), "heartrate": [150] * 600, "cadence": [90] * 600}
+    session = _FakeSession()
+    activity = _stream_activity(average_cadence=88.0, max_cadence=110.0)
+
+    await _apply_streams(session, _FakeSource(streams), activity, _stream_ctx())
+
+    (values,) = session.updates
+    assert "average_cadence" not in values
+    assert "max_cadence" not in values
+
+
+# ── Normalized power and the one-time stream backfill ───────────────
+
+
+def test_normalized_power_of_steady_power_is_that_power():
+    from metrics import calculate_normalized_power
+
+    assert calculate_normalized_power([250] * 600) == pytest.approx(250.0)
+
+
+def test_normalized_power_needs_a_full_window():
+    from metrics import NORMALIZED_POWER_WINDOW, calculate_normalized_power
+
+    assert calculate_normalized_power([250] * (NORMALIZED_POWER_WINDOW - 1)) is None
+    assert calculate_normalized_power([0] * 600) is None
+
+
+def test_stream_backfill_fills_only_empty_columns():
+    from schema_migrate import _stream_metrics
+
+    values = _stream_metrics(
+        "Run",
+        None,
+        170.0,
+        None,
+        [200, None] * 300,
+        [3.0, 0, 4.2],
+        [0, 84, 90],
+    )
+
+    assert values["weighted_average_watts"] > 0
+    assert values["max_speed"] == pytest.approx(4.2)
+    assert "average_cadence" not in values
+    assert values["max_cadence"] == pytest.approx(180.0)

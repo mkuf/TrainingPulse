@@ -51,8 +51,12 @@ def test_search_payload_maps_garmin_values():
     assert row["has_heartrate"] is True
     assert row["average_watts"] == pytest.approx(101.0)
     assert row["device_watts"] is True
-    assert row["kilojoules"] == pytest.approx(101.0 * 3613 / 1000)
-    assert row["weighted_average_watts"] == pytest.approx(104.0)
+    # Garmin reports no work; mappers never derive it.
+    assert row["kilojoules"] is None
+    assert row["max_speed"] == pytest.approx(12.1)
+    assert row["average_cadence"] == pytest.approx(82.0)
+    assert row["max_cadence"] == pytest.approx(110.0)
+    assert row["total_descent"] == pytest.approx(2.0)
     assert row["device_name"] is None
 
 
@@ -93,6 +97,22 @@ def test_fit_summary_only_fills_what_the_json_lacks():
     assert row["calories"] == pytest.approx(640.0)
     assert row["device_name"] == "Hammerhead Karoo"
     assert row["provider_updated_at"] == _utc("2026-10-28T18:35:03Z")
+
+
+def test_run_cadence_from_fit_counts_both_legs():
+    """Garmin's JSON counts steps; a FIT fallback counts one leg."""
+    payload = {
+        **payloads.GARMIN_SEARCH_ACTIVITY,
+        "activityType": {"typeKey": "running"},
+        "averageBikingCadenceInRevPerMinute": None,
+        "maxBikingCadenceInRevPerMinute": None,
+        "maxRunningCadenceInStepsPerMinute": 190.0,
+        "_fit_summary": {**payloads.GARMIN_FIT_SUMMARY, "average_cadence": 84.0},
+    }
+    row = garmin.map_row(payload, ATHLETE_ID)
+
+    assert row["average_cadence"] == pytest.approx(168.0)
+    assert row["max_cadence"] == pytest.approx(190.0)
 
 
 def test_stationary_sport_uses_elapsed_as_moving_time():

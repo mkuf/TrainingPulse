@@ -86,7 +86,14 @@ class Activity(Base):
     average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
     average_speed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_speed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Revolutions per minute when cycling, steps per minute on foot (both
+    #: legs, as Garmin reports it; FIT and Strava report one leg).
+    average_cadence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_cadence: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_elevation_gain: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_descent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Work as the source reports it; never derived by a mapper.
     kilojoules: Mapped[float | None] = mapped_column(Float, nullable=True)
     calories: Mapped[float | None] = mapped_column(Float, nullable=True)
     #: Computed by TrainingPulse when the streams are processed (see
@@ -103,10 +110,8 @@ class Activity(Base):
     device_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     gear_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     gear_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Normalized power, computed by TrainingPulse from the power stream.
     weighted_average_watts: Mapped[float | None] = mapped_column(Float, nullable=True)
-    #: Strava's "relative effort". Only Strava reports it; NULL elsewhere.
-    suffer_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    training_load: Mapped[float | None] = mapped_column(Float, nullable=True)
     detail_synced: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

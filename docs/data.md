@@ -69,7 +69,6 @@ A provider can stop to give an activity. For example, you delete it there, or it
 
 - Activity summaries: sport, time, distance, heart rate, and power if available. The `source` column is `icu`, `strava`, `google_health`, or `hammerhead`.
 - Activity streams: heart rate, power, and GPS if available. TrainingPulse uses them for maps, zones, and TRIMP.
-- The Strava "relative effort", in `suffer_score`. Only Strava gives this value. For other providers, it is empty.
 - For Hammerhead: the `.fit` file of each activity. TrainingPulse downloads it one time and keeps it permanently. Refer to [Hammerhead](providers/hammerhead.md).
 - Activities that a provider deleted. TrainingPulse hides them but keeps them.
 - Body measurements (weight, fat %, muscle mass) and daily nutrition totals, with the name of the provider.
@@ -79,4 +78,5 @@ A provider can stop to give an activity. For example, you delete it there, or it
 
 **Calculated by TrainingPulse:**
 
-- TRIMP, time in heart-rate and power zones, estimated FTP, and daily CTL, ATL, and TSB.
+- TRIMP, time in heart-rate and power zones, normalized power, the power curve, estimated FTP, and daily CTL, ATL, and TSB.
+- Values that a provider does not give, if the streams have them: maximum and average heart rate, maximum speed, and cadence.

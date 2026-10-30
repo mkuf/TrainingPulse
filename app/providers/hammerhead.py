@@ -32,7 +32,13 @@ from providers.base import (
     prefixed_id,
 )
 from providers.hammerhead_client import DEFAULT_API_BASE, HammerheadClient
-from providers.mapping import as_float, as_int, clip_text, parse_dt
+from providers.mapping import (
+    as_float,
+    as_int,
+    clip_text,
+    parse_dt,
+    steps_per_minute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,14 +130,6 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
 
     sport = _ACTIVITY_TYPE_SPORT_MAP.get(payload.get("activityType"), "")
 
-    # FIT files carry no work total; derive it the way Strava does.
-    average_watts = as_float(fit.get("average_watts"))
-    device_watts = bool(fit.get("device_watts"))
-    kilojoules = (
-        average_watts * moving / 1000.0
-        if device_watts and average_watts and moving
-        else None
-    )
 
     return {
         "id": activity_id(raw_id),
@@ -148,19 +146,21 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         "average_heartrate": as_float(fit.get("average_heartrate")),
         "max_heartrate": as_float(fit.get("max_heartrate")),
         "has_heartrate": bool(fit.get("has_heartrate")),
-        "average_watts": average_watts,
+        "average_watts": as_float(fit.get("average_watts")),
         "max_watts": as_float(fit.get("max_watts")),
         "average_speed": as_float(fit.get("average_speed")),
+        "max_speed": as_float(fit.get("max_speed")),
+        "average_cadence": steps_per_minute(fit.get("average_cadence"), sport),
+        "max_cadence": steps_per_minute(fit.get("max_cadence"), sport),
         "total_elevation_gain": as_float(fit.get("total_elevation_gain")),
-        "kilojoules": kilojoules,
+        "total_descent": as_float(fit.get("total_descent")),
+        # FIT files carry no work total; the stream phase computes it.
+        "kilojoules": None,
         "calories": as_float(fit.get("calories")),
-        "device_watts": device_watts,
+        "device_watts": bool(fit.get("device_watts")),
         "device_name": clip_text(fit.get("device_name"), 255),
         "gear_id": None,
         "gear_name": None,
-        "weighted_average_watts": as_float(fit.get("weighted_average_watts")),
-        "suffer_score": None,
-        "training_load": None,
         "provider_updated_at": parse_dt(payload.get("updatedAt")),
     }
 

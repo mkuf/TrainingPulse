@@ -53,6 +53,7 @@ from ingest.activities import recompute_supersessions
 from ingest.records import recompute_daily_supersessions
 from metrics import (
     calculate_best_interval,
+    calculate_normalized_power,
     calculate_power_curve,
     calculate_power_zones,
     calculate_trimp_from_streams,
@@ -72,6 +73,7 @@ from models import (
     SleepSession,
     WellnessSample,
 )
+from providers.mapping import steps_per_minute
 from wellness_scores import recompute_daily_scores
 from schema_migrate import ensure_schema
 
@@ -245,7 +247,8 @@ def synthesize_streams(
     if sport in ("Ride", "VirtualRide", "MountainBikeRide"):
         cadence = [int(max(40, 85 + rng.gauss(0, 4))) for _ in range(n)]
     elif sport == "Run":
-        cadence = [int(max(140, 172 + rng.gauss(0, 3))) for _ in range(n)]
+        # One leg, as FIT and Strava record running cadence.
+        cadence = [int(max(70, 86 + rng.gauss(0, 1.5))) for _ in range(n)]
 
     # Temperature
     base_temp = _seasonal_temp(start_date.month) + rng.gauss(0, 1.0)
@@ -329,21 +332,6 @@ def _pick_name(rng: random.Random, sport: str, intensity: str) -> str:
     return f"{sport} {intensity}"
 
 
-def _normalized_power(watts: list[int]) -> float | None:
-    """Approximate Coggan NP: 30 s rolling mean, mean of 4th power, 4th root."""
-    window = 30
-    if len(watts) < window:
-        return None
-    rolling = []
-    running = sum(watts[:window])
-    rolling.append(running / window)
-    for i in range(window, len(watts)):
-        running += watts[i] - watts[i - window]
-        rolling.append(running / window)
-    fourth_mean = sum(x ** 4 for x in rolling) / len(rolling)
-    return fourth_mean ** 0.25
-
-
 def _elevation_gain(altitude: list[float]) -> float:
     return sum(max(0.0, altitude[i] - altitude[i - 1]) for i in range(1, len(altitude)))
 
@@ -398,8 +386,10 @@ def build_activity(
     max_hr_val = max(hr_stream) if hr_stream else None
     avg_w = (sum(watts_stream) / len(watts_stream)) if watts_stream else None
     max_w = max(watts_stream) if watts_stream else None
-    np = _normalized_power(watts_stream) if watts_stream else None
+    np = calculate_normalized_power(watts_stream) if watts_stream else None
     elev_gain = _elevation_gain(altitude) if altitude else None
+    elev_loss = _elevation_gain(altitude[::-1]) if altitude else None
+    cadence = [value for value in data.get("cadence", []) if value > 0]
     kj = (avg_w * duration_s / 1000.0) if avg_w is not None else None
     if kj is not None:
         calories = round(kj * 1.05, 0)
@@ -408,8 +398,6 @@ def build_activity(
         calories = round(duration_s / 60.0 * 8.0 * (avg_hr / 140.0), 0)
     else:
         calories = round(duration_s / 60.0 * 5.0, 0)
-
-    training_load = round((trimp_value or 0.0) * 0.8, 0)
 
     name = _pick_name(random.Random(activity_id), sport, intensity)
 
@@ -422,18 +410,14 @@ def build_activity(
         source = "icu"
         row_id = f"icu_demo{activity_id}"
         device_name = "Demo Bike Computer"
-        suffer_score = None
     elif sport in {"Run", "TrailRun"}:
         source = "strava"
         row_id = f"strava_demo{activity_id}"
         device_name = "Demo Running Watch"
-        # Only Strava reports relative effort.
-        suffer_score = round((trimp_value or 0.0) * 0.9, 0) or None
     else:
         source = "google_health"
         row_id = f"ghealth_demo{activity_id}"
         device_name = "Demo Google Health"
-        suffer_score = None
 
     activity = Activity(
         id=row_id,
@@ -453,7 +437,15 @@ def build_activity(
         average_watts=round(avg_w, 1) if avg_w is not None else None,
         max_watts=float(max_w) if max_w is not None else None,
         average_speed=round(avg_speed, 3) if avg_speed is not None else None,
+        max_speed=max(velocity) if velocity else None,
+        average_cadence=(
+            round(steps_per_minute(sum(cadence) / len(cadence), sport), 1)
+            if cadence
+            else None
+        ),
+        max_cadence=steps_per_minute(max(cadence), sport) if cadence else None,
         total_elevation_gain=round(elev_gain, 1) if elev_gain is not None else None,
+        total_descent=round(elev_loss, 1) if elev_loss is not None else None,
         kilojoules=round(kj, 1) if kj is not None else None,
         calories=calories,
         device_watts=device_watts,
@@ -464,8 +456,6 @@ def build_activity(
                    else "Demo Trainer" if sport == "VirtualRide"
                    else "Demo Running Shoes"),
         weighted_average_watts=round(np, 1) if np is not None else None,
-        suffer_score=suffer_score,
-        training_load=float(training_load),
         detail_synced=True,
         trimp=round(trimp_value, 1) if trimp_value is not None else None,
         hr_zone_seconds=hr_zone_seconds,
