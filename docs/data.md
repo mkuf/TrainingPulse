@@ -59,9 +59,13 @@ The next sync calculates again which rows show. It fetches the data that the new
 
 > **Note:** The order does not change when you disable a provider. The history of a disabled provider keeps its position. Thus, the rows of a different provider do not replace it.
 
-## Activities that a provider deletes
+## Data that a provider deletes
 
-A provider can stop to give an activity. For example, you delete it there, or it is older than a retention limit. TrainingPulse then hides the activity. It does not delete it. The row, the streams, and the FIT file stay in the database, and `deleted_upstream_at` has a value. The activity does not hide the copies from other providers. If the provider lists the activity again, TrainingPulse shows it again.
+Each sync lists the last `refresh_days` days again (see `data.<kind>.refresh_days`). When data from these days is not in the list anymore, TrainingPulse removes it. The first of these days is not checked, because providers do not agree on which day a record at the edge belongs to. Data older than `refresh_days` is never removed, because a provider can stop to give old data because of a retention limit.
+
+**Activities** are hidden, not deleted. TrainingPulse also hides an activity when the provider answers that the activity does not exist. The row, the streams, and the FIT file stay in the database, and `deleted_upstream_at` has a value. The activity does not hide the copies from other providers. If the provider lists the activity again, TrainingPulse shows it again.
+
+**Body, nutrition, sleep, wellness, and intraday data** are deleted. TrainingPulse can download them again. If a different provider has data for that day, that data shows.
 
 ## Stored data
 

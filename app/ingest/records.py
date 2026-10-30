@@ -18,7 +18,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable, Iterable, Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -232,7 +232,7 @@ async def upsert_records(
     by_key: dict[tuple, dict[str, Any]] = {}
     for record in records:
         values = store.to_values(record, provider, tz)
-        by_key[tuple(values[name] for name in store.conflict)] = values
+        by_key[record_key(store, values)] = values
     rows = list(by_key.values())
 
     updatable = [name for name in rows[0] if name not in store.conflict]
@@ -248,6 +248,45 @@ async def upsert_records(
         await session.execute(stmt)
     await session.commit()
     return len(rows)
+
+
+def record_key(store: RecordStore, values: dict[str, Any]) -> tuple:
+    """The conflict key a row is upserted on."""
+    return tuple(values[name] for name in store.conflict)
+
+
+def stale_ids(stored: Iterable[tuple[int, tuple]], listed: set[tuple]) -> list[int]:
+    """Ids of stored ``(id, key)`` rows whose key was not listed again. Pure."""
+    return [row_id for row_id, key in stored if key not in listed]
+
+
+async def delete_unlisted(
+    session: AsyncSession,
+    store: RecordStore,
+    provider: str,
+    first: date,
+    last: date,
+    listed: set[tuple],
+) -> int:
+    """Delete this provider's rows for days ``first..last`` that were not listed.
+
+    Records can be listed again, so unlike activities they are deleted rather
+    than hidden.
+    """
+    model = store.model
+    result = await session.execute(
+        select(model.id, *(getattr(model, name) for name in store.conflict)).where(
+            model.provider == provider, model.day >= first, model.day <= last
+        )
+    )
+    stale = stale_ids(((row[0], tuple(row[1:])) for row in result.all()), listed)
+    for offset in range(0, len(stale), _UPSERT_BATCH):
+        await session.execute(
+            delete(model).where(model.id.in_(stale[offset : offset + _UPSERT_BATCH]))
+        )
+    if stale:
+        await session.commit()
+    return len(stale)
 
 
 async def _synced_through(
@@ -312,18 +351,39 @@ async def sync_record_feed(
         provider,
     )
 
+    # Rows in the refresh window that are no longer listed were deleted
+    # upstream. The oldest re-listed day is left alone: providers disagree on
+    # which window an edge record belongs to (a night that ends on it may be
+    # listed with the day before).
+    sweep_from = today - timedelta(days=refresh_days - 1)
+    listed: set[tuple] = set()
+
     stored = 0
     for window_oldest, window_newest in date_windows(oldest, today, window_days):
         start, end = local_day_window(window_oldest, window_newest, tz)
         payloads = await feed.list_records(start, end)
-        stored += await upsert_records(
-            session, store, provider, map_records(feed, provider, payloads), tz
-        )
+        records = map_records(feed, provider, payloads)
+        for record in records:
+            values = store.to_values(record, provider, tz)
+            if values["day"] >= sweep_from:
+                listed.add(record_key(store, values))
+        stored += await upsert_records(session, store, provider, records, tz)
     # Only reached when every window listed, so a failure mid-way retries the
-    # whole range next time.
+    # whole range next time and deletes nothing.
+    deleted = 0
+    if refresh_days > 0:
+        deleted = await delete_unlisted(
+            session, store, provider, sweep_from, today, listed
+        )
     await _store_synced_through(session, provider, feed.kind, today)
     logger.info(
-        "%s %s: %d records stored (%s → %s)", provider, feed.kind, stored, oldest, today
+        "%s %s: %d records stored, %d gone upstream (%s → %s)",
+        provider,
+        feed.kind,
+        stored,
+        deleted,
+        oldest,
+        today,
     )
     return stored
 

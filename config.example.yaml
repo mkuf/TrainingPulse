@@ -157,7 +157,8 @@ providers:
 #
 #   history_days  how far back the first sync of a provider lists
 #   refresh_days  how far back every later sync re-lists to pick up upstream
-#                 edits; 0 turns re-listing off
+#                 edits and deletions (data missing from the re-list is
+#                 removed, except on its oldest day); 0 turns re-listing off
 
 data:
   activities:

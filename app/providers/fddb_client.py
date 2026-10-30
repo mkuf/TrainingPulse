@@ -194,6 +194,12 @@ class FddbClient:
         *,
         delay_ms: int | None = None,
     ) -> list[DailyNutritionData]:
+        """Diary days with entries in ``start_day..end_day``.
+
+        A day missing from the result means FDDB has no entries for it, and the
+        sync deletes a stored day it no longer gets back. So a day that failed
+        to load or parse raises instead of being skipped.
+        """
         if end_day < start_day:
             raise ValueError("end_day must be on or after start_day")
 
@@ -201,7 +207,6 @@ class FddbClient:
             delay_ms if delay_ms is not None else self.request_delay_ms
         ) / 1000
         results: list[DailyNutritionData] = []
-        parse_errors: list[FddbParseError] = []
         day = start_day
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -210,17 +215,8 @@ class FddbClient:
                     results.append(await self.fetch_day(client, day))
                 except FddbNoDataError:
                     logger.debug("Skipping empty day %s", day.isoformat())
-                except FddbAuthenticationError:
-                    raise
-                except FddbParseError as exc:
-                    logger.warning("Could not parse FDDB diary for %s: %s", day.isoformat(), exc)
-                    parse_errors.append(exc)
-                except httpx.HTTPError as exc:
-                    logger.warning("HTTP error for %s: %s", day.isoformat(), exc)
                 day += timedelta(days=1)
                 if day <= end_day and pause > 0:
                     await asyncio.sleep(pause)
 
-        if parse_errors and not results:
-            raise parse_errors[0]
         return results

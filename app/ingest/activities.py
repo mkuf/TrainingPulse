@@ -6,7 +6,8 @@ the :class:`~providers.base.ActivitySource` protocol.
 
 The run is deliberately two-pass (see :func:`sync_sources` callers):
 
-1. every source lists its window and stores summary rows;
+1. every source lists its window and stores summary rows, and hides the
+   activities its refresh window no longer lists;
 2. supersession is recomputed across all stored rows;
 3. only the winners get their detail and stream calls.
 
@@ -454,11 +455,64 @@ async def incremental(
     return stored
 
 
+def sweep_window(oldest: date, newest: date) -> tuple[datetime, datetime]:
+    """Start dates a re-list of ``oldest..newest`` may declare gone.
+
+    The oldest day is left out: providers disagree on which window an activity
+    at the edge belongs to (intervals.icu lists by date, others by start time),
+    so missing from that day's listing does not mean deleted.
+    """
+    return _as_window(oldest + timedelta(days=1), newest)
+
+
+async def _mark_gone_upstream(
+    session: AsyncSession,
+    source: ActivitySource,
+    athlete_id: int,
+    listed_ids: Sequence[str],
+    start: datetime,
+    end: datetime,
+) -> int:
+    """Hide this source's activities in ``[start, end)`` that were not listed.
+
+    Only hidden, never deleted, for the same reasons as a 404 on detail (see
+    :func:`_apply_detail`); a later listing that includes one restores it.
+    """
+    query = select(Activity.id).where(
+        Activity.athlete_id == athlete_id,
+        Activity.source == source.name,
+        Activity.deleted_upstream_at.is_(None),
+        Activity.start_date >= start,
+        Activity.start_date < end,
+    )
+    if listed_ids:
+        query = query.where(Activity.id.not_in(listed_ids))
+    gone = [row[0] for row in (await session.execute(query)).all()]
+    if not gone:
+        return 0
+    for activity_id in gone:
+        logger.info(
+            "%s activity %s is gone upstream; hiding it", source.name, activity_id
+        )
+    await session.execute(
+        update(Activity)
+        .where(Activity.id.in_(gone))
+        .values(deleted_upstream_at=func.now())
+    )
+    await session.commit()
+    return len(gone)
+
+
 async def reconcile(
     source: ActivitySource, session: AsyncSession, ctx: EngineContext
 ) -> int:
-    """Re-list a recent window and re-queue anything edited upstream."""
-    if not source.supports_reconcile or ctx.refresh_days <= 0:
+    """Re-list the refresh window, hide what is gone, re-queue what was edited.
+
+    The deletion sweep runs for every source. Edit detection only runs where
+    ``supports_reconcile`` is set, since for the others a re-listed summary
+    cannot tell an edit from a list payload that is simply thinner.
+    """
+    if ctx.refresh_days <= 0:
         return 0
 
     ctx.state.begin("reconciling", source.name)
@@ -470,34 +524,41 @@ async def reconcile(
 
     rows = map_rows(source, payloads, ctx.athlete_id)
     ids = [row["id"] for row in rows]
-    if not ids:
-        return 0
-
-    result = await session.execute(
-        select(Activity).where(
-            Activity.athlete_id == ctx.athlete_id, Activity.id.in_(ids)
-        )
+    gone = await _mark_gone_upstream(
+        session, source, ctx.athlete_id, ids, *sweep_window(oldest, newest)
     )
-    existing_by_id = {row.id: row for row in result.scalars().all()}
+    if not ids:
+        if gone:
+            logger.info("%s reconcile: %d gone upstream", source.name, gone)
+        return 0
 
     full_refresh: list[str] = []
     detail_refresh: list[str] = []
-    for row in rows:
-        existing = existing_by_id.get(row["id"])
-        if existing is None:
-            continue
-        if needs_full_refresh(existing, row):
-            full_refresh.append(row["id"])
-        elif source.supports_detail and not existing.detail_synced:
-            detail_refresh.append(row["id"])
+    if source.supports_reconcile:
+        result = await session.execute(
+            select(Activity).where(
+                Activity.athlete_id == ctx.athlete_id, Activity.id.in_(ids)
+            )
+        )
+        existing_by_id = {row.id: row for row in result.scalars().all()}
+        for row in rows:
+            existing = existing_by_id.get(row["id"])
+            if existing is None:
+                continue
+            if needs_full_refresh(existing, row):
+                full_refresh.append(row["id"])
+            elif source.supports_detail and not existing.detail_synced:
+                detail_refresh.append(row["id"])
 
     await _mark_for_full_refresh(session, full_refresh)
     await _mark_for_detail_refresh(session, detail_refresh)
     stored = await upsert_rows(session, source, rows)
     logger.info(
-        "%s reconcile: %d listed, %d full refresh, %d detail refresh",
+        "%s reconcile: %d listed, %d gone upstream, %d full refresh, "
+        "%d detail refresh",
         source.name,
         len(rows),
+        gone,
         len(full_refresh),
         len(detail_refresh),
     )

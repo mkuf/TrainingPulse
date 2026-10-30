@@ -74,7 +74,9 @@ If stream-based summaries are ever wanted, they go in separate `computed_*` colu
 - The winner is the highest provider in `data.<kind>.precedence` (defaults in `DEFAULT_PRECEDENCE` in [`catalog.py`](../app/catalog.py)). Losing rows are kept and marked `superseded_by`; dashboards and MCP read the `active_*` views.
 - A day's intraday samples come from one provider only, so a curve never mixes two devices.
 - Known consequence: on the day a user switches devices, the higher-ranked provider wins the whole day even if it was only worn for part of it. This is accepted.
-- An activity that disappears upstream is hidden (`deleted_upstream_at`), not deleted, and comes back if it is listed again.
+- An activity that disappears upstream is hidden (`deleted_upstream_at`), not deleted, and comes back if it is listed again. It disappears when its detail answers 404, or when it is missing from the re-listed `refresh_days` window.
+- A record (body, nutrition, sleep, wellness, intraday) missing from the re-listed `refresh_days` window is deleted, since it can be listed again.
+- The oldest re-listed day is never swept: providers disagree on which window an edge record belongs to. Older data is never removed, because it may only be past a provider's retention limit.
 
 ## 7. Days and times are unambiguous
 

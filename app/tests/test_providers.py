@@ -17,11 +17,13 @@ from ingest.records import (
     first_day_to_list,
     local_day_window,
     map_records,
+    stale_ids,
 )
 from providers.base import Provider
 from providers.fddb import local_days, map_day
 from providers.fddb_client import (
     FddbAuthenticationError,
+    FddbClient,
     FddbNoDataError,
     parse_diary_html,
 )
@@ -308,3 +310,131 @@ def test_parse_diary_redesign_layout():
     assert data.protein_g == 282.75
     assert data.sugar_g == 12.5
     assert data.fiber_g == 23.75
+
+
+# ── Gone upstream ───────────────────────────────────────────────────
+
+
+def test_stale_ids_keeps_listed_rows():
+    stored = [(1, ("garmin", DAY_1)), (2, ("garmin", DAY_2))]
+    assert stale_ids(stored, {("garmin", DAY_1), ("garmin", DAY_2)}) == []
+
+
+def test_stale_ids_returns_rows_no_longer_listed():
+    stored = [(1, ("garmin", DAY_1)), (2, ("garmin", DAY_2))]
+    assert stale_ids(stored, {("garmin", DAY_2)}) == [1]
+
+
+def test_stale_ids_of_an_empty_listing_is_everything():
+    stored = [(1, ("garmin", DAY_1)), (2, ("garmin", DAY_2))]
+    assert stale_ids(stored, set()) == [1, 2]
+
+
+def _sweep_feed(days):
+    class Feed:
+        kind = DataKind.NUTRITION
+
+        async def list_records(self, start, end):
+            return [{"day": day} for day in days]
+
+        def map_record(self, payload):
+            return NutritionRecord(day=payload["day"], kcal=2000.0)
+
+    return Feed()
+
+
+@pytest.fixture
+def record_sweep(monkeypatch):
+    """Run ``sync_record_feed`` against a fake store; capture the sweep."""
+    import ingest.records as engine
+
+    calls: dict = {}
+
+    async def latest_day(session, store, provider):
+        return datetime.now(timezone.utc).date()
+
+    async def synced_through(session, provider, kind):
+        return None
+
+    async def store_synced_through(session, provider, kind, day):
+        calls["synced_through"] = day
+
+    async def upsert(session, store, provider, records, tz):
+        return len(records)
+
+    async def delete_unlisted(session, store, provider, first, last, listed):
+        calls["swept"] = (first, last, listed)
+        return 0
+
+    monkeypatch.setattr(engine, "_latest_day", latest_day)
+    monkeypatch.setattr(engine, "_synced_through", synced_through)
+    monkeypatch.setattr(engine, "_store_synced_through", store_synced_through)
+    monkeypatch.setattr(engine, "upsert_records", upsert)
+    monkeypatch.setattr(engine, "delete_unlisted", delete_unlisted)
+    return calls
+
+
+def _sync(feed, refresh_days):
+    from types import SimpleNamespace
+
+    from ingest.records import sync_record_feed
+
+    return sync_record_feed(
+        "fddb",
+        feed,
+        None,
+        history_days=365,
+        refresh_days=refresh_days,
+        window_days=90,
+        tz=ZoneInfo("UTC"),
+        state=SimpleNamespace(begin=lambda *args: None),
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_sweep_covers_the_refresh_window_but_its_oldest_day(record_sweep):
+    today = datetime.now(timezone.utc).date()
+    oldest = today - timedelta(days=7)
+    feed = _sweep_feed([oldest, oldest + timedelta(days=1), today])
+
+    await _sync(feed, refresh_days=7)
+
+    first, last, listed = record_sweep["swept"]
+    assert (first, last) == (oldest + timedelta(days=1), today)
+    assert listed == {("fddb", oldest + timedelta(days=1)), ("fddb", today)}
+
+
+@pytest.mark.asyncio
+async def test_record_sweep_is_off_without_a_refresh_window(record_sweep):
+    await _sync(_sweep_feed([]), refresh_days=0)
+    assert "swept" not in record_sweep
+    assert "synced_through" in record_sweep
+
+
+@pytest.mark.asyncio
+async def test_record_sweep_skips_a_failed_listing(record_sweep):
+    class Broken:
+        kind = DataKind.NUTRITION
+
+        async def list_records(self, start, end):
+            raise RuntimeError("provider down")
+
+    with pytest.raises(RuntimeError):
+        await _sync(Broken(), refresh_days=7)
+    assert "swept" not in record_sweep
+
+
+@pytest.mark.asyncio
+async def test_fddb_range_raises_instead_of_skipping_a_failed_day(monkeypatch):
+    import httpx
+
+    client = FddbClient(user="u", password="p", cookie="c", request_delay_ms=0)
+
+    async def fetch_day(http, day):
+        if day == DAY_2:
+            raise httpx.ConnectError("down")
+        raise FddbNoDataError(day.isoformat())
+
+    monkeypatch.setattr(client, "fetch_day", fetch_day)
+    with pytest.raises(httpx.HTTPError):
+        await client.fetch_range(DAY_1, DAY_3)

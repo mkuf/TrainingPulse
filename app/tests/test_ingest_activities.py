@@ -6,7 +6,8 @@ directly rather than through the database.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from ingest.activities import (
@@ -16,6 +17,7 @@ from ingest.activities import (
     choose_winners,
     date_windows,
     needs_full_refresh,
+    sweep_window,
 )
 
 DEFAULT_PRECEDENCE = ["icu", "strava", "google_health"]
@@ -855,3 +857,98 @@ def test_stream_backfill_fills_only_empty_columns():
     assert values["max_speed"] == pytest.approx(4.2)
     assert "average_cadence" not in values
     assert values["max_cadence"] == pytest.approx(180.0)
+
+
+# ── Gone upstream ───────────────────────────────────────────────────
+
+
+def test_sweep_window_leaves_out_the_oldest_listed_day():
+    start, end = sweep_window(date(2026, 3, 1), date(2026, 3, 10))
+    assert start == datetime(2026, 3, 2, tzinfo=timezone.utc)
+    assert end == datetime(2026, 3, 11, tzinfo=timezone.utc)
+
+
+class _ListingSource:
+    name = "hammerhead"
+    supports_detail = True
+
+    def __init__(self, payloads, *, supports_reconcile):
+        self._payloads = payloads
+        self.supports_reconcile = supports_reconcile
+        self.listed_windows: list[tuple[datetime, datetime]] = []
+
+    async def list_activities(self, start, end):
+        self.listed_windows.append((start, end))
+        return self._payloads
+
+    def map_row(self, payload, athlete_id):
+        return {"id": payload["id"], "athlete_id": athlete_id}
+
+    def rate_limits(self):
+        return None
+
+
+def _reconcile_ctx(refresh_days=7):
+    state = SimpleNamespace(begin=lambda *args: None, snapshot_rate_limits=lambda s: None)
+    return SimpleNamespace(athlete_id=1, refresh_days=refresh_days, state=state)
+
+
+@pytest.fixture
+def swept(monkeypatch):
+    """Capture the sweep and upsert calls ``reconcile`` makes."""
+    import ingest.activities as engine
+
+    calls: dict = {"swept": [], "upserted": []}
+
+    async def mark_gone(session, source, athlete_id, listed_ids, start, end):
+        calls["swept"].append((list(listed_ids), start, end))
+        return 0
+
+    async def upsert(session, source, rows):
+        calls["upserted"].append(rows)
+        return len(rows)
+
+    async def nothing(session, ids):
+        return None
+
+    monkeypatch.setattr(engine, "_mark_gone_upstream", mark_gone)
+    monkeypatch.setattr(engine, "upsert_rows", upsert)
+    monkeypatch.setattr(engine, "_mark_for_full_refresh", nothing)
+    monkeypatch.setattr(engine, "_mark_for_detail_refresh", nothing)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_reconcile_sweeps_sources_without_edit_detection(swept):
+    from ingest.activities import reconcile
+
+    source = _ListingSource([{"id": "hammerhead_1"}], supports_reconcile=False)
+    stored = await reconcile(source, None, _reconcile_ctx())
+
+    assert stored == 1
+    [(listed, start, end)] = swept["swept"]
+    assert listed == ["hammerhead_1"]
+    [(list_start, list_end)] = source.listed_windows
+    assert start == list_start + timedelta(days=1)
+    assert end == list_end
+
+
+@pytest.mark.asyncio
+async def test_reconcile_sweeps_an_empty_listing(swept):
+    from ingest.activities import reconcile
+
+    source = _ListingSource([], supports_reconcile=True)
+    assert await reconcile(source, None, _reconcile_ctx()) == 0
+    [(listed, _, _)] = swept["swept"]
+    assert listed == []
+    assert swept["upserted"] == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_is_off_without_a_refresh_window(swept):
+    from ingest.activities import reconcile
+
+    source = _ListingSource([], supports_reconcile=True)
+    assert await reconcile(source, None, _reconcile_ctx(refresh_days=0)) == 0
+    assert source.listed_windows == []
+    assert swept["swept"] == []

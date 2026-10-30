@@ -82,6 +82,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 
 - **Window.** The first sync walks `data.<kind>.history_days`. Later syncs re-list from `min(caught-up day, today − refresh_days)`, so a provider that was unreachable catches up instead of leaving a gap. The caught-up day is the later of the newest stored day and `record_sync_cursors.synced_through`, which is written only after every window listed successfully, so days that simply had no data are not re-listed on every run. Windows are whole local days in `athlete.timezone`, chunked by `sync.window_days`.
 - **Upsert** on `(provider, external_id)` for body and `(provider, day)` for nutrition, deduplicating within a batch.
+- **Gone upstream.** After every window listed, the provider's rows for the last `refresh_days` days that were not listed again are deleted (`delete_unlisted`). Records can be listed again, so they are deleted rather than hidden. The oldest re-listed day is never swept, because providers disagree on which window an edge record belongs to (a night that ends on it may be listed with the day before). This is why a feed must raise when a request fails: a day it leaves out counts as a day without data.
 - **Dedup.** `choose_daily_winners` is a pure function over `(day, provider)` pairs. `recompute_daily_supersessions` writes only the changes, grouped by target, and sets `superseded_by` to the winning *provider name*.
 
 ### Adding a provider
@@ -123,7 +124,7 @@ Each activity provider implements `ActivitySource` in [`app/providers/base.py`](
 | `name`, `id_prefix` | Value stored in `activities.source` and the id prefix |
 | `supports_detail` | False when the list payload is already complete (Google Health) |
 | `supports_streams` | False when the provider has no time series |
-| `supports_reconcile` | False when re-listing a recent window is too expensive |
+| `supports_reconcile` | False when the list payload cannot show an upstream edit; the refresh window is still re-listed to find deleted activities |
 | `auth`, `kind` | `AuthMethod` (OAuth drives the status-page Connect button); always `DataKind.ACTIVITIES` |
 | `connect_path` / `disconnect_path` | Routes mounted by `register_auth_routes` |
 | `is_configured()` / `is_connected()` | Credentials present / usable right now |
@@ -174,7 +175,7 @@ Auth: Google OAuth (`access_type=offline`). Tokens in `oauth_tokens` (`provider=
 
 Exercises only filter on `exercise.interval.civil_start_time` (local time), so the client widens each window by a day and trims on the physical start. `MetricsSummary` has no max heart rate, and Strava sessions synced through Health Connect have an empty one; the stream phase derives missing average/max heart rate, distance and average speed from the streams, and re-listing keeps those values.
 
-`supports_detail` is False (the list payload is complete) and `supports_reconcile` is False, because Google Health publishes no per-activity update marker worth re-listing for. Google publishes no usable quota headers, so `rate_limits()` reports `known: false` rather than a misleading 0/0.
+`supports_detail` is False (the list payload is complete) and `supports_reconcile` is False, because Google Health publishes no per-activity update marker to detect edits with. The refresh window is still re-listed to find deleted activities. Google publishes no usable quota headers, so `rate_limits()` reports `known: false` rather than a misleading 0/0.
 
 ### Hammerhead
 
@@ -188,7 +189,7 @@ Auth: OAuth, scope `activity:read`. Tokens live in `oauth_tokens` (`provider=ham
 
 **Its list/detail JSON carries no heart rate, power, cadence, or elevation data at all** — `ActivitySummary` is just `{id, name, createdAt, duration, distance}`, and the detail response only adds `activityType`/`description`/`updatedAt`. Every aggregate column (HR, power, moving/elapsed split, elevation gain, calories, device) and every stream comes from analyzing the `.fit` file, downloaded once per activity via `fetch_detail`/`fetch_streams` and permanently stored (see below). `map_row` reads these from a private `_fit_summary` key that `fetch_detail` attaches to the payload before mapping, keeping `map_row` itself pure. In the summary, `duration` is the moving time in **milliseconds** and `createdAt` is when the ride was saved, i.e. its **end**; the list phase derives the provisional start as `createdAt - duration`. These provisional values must stand on their own: a row superseded by another source never gets a detail merge.
 
-`supports_reconcile` is False: because the list summary is missing everything a reconcile diff would need to detect an edit, re-listing would look like every activity changed on every pass and force a wasted FIT re-download for the whole window. `list_activities` also pads its `start` by `_LIST_SAFETY_MARGIN_DAYS` (14 days) before querying `startDate`, since a Karoo device can sync a ride to the cloud well after it was recorded. Hammerhead publishes no rate-limit headers, so `rate_limits()` reports `known: false`.
+`supports_reconcile` is False: because the list summary is missing everything a reconcile diff would need to detect an edit, edit detection would see every activity as changed on every pass and force a wasted FIT re-download for the whole window. The refresh window is still re-listed to find deleted activities. `list_activities` also pads its `start` by `_LIST_SAFETY_MARGIN_DAYS` (14 days) before querying `startDate`, since a Karoo device can sync a ride to the cloud well after it was recorded. Hammerhead publishes no rate-limit headers, so `rate_limits()` reports `known: false`.
 
 ### Withings
 
@@ -231,7 +232,7 @@ Two properties worth preserving:
 
 ### Activities gone upstream
 
-When `fetch_detail` returns `None` (the provider answered 404/410), the row is soft-deleted: `deleted_upstream_at` is set and the row, its streams, and its FIT file are kept. "Gone" can also mean a retention limit or a lost scope, and stored streams and FIT files cannot be fetched again. A gone activity takes no part in supersession, so it neither stays hidden behind another copy nor keeps suppressing the copies other sources hold. If a later listing includes it again, `upsert_rows` clears the mark and re-queues its detail.
+An activity is gone upstream when `fetch_detail` returns `None` (the provider answered 404/410), or when reconcile re-lists the `refresh_days` window and the activity is not in it (`_mark_gone_upstream`; the oldest re-listed day is left out, see `sweep_window`). The row is then soft-deleted: `deleted_upstream_at` is set and the row, its streams, and its FIT file are kept. "Gone" can also mean a retention limit or a lost scope, and stored streams and FIT files cannot be fetched again. A gone activity takes no part in supersession, so it neither stays hidden behind another copy nor keeps suppressing the copies other sources hold. If a later listing includes it again, `upsert_rows` clears the mark and re-queues its detail.
 
 `ACTIVITY_VISIBLE` in [`app/models.py`](../app/models.py) (`superseded_by IS NULL AND deleted_upstream_at IS NULL`) is the one condition every query, metric, and queue uses for "shown".
 
