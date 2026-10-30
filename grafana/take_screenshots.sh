@@ -15,6 +15,7 @@
 #   HEIGHT            default: 1080
 #   WAIT_MS           default: 15000
 #   TIMERANGE         default: from=now-30d&to=now (fitness, account_overview, addon dashboards)
+#   SLEEP_TIMERANGE   default: from=now-14d&to=now (sleep_recovery)
 #   ACTIVITY_ID       default: highest-TRIMP ride in the last 30 days
 #
 # The Playwright *Python* image bundles Chromium but not the `playwright` PyPI
@@ -36,6 +37,7 @@ WIDTH="${WIDTH:-1920}"
 HEIGHT="${HEIGHT:-1080}"
 WAIT_MS="${WAIT_MS:-15000}"
 TIMERANGE="${TIMERANGE:-from=now-30d&to=now}"
+SLEEP_TIMERANGE="${SLEEP_TIMERANGE:-from=now-14d&to=now}"
 
 if ! docker compose -f "$REPO_ROOT/docker-compose.yml" ps --status running --services 2>/dev/null | grep -q '^db$'; then
   echo "error: the 'db' service is not running. Start the stack first: docker compose up -d" >&2
@@ -79,6 +81,7 @@ docker run --rm \
   -e HEIGHT="$HEIGHT" \
   -e WAIT_MS="$WAIT_MS" \
   -e TIMERANGE="$TIMERANGE" \
+  -e SLEEP_TIMERANGE="$SLEEP_TIMERANGE" \
   -e ACTIVITY_ID="$ACTIVITY_ID" \
   -e ACTIVITY_FROM_MS="$ACTIVITY_FROM_MS" \
   -e ACTIVITY_TO_MS="$ACTIVITY_TO_MS" \

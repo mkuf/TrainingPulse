@@ -20,20 +20,24 @@ Example views from the bundled dashboards.
 
 <table>
 <tr>
-<td align="center" valign="top" width="25%">
-<a href="docs/screenshots/activity_detail.png"><img src="docs/screenshots/activity_detail.png" width="200" alt="Activity detail dashboard"></a><br />
+<td align="center" valign="top" width="20%">
+<a href="docs/screenshots/activity_detail.png"><img src="docs/screenshots/activity_detail.png" width="160" alt="Activity detail dashboard"></a><br />
 <sub>Activity detail</sub>
 </td>
-<td align="center" valign="top" width="25%">
-<a href="docs/screenshots/fitness.png"><img src="docs/screenshots/fitness.png" width="200" alt="Fitness and Freshness dashboard"></a><br />
+<td align="center" valign="top" width="20%">
+<a href="docs/screenshots/fitness.png"><img src="docs/screenshots/fitness.png" width="160" alt="Fitness and Freshness dashboard"></a><br />
 <sub>Fitness &amp; Freshness</sub>
 </td>
-<td align="center" valign="top" width="25%">
-<a href="docs/screenshots/account_overview.png"><img src="docs/screenshots/account_overview.png" width="200" alt="Account overview dashboard"></a><br />
+<td align="center" valign="top" width="20%">
+<a href="docs/screenshots/sleep_recovery.png"><img src="docs/screenshots/sleep_recovery.png" width="160" alt="Sleep and recovery dashboard"></a><br />
+<sub>Sleep &amp; recovery</sub>
+</td>
+<td align="center" valign="top" width="20%">
+<a href="docs/screenshots/account_overview.png"><img src="docs/screenshots/account_overview.png" width="160" alt="Account overview dashboard"></a><br />
 <sub>Account overview</sub>
 </td>
-<td align="center" valign="top" width="25%">
-<a href="docs/screenshots/nutrition_training_weight.png"><img src="docs/screenshots/nutrition_training_weight.png" width="200" alt="Nutrition, training and weight dashboard"></a><br />
+<td align="center" valign="top" width="20%">
+<a href="docs/screenshots/nutrition_training_weight.png"><img src="docs/screenshots/nutrition_training_weight.png" width="160" alt="Nutrition, training and weight dashboard"></a><br />
 <sub>Nutrition &amp; weight</sub>
 </td>
 </tr>

@@ -6,8 +6,10 @@ virtual rides, walks, hikes, strength) with realistic streams, then reuses
 [`metrics.py`](metrics.py) to derive TRIMP, HR / power zones, the power
 curve, and the daily CTL / ATL / TSB curve.
 
-Also seeds daily nutrition (as provider ``fddb``) and body measurements (as
-provider ``withings``). OAuth token tables are never touched.
+Also seeds daily nutrition (as provider ``fddb``), body measurements (as
+provider ``withings``), and sleep, daily wellness, and the last 30 days of
+intraday samples (as provider ``google_health``, with stage timelines), then
+derives the sleep and recovery scores. OAuth token tables are never touched.
 
 Run inside the app container:
 
@@ -23,6 +25,10 @@ All seeded rows belong to athlete id 99_999_999 with activity ids like
 
     DELETE FROM daily_nutrition   WHERE provider = 'fddb';
     DELETE FROM body_measurements WHERE external_id LIKE 'demo%';
+    DELETE FROM sleep_sessions    WHERE external_id LIKE 'demo%';
+    DELETE FROM daily_wellness    WHERE provider = 'google_health';
+    DELETE FROM wellness_samples  WHERE provider = 'google_health';
+    DELETE FROM daily_scores;
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from catalog import DataKind
@@ -62,7 +68,11 @@ from models import (
     BodyMeasurement,
     DailyMetrics,
     DailyNutrition,
+    DailyWellness,
+    SleepSession,
+    WellnessSample,
 )
+from wellness_scores import recompute_daily_scores
 from schema_migrate import ensure_schema
 
 logging.basicConfig(
@@ -77,6 +87,12 @@ DEMO_ATHLETE_ID = 99_999_999
 DEMO_ACTIVITY_ID_BASE = 9_000_000_000
 DEMO_NUTRITION_PROVIDER = "fddb"
 DEMO_BODY_PROVIDER = "withings"
+#: Google Health is the provider with stage timelines, so its demo nights
+#: show every dashboard panel.
+DEMO_WELLNESS_PROVIDER = "google_health"
+#: Intraday samples are seeded for the most recent days only, like the
+#: ``intraday`` kind's default history.
+DEMO_INTRADAY_DAYS = 30
 
 MAX_HR = 185
 REST_HR = 50
@@ -602,6 +618,151 @@ def generate_weight_measurements(
     return rows
 
 
+def _sleep_stages(
+    start: datetime, end: datetime, rng: random.Random
+) -> list[tuple[datetime, datetime, str]]:
+    """A night of ~90-minute cycles: deep sleep early, REM growing late."""
+    stages: list[tuple[datetime, datetime, str]] = []
+    now = start
+    awake_first = timedelta(minutes=rng.randint(4, 15))
+    stages.append((now, now + awake_first, "awake"))
+    now += awake_first
+    cycle = 0
+    while now < end:
+        progress = cycle / 5
+        plan = [
+            ("light", rng.randint(20, 35)),
+            ("deep", max(5, int(rng.gauss(35 - 25 * progress, 6)))),
+            ("light", rng.randint(10, 25)),
+            ("rem", max(5, int(rng.gauss(10 + 25 * progress, 5)))),
+        ]
+        if rng.random() < 0.35:
+            plan.append(("awake", rng.randint(2, 8)))
+        for stage, minutes in plan:
+            stop = min(now + timedelta(minutes=minutes), end)
+            if stop > now:
+                stages.append((now, stop, stage))
+            now = stop
+            if now >= end:
+                break
+        cycle += 1
+    return stages
+
+
+def generate_wellness(
+    start_day: date,
+    days: int,
+    rng: random.Random,
+    hard_training_days: set[date],
+) -> tuple[list[SleepSession], list[DailyWellness], list[dict]]:
+    """Nights with stage timelines, daily wellness, and recent intraday samples.
+
+    Recovery responds to training: after a hard day, resting heart rate rises
+    and HRV drops a little, so the recovery score has something to show.
+    """
+    tz = ZoneInfo(config.athlete.timezone)
+    sleeps: list[SleepSession] = []
+    wellness: list[DailyWellness] = []
+    samples: list[dict] = []
+    intraday_from = start_day + timedelta(days=max(days - DEMO_INTRADAY_DAYS, 0))
+    for offset in range(1, days + 1):
+        day = start_day + timedelta(days=offset)
+        evening = day - timedelta(days=1)
+        weekend = evening.weekday() >= 4
+        strained = evening in hard_training_days
+
+        bedtime_min = 22 * 60 + 45 + rng.gauss(40 if weekend else 0, 25)
+        start = datetime(evening.year, evening.month, evening.day, tzinfo=tz) + timedelta(
+            minutes=bedtime_min
+        )
+        in_bed_h = max(5.0, rng.gauss(8.1 if weekend else 7.6, 0.6))
+        end = start + timedelta(hours=in_bed_h)
+        stages = _sleep_stages(start, end, rng)
+        totals = {name: 0 for name in ("awake", "light", "deep", "rem")}
+        for stage_start, stage_end, name in stages:
+            totals[name] += int((stage_end - stage_start).total_seconds())
+        nap = rng.randint(20, 45) * 60 if weekend and rng.random() < 0.2 else 0
+        sleeps.append(
+            SleepSession(
+                provider=DEMO_WELLNESS_PROVIDER,
+                external_id=f"demo{offset}",
+                day=day,
+                start_at=start.astimezone(timezone.utc),
+                end_at=end.astimezone(timezone.utc),
+                asleep_seconds=totals["light"] + totals["deep"] + totals["rem"],
+                deep_seconds=totals["deep"],
+                light_seconds=totals["light"],
+                rem_seconds=totals["rem"],
+                awake_seconds=totals["awake"],
+                nap_seconds=nap,
+                stages=[
+                    {
+                        "start": a.astimezone(timezone.utc).isoformat(),
+                        "end": b.astimezone(timezone.utc).isoformat(),
+                        "stage": name,
+                    }
+                    for a, b, name in stages
+                ],
+            )
+        )
+
+        resting = round(REST_HR + 1.5 * math.sin(offset / 9) + (2.5 if strained else 0) + rng.gauss(0, 1))
+        hrv = round(68 + 6 * math.sin(offset / 13) - (9 if strained else 0) + rng.gauss(0, 5), 1)
+        spo2 = round(min(98.5, rng.gauss(95.6, 0.7)), 1)
+        steps = int(max(2500, rng.gauss(8500, 2500)))
+        active = round(steps * 0.045 + rng.gauss(150, 60), 1)
+        wellness.append(
+            DailyWellness(
+                provider=DEMO_WELLNESS_PROVIDER,
+                day=day,
+                resting_hr=resting,
+                hrv_ms=hrv,
+                respiration=round(rng.gauss(15.2, 0.4), 1),
+                spo2_avg=spo2,
+                spo2_min=round(spo2 - abs(rng.gauss(3.5, 1.2)), 1),
+                skin_temp_deviation_c=round(rng.gauss(0, 0.25) + (0.2 if strained else 0), 2),
+                steps=steps,
+                active_kcal=active,
+                total_kcal=round(1750 + active, 1),
+            )
+        )
+
+        if day < intraday_from:
+            continue
+        asleep_hr = resting + 2
+        # Heart rate every two minutes from the evening before to this evening.
+        t = datetime(evening.year, evening.month, evening.day, 18, tzinfo=tz)
+        while t < datetime(day.year, day.month, day.day, 18, tzinfo=tz):
+            if start <= t < end:
+                depth = math.sin(math.pi * (t - start) / (end - start))
+                value = asleep_hr + 4 - 6 * depth + rng.gauss(0, 1.5)
+            else:
+                value = resting + 18 + 8 * math.sin(t.hour / 3) + rng.gauss(0, 4)
+            samples.append(_sample("heart_rate", t, value))
+            t += timedelta(minutes=2)
+        t = start + timedelta(minutes=3)
+        while t < end:
+            samples.append(_sample("hrv", t, max(15.0, rng.gauss(hrv, 14))))
+            t += timedelta(minutes=5)
+        t = start + timedelta(minutes=10)
+        while t < end:
+            dip = 4 if rng.random() < 0.02 else 0
+            samples.append(_sample("spo2", t, min(100.0, rng.gauss(spo2, 1.2) - dip)))
+            t += timedelta(minutes=1)
+    return sleeps, wellness, samples
+
+
+def _sample(metric: str, at: datetime, value: float) -> dict:
+    tz = ZoneInfo(config.athlete.timezone)
+    return {
+        "provider": DEMO_WELLNESS_PROVIDER,
+        "metric": metric,
+        "measured_at": at.astimezone(timezone.utc),
+        "day": at.astimezone(tz).date(),
+        "value": round(value, 1),
+    }
+
+
 # ── DB ops ──────────────────────────────────────────────────────────
 
 
@@ -631,9 +792,15 @@ async def _record_counts(session: AsyncSession) -> dict[str, int]:
         .select_from(BodyMeasurement)
         .where(BodyMeasurement.external_id.like("demo%"))
     )
+    sleep = await session.execute(
+        select(func.count())
+        .select_from(SleepSession)
+        .where(SleepSession.external_id.like("demo%"))
+    )
     return {
         "daily_nutrition": int(nutrition.scalar_one() or 0),
         "body_measurements": int(body.scalar_one() or 0),
+        "sleep_sessions": int(sleep.scalar_one() or 0),
     }
 
 
@@ -648,6 +815,10 @@ async def _truncate(session: AsyncSession) -> None:
     await session.execute(
         delete(BodyMeasurement).where(BodyMeasurement.external_id.like("demo%"))
     )
+    logger.info("--force: deleting demo sleep, wellness, samples, and scores")
+    await session.execute(delete(SleepSession).where(SleepSession.external_id.like("demo%")))
+    for model in (DailyWellness, WellnessSample):
+        await session.execute(delete(model).where(model.provider == DEMO_WELLNESS_PROVIDER))
     await session.commit()
 
 
@@ -673,10 +844,37 @@ async def _seed_records(
         len(nutrition_rows),
         len(weight_rows),
     )
-    for kind in (DataKind.NUTRITION, DataKind.BODY):
+    sleeps, wellness, samples = generate_wellness(
+        start_date, args.days, rng, hard_training_days
+    )
+    session.add_all(sleeps)
+    session.add_all(wellness)
+    await session.commit()
+    for offset in range(0, len(samples), 5000):
+        await session.execute(insert(WellnessSample), samples[offset : offset + 5000])
+    await session.commit()
+    logger.info(
+        "Inserted %d sleep_sessions, %d daily_wellness, %d wellness_samples rows",
+        len(sleeps),
+        len(wellness),
+        len(samples),
+    )
+    for kind in (
+        DataKind.NUTRITION,
+        DataKind.BODY,
+        DataKind.SLEEP,
+        DataKind.WELLNESS,
+        DataKind.INTRADAY,
+    ):
         await recompute_daily_supersessions(
             session, kind, config.data.kind(kind).precedence
         )
+    scored = await recompute_daily_scores(
+        session,
+        tz=ZoneInfo(config.athlete.timezone),
+        sleep_need_hours=config.athlete.sleep_need_hours,
+    )
+    logger.info("Derived sleep and recovery scores for %d days", scored)
 
 
 async def _upsert_profile(session: AsyncSession, profile: AthleteProfile) -> AthleteSettings:
@@ -893,7 +1091,7 @@ def main() -> None:
         action="store_true",
         help=(
             "Truncate activities, activity_streams, daily_metrics, athlete_settings, "
-            "and the demo nutrition and body measurements first."
+            "and the demo nutrition, body, sleep, wellness, and sample rows first."
         ),
     )
     args = parser.parse_args()

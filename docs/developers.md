@@ -391,7 +391,7 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 
 ## Demo data
 
-[`app/seed_demo_data.py`](../app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`) and weigh-ins (`provider=withings`, `external_id` `demo…`). OAuth token tables are never touched.
+[`app/seed_demo_data.py`](../app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`), weigh-ins (`provider=withings`, `external_id` `demo…`), and sleep with stage timelines, daily wellness, and the last 30 days of intraday samples (`provider=google_health`), followed by the derived sleep and recovery scores. OAuth token tables are never touched.
 
 ```bash
 docker compose exec app python seed_demo_data.py --force

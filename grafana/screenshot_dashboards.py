@@ -11,6 +11,8 @@ Environment variables (with defaults):
     HEIGHT             1080            # initial viewport; full_page=True grows it
     WAIT_MS            15000           # tail wait after networkidle for paint to settle
     TIMERANGE          from=now-30d&to=now (fitness, account_overview, addon dashboards)
+    SLEEP_TIMERANGE    from=now-14d&to=now (sleep_recovery; short enough that the
+                       night-detail curves stay readable)
     ACTIVITY_ID        (required) activity id string used for the activity-detail dashboard
                        (e.g. icu_i55610271)
     ACTIVITY_FROM_MS   (required) epoch-ms start for the activity-detail time range
@@ -51,6 +53,7 @@ class Dashboard:
 def build_targets() -> list[Dashboard]:
     grafana = env("GRAFANA_URL", "http://grafana:3000").rstrip("/")
     timerange = env("TIMERANGE", "from=now-30d&to=now")
+    sleep_timerange = env("SLEEP_TIMERANGE", "from=now-14d&to=now")
     activity_id = env("ACTIVITY_ID", required=True)
     activity_from = env("ACTIVITY_FROM_MS", required=True)
     activity_to = env("ACTIVITY_TO_MS", required=True)
@@ -70,6 +73,13 @@ def build_targets() -> list[Dashboard]:
                 f"{grafana}/d/trainingpulse-activity-detail/trainingpulse-activity-detail"
                 f"?orgId=1&from={activity_from}&to={activity_to}"
                 f"&var-activity_id={activity_id}&kiosk"
+            ),
+        ),
+        Dashboard(
+            name="sleep_recovery",
+            path=(
+                f"{grafana}/d/trainingpulse-sleep-recovery/trainingpulse-sleep-and-recovery"
+                f"?orgId=1&{sleep_timerange}&kiosk&var-DS_POSTGRESQL=trainingpulse"
             ),
         ),
         Dashboard(
