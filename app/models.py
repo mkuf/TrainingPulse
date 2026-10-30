@@ -299,9 +299,12 @@ class SleepSession(Base):
     rem_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     awake_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nap_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: ``[{"start": iso, "end": iso, "stage": "deep"}, ...]`` or NULL when the
-    #: provider has no stage timeline.
-    stages: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    #: ``[{"start": iso, "end": iso, "stage": "deep"}, ...]`` or SQL NULL (not
+    #: JSON ``null``, which ``jsonb_array_elements`` rejects) when the provider
+    #: has no stage timeline.
+    stages: Mapped[list | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -355,9 +358,13 @@ class DailyScores(Base):
     #: Mean heart rate of the day's samples outside the night's sleep.
     awake_avg_hr: Mapped[float | None] = mapped_column(Float, nullable=True)
     sleep_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    sleep_score_parts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    sleep_score_parts: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     recovery_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    recovery_score_parts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    recovery_score_parts: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

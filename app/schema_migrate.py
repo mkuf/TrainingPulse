@@ -370,6 +370,29 @@ async def _reset_prebaseline_wellness(conn: AsyncConnection) -> None:
     logger.info("Dropped first-draft sleep and wellness tables; they re-sync next")
 
 
+async def _json_null_to_sql_null(conn: AsyncConnection) -> None:
+    """Turn JSON ``null`` in the wellness JSONB columns into SQL NULL.
+
+    Rows written before the columns used ``none_as_null`` hold JSON ``null``
+    for "no stage timeline", which breaks ``jsonb_array_elements`` in the
+    dashboard. Idempotent.
+    """
+    for table, column in (
+        ("sleep_sessions", "stages"),
+        ("daily_scores", "sleep_score_parts"),
+        ("daily_scores", "recovery_score_parts"),
+    ):
+        if not await _column_exists(conn, table, column):
+            continue
+        result = await conn.execute(
+            text(f"UPDATE {table} SET {column} = NULL WHERE {column} = 'null'::jsonb")
+        )
+        if result.rowcount:
+            logger.info(
+                "Cleared JSON null in %d %s.%s rows", result.rowcount, table, column
+            )
+
+
 async def _add_computed_energy(conn: AsyncConnection) -> None:
     """Add the ``computed_*`` energy columns, renaming the ``estimated_*`` ones.
 
@@ -588,6 +611,7 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
     await _reset_prebaseline_wellness(conn)
     await conn.run_sync(Base.metadata.create_all)
     await _add_oauth_scopes(conn)
+    await _json_null_to_sql_null(conn)
     await _migrate_strava_tokens(conn)
     await migrate_fitbit_labels(conn)
     await _restore_suffer_score(conn)

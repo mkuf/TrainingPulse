@@ -1360,7 +1360,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Sleep stages over time, for providers that report a stage timeline (Google Health). Garmin reports stage totals only.",
+      "description": "Sleep stages over time, for providers that report a stage timeline (Google Health). Garmin reports stage totals only, so its nights stay empty here.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1438,7 +1438,7 @@
           "format": "table",
           "rawQuery": true,
           "refId": "A",
-          "rawSql": "SELECT time, \"Stage\" FROM (\n  SELECT (e->>'start')::timestamptz AS time, e->>'stage' AS \"Stage\"\n  FROM active_sleep_sessions s, jsonb_array_elements(s.stages) e\n  WHERE s.end_at > $__timeFrom() AND s.start_at < $__timeTo()\n  UNION ALL\n  SELECT end_at, NULL FROM active_sleep_sessions\n  WHERE stages IS NOT NULL AND end_at > $__timeFrom() AND start_at < $__timeTo()\n) t ORDER BY 1"
+          "rawSql": "SELECT time, \"Stage\" FROM (\n  SELECT (e->>'start')::timestamptz AS time, e->>'stage' AS \"Stage\"\n  FROM active_sleep_sessions s, jsonb_array_elements(s.stages) e\n  WHERE jsonb_typeof(s.stages) = 'array' AND s.end_at > $__timeFrom() AND s.start_at < $__timeTo()\n  UNION ALL\n  SELECT end_at, NULL FROM active_sleep_sessions\n  WHERE jsonb_typeof(stages) = 'array' AND end_at > $__timeFrom() AND start_at < $__timeTo()\n  UNION ALL\n  -- Always one row, so a range without a stage timeline (Garmin nights)\n  -- renders empty instead of \"Data does not have a time field\".\n  SELECT $__timeFrom(), NULL\n) t ORDER BY 1"
         }
       ],
       "title": "Sleep stages",
