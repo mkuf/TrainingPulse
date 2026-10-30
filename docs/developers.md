@@ -93,17 +93,9 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 5. Register a builder in [`app/providers/registry.py`](../app/providers/registry.py).
 6. Add fixtures and mapper tests. `test_feeds_match_the_catalog_and_their_contracts` fails until the provider's feeds match its `ProviderSpec`. For an activity provider, `test_mappers_agree_on_the_column_set` fails until the mapper emits exactly the same columns as the others.
 
-### The activity baseline
+### The baseline rules
 
-Activity columns follow the same rule as wellness records: a column exists only for a standard concept that most wearables report, a provider without it leaves it `None`, and proprietary scores (Strava's relative effort, intervals.icu's training load) are never mapped. Mappers only pass on what the provider reports, never derive a value: normalized power, work (`computed_kilojoules`), TRIMP, zones and the power curve come from the stream phase. Where a provider reports a summary value (average heart rate, max speed, cadence) its figure is kept; the stream phase only fills the ones it left empty, so reconcile keeps comparing provider values with provider values.
-
-Cadence is stored as revolutions per minute when cycling and steps per minute (both legs) on foot. FIT files, Strava and intervals.icu report one leg; `mapping.steps_per_minute` doubles those for walking and running sports.
-
-### The wellness baseline and derived scores
-
-Sleep, wellness, and intraday records carry only fields most wearables report (see the record dataclasses in `providers/feeds.py`). Provider-specific scores (Garmin's sleep score, stress, Body Battery, HRV status) are deliberately not mapped: they are not comparable across providers and most APIs do not expose them. A new provider maps onto the baseline and leaves unknown fields `None`. Heart-rate samples are normalized to two-minute averages (`HEART_RATE_WINDOW_SECONDS`) and are comparable; metrics in `DISPLAY_ONLY_METRICS` (SpO2) keep each device's native resolution, and nothing derives statistics from them: MCP series mark them `display_only` and report `interval_seconds`, and comparable SpO2 numbers come from the daily `spo2_avg`/`spo2_min`.
-
-Everything comparable that can be derived is derived in the core, from visible rows only: [`app/wellness_scores.py`](../app/wellness_scores.py) recomputes `daily_scores` (sleeping heart rate, sleep score, recovery score, each with its parts as JSON) after every sync, and [`app/resting_hr.py`](../app/resting_hr.py) supplies the 7-day median resting heart rate that replaces `athlete.rest_hr` for calories. The formulas are documented in [Sleep and recovery scores](sleep-and-recovery.md).
+Which fields exist, who calculates what, and how providers are combined is set out in [Data rules](data-rules.md). In short: columns hold only standard concepts most wearables report, missing values stay `None`, proprietary scores are never mapped, and mappers never calculate; the core derives normalized power, work, TRIMP, zones, the power curve ([`ingest/activities.py`](../app/ingest/activities.py)), the sleep and recovery scores ([`app/wellness_scores.py`](../app/wellness_scores.py), formulas in [Sleep and recovery scores](sleep-and-recovery.md)) and the resting heart rate for calories ([`app/resting_hr.py`](../app/resting_hr.py)), from visible rows only. Provider summary values on activities are kept; the stream phase only fills gaps.
 
 OAuth providers whose kinds need different scopes (Google Health) report the readable kinds from `granted_kinds()`, based on the scopes stored in `oauth_tokens.scopes`. The sync skips a kind the token cannot read, and the status page asks for a reconnect.
 

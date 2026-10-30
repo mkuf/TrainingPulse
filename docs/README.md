@@ -21,3 +21,4 @@ The user manuals use ASD-STE100 Simplified Technical English.
 ## Developer reference
 
 - [Developer notes](developers.md): architecture, provider APIs, HTTP API, configuration schema, metrics, MCP, and tests.
+- [Data rules](data-rules.md): which fields exist, who calculates what, and how providers are combined. Read before adding a provider, field, or score.
