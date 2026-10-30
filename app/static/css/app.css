@@ -322,7 +322,7 @@ code {
 .chip-lead { background: var(--accent-soft); color: var(--accent-strong); font-weight: 550; }
 .chip-off { color: var(--text-2); background: transparent; border: 1px dashed var(--border); }
 .chip-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
-.chip-hidden { font-variant-numeric: tabular-nums; font-weight: 400; color: var(--text-2); }
+.chip-hidden { font-variant-numeric: tabular-nums; font-weight: 400; color: var(--text-3); }
 
 /* ── Athlete settings ───────────────────────────────────── */
 

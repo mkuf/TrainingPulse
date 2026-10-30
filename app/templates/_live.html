@@ -85,7 +85,7 @@
     {% if kinds %}
     <section class="section">
         <h2 class="section-title">Where your data comes from</h2>
-        <p class="section-lead muted">When two accounts record the same workout or day, the first one in the list wins and the other copy is hidden; a grey <span class="chip-hidden">+N</span> counts those hidden copies. Change the order with <code>data.&lt;kind&gt;.precedence</code> in config.yaml.</p>
+        <p class="section-lead muted">When two accounts record the same workout or day, the first one in the list wins and the other copy is hidden; a grey <span class="chip-hidden">(+N)</span> counts those hidden copies. Change the order with <code>data.&lt;kind&gt;.precedence</code> in config.yaml.</p>
         <div class="card list-card">
             {% for k in kinds %}
             <div class="kind-row">
@@ -97,7 +97,7 @@
                     {% for c in k.chain %}
                     <li class="chip{{ ' chip-lead' if loop.first }}{{ ' chip-off' if c.off }}"
                         {% if c.off %}title="Turned off. Its earlier entries still count until another account replaces them."{% endif %}>
-                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}{% if c.hidden %} <span class="chip-hidden" title="{{ c.hidden|num }} more hidden: an account ranked higher has the same entries">+{{ c.hidden|num }}</span>{% endif %}
+                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}{% if c.hidden %} <span class="chip-hidden" title="{{ c.hidden|num }} more hidden: an account ranked higher has the same entries">(+{{ c.hidden|num }})</span>{% endif %}
                     </li>
                     {% endfor %}
                 </ol>
