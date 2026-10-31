@@ -18,6 +18,7 @@ config.yaml
 *.sql
 # Tests stay out of the image; the test service mounts the repository instead.
 app/tests
+app/integration_tests
 app/pytest.ini
 grafana/dashboards
 README.md

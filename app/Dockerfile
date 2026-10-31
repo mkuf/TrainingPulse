@@ -12,7 +12,9 @@ FROM base AS test
 COPY app/requirements-dev.txt .
 RUN pip install --no-cache-dir -r requirements-dev.txt
 
-CMD ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+# Two runs, because each suite loads its own config at import time; see
+# integration_tests/conftest.py.
+CMD ["sh", "-c", "python -m pytest -q -p no:cacheprovider && python -m pytest -q -p no:cacheprovider integration_tests"]
 
 # Runtime image (the default target, as the last stage).
 FROM base AS runtime

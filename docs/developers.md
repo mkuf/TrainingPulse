@@ -376,7 +376,9 @@ The mcp container mounts the same `config.yaml` as the app. If you would rather 
 docker compose run --rm test
 ```
 
-The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfile), which adds [`requirements-dev.txt`](../app/requirements-dev.txt), and mounts the repository read-only. The tests are not part of the runtime image. Outside Docker, `pip install -r app/requirements-dev.txt`, then run `python -m pytest` from `app/`.
+The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfile), which adds [`requirements-dev.txt`](../app/requirements-dev.txt), and mounts the repository read-only. It starts a throwaway Postgres (`test-db`, on tmpfs) and runs two suites: the unit tests in `app/tests/`, then the integration tests in [`app/integration_tests/`](../app/integration_tests/). They are separate pytest runs because each loads its own `config` at import. The tests are not part of the runtime image. Outside Docker, `pip install -r app/requirements-dev.txt`, then run `python -m pytest` from `app/`; the integration tests also need `TEST_DATABASE_URL` pointing at a disposable `postgresql+asyncpg://` database, since they drop every schema in it.
+
+A `DeprecationWarning` fails the tests (`filterwarnings` in [`pytest.ini`](../app/pytest.ini)), so a dependency upgrade that deprecates something we use shows up before the next major removes it.
 
 - `tests/test_config_loader.py` — loader, overrides, interpolation, validation, redaction, moved-key messages
 - `tests/test_config_providers.py` — `providers` / `data` schema: imports, per-kind precedence, defaults from the catalog
@@ -387,6 +389,8 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 - `tests/test_garmin.py`, `tests/test_garmin_wellness.py`, `tests/test_google_wellness.py` — Garmin and Google Health mappers, feeds, scopes, pacing, and retries against recorded responses
 - `tests/test_wellness_scores.py` — sleep and recovery score parts, baselines, and bedtime regularity
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
+- `integration_tests/test_sync.py` — schema creation and its idempotency, and full syncs against Postgres: intervals.icu and FDDB answered from recorded payloads through `httpx.MockTransport`, then detail, streams, derived metrics, re-sync, and an activity gone upstream
+- `integration_tests/test_seeded.py` — on the demo data set: every MCP tool through an in-process MCP client, and the FastAPI app with its lifespan, scheduler, templates, and static files
 
 ## Container images
 
@@ -397,7 +401,18 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 | commit to `main` | `latest` |
 | tag `v1.2.0` | `latest`, `v1.2.0` |
 
-`latest` follows whichever of the two was pushed last. Every run starts with the tests (`docker compose run --rm test`) and builds the image only if they pass. A pull request builds the image without pushing it. Other branches build nothing.
+`latest` follows whichever of the two was pushed last. Every run starts with the tests (`docker compose run --rm test`) and builds the image only if they pass. The built image is then smoke-tested before it is pushed: [`.github/smoke/smoke-test.sh`](../.github/smoke/smoke-test.sh) starts it as `app` and `mcp` against the compose database with `config.example.yaml`, and checks the status page, the sync API, and an MCP `initialize` and `tools/list`. A pull request builds and smoke-tests the image without pushing it. Other branches build nothing.
+
+To smoke-test locally (it publishes no ports, so it runs beside a running stack):
+
+```bash
+docker build -f app/Dockerfile --target runtime -t trainingpulse:smoke .
+.github/smoke/smoke-test.sh trainingpulse:smoke
+```
+
+### Dependency updates
+
+[Renovate](https://docs.renovatebot.com/) ([`renovate.json`](../renovate.json)) proposes updates to `requirements*.txt`, the Dockerfile and compose images, and the workflow's actions, once a release is 3 days old. Every update merges itself once every check on the PR has passed, except a Postgres major: the new server refuses to start on the previous major's data volume, and CI cannot see that because its databases start empty. Merge that one after a dump and restore.
 
 ## Demo data
 

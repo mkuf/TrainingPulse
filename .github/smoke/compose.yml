@@ -1,0 +1,21 @@
+# Overlay on docker-compose.yml for smoke-test.sh: runs an already built image
+# with the example config, and publishes no ports.
+services:
+  app:
+    image: ${SMOKE_IMAGE:?set SMOKE_IMAGE}
+    pull_policy: never
+    ports: !reset []
+    volumes: !override
+      - ./config.example.yaml:/config/config.yaml:ro
+    environment:
+      # The example enables intervals.icu; there is no key to sync with here.
+      TP_PROVIDERS__ICU__ENABLED: "false"
+
+  mcp:
+    image: ${SMOKE_IMAGE:?set SMOKE_IMAGE}
+    pull_policy: never
+    ports: !reset []
+    volumes: !override
+      - ./config.example.yaml:/config/config.yaml:ro
+    environment:
+      TP_PROVIDERS__ICU__ENABLED: "false"

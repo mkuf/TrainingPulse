@@ -1,7 +1,6 @@
 """Tests for the generic FIT-file analyzer.
 
-Hand-authoring valid binary .fit bytes is impractical, so these test the
-derivation logic two ways:
+These test the derivation logic three ways:
 
 - ``_build_streams``/``_build_summary`` directly, against plain extracted
   dicts (the shape ``_extract_record``/``_extract_session`` produce) — this is
@@ -10,6 +9,8 @@ derivation logic two ways:
 - ``analyze_fit_file`` end-to-end, with ``fitdecode.FitReader`` monkeypatched
   to yield small fake frame objects, so the message-dispatch and error-mapping
   behaviour is covered without a real binary fixture.
+- ``analyze_fit_file`` on a small activity encoded in the FIT binary format,
+  so the real ``fitdecode`` decoding is covered too.
 """
 
 from __future__ import annotations
@@ -317,3 +318,137 @@ def test_analyze_fit_file_skips_one_malformed_message_and_keeps_going(monkeypatc
 
     assert analysis.streams[analyzer.STREAM_TIME] == [0]
     assert analysis.streams[analyzer.STREAM_HEARTRATE] == [99]
+
+
+# ── analyze_fit_file on real bytes ──────────────────────────────────
+#
+# The tests above fake ``fitdecode``. This one encodes a small activity in the
+# FIT binary format, so a ``fitdecode`` upgrade that changes field names,
+# scaling, or decoded types fails here.
+
+_FIT_EPOCH = datetime(1989, 12, 31, tzinfo=timezone.utc)
+_CRC_TABLE = (
+    0x0000, 0xCC01, 0xD801, 0x1400, 0xF001, 0x3C00, 0x2800, 0xE401,
+    0xA001, 0x6C00, 0x7800, 0xB401, 0x5000, 0x9C01, 0x8801, 0x4400,
+)  # fmt: skip
+#: FIT base type id -> struct format.
+_BASE_TYPES = {0x00: "B", 0x01: "b", 0x02: "B", 0x84: "H", 0x85: "i", 0x86: "I"}
+
+
+def _fit_crc(data: bytes) -> int:
+    crc = 0
+    for byte in data:
+        for nibble in (byte & 0xF, byte >> 4):
+            tmp = _CRC_TABLE[crc & 0xF]
+            crc = (crc >> 4) & 0x0FFF
+            crc ^= tmp ^ _CRC_TABLE[nibble]
+    return crc
+
+
+def _fit_time(value: datetime) -> int:
+    return int((value - _FIT_EPOCH).total_seconds())
+
+
+def _semicircles(degrees: float) -> int:
+    return round(degrees * 2**31 / 180)
+
+
+def _encode_fit(messages: list[tuple[int, list[tuple[int, int, object]]]]) -> bytes:
+    """``messages`` is ``[(global number, [(field, base type, raw value)])]``.
+
+    Strings are passed as ``bytes`` with base type 0x07 and a fixed size.
+    """
+    import struct
+
+    body = b""
+    for local, (global_number, fields) in enumerate(messages):
+        local %= 16
+        definition = struct.pack("<BBBHB", 0x40 | local, 0, 0, global_number, len(fields))
+        values = bytes([local])
+        for number, base_type, value in fields:
+            if base_type == 0x07:
+                encoded = value
+            else:
+                encoded = struct.pack("<" + _BASE_TYPES[base_type], value)
+            definition += bytes([number, len(encoded), base_type])
+            values += encoded
+        body += definition + values
+    header = struct.pack("<BBHI4s", 14, 0x10, 2100, len(body), b".FIT")
+    header += struct.pack("<H", _fit_crc(header))
+    data = header + body
+    return data + struct.pack("<H", _fit_crc(data))
+
+
+def test_analyze_fit_file_decodes_real_fit_bytes():
+    start = _dt(0)
+    file_id = (0, [(0, 0x00, 4), (1, 0x84, 1), (4, 0x86, _fit_time(start))])
+    device = (23, [(253, 0x86, _fit_time(start)), (2, 0x84, 1), (27, 0x07, b"Edge 530\0")])
+    records = [
+        (
+            20,
+            [
+                (253, 0x86, _fit_time(_dt(i))),
+                (0, 0x85, _semicircles(47.0 + i / 1000)),
+                (1, 0x85, _semicircles(11.0)),
+                (2, 0x84, (100 + i + 500) * 5),  # altitude: scale 5, offset 500
+                (3, 0x02, 120 + i),
+                (4, 0x02, 85),
+                (5, 0x86, 800 * i),  # distance: scale 100
+                (6, 0x84, 8000),  # speed: scale 1000
+                (7, 0x84, 200 + 10 * i),
+                (13, 0x01, 18),
+            ],
+        )
+        for i in range(10)
+    ]
+    session = (
+        18,
+        [
+            (253, 0x86, _fit_time(_dt(9))),
+            (2, 0x86, _fit_time(start)),
+            (5, 0x00, 2),  # cycling
+            (7, 0x86, 9000),  # total_elapsed_time: scale 1000
+            (8, 0x86, 8000),  # total_timer_time
+            (9, 0x86, 7200),  # total_distance: scale 100
+            (11, 0x84, 12),
+            (14, 0x84, 8000),
+            (15, 0x84, 8500),
+            (16, 0x02, 124),
+            (17, 0x02, 129),
+            (18, 0x02, 85),
+            (19, 0x02, 90),
+            (20, 0x84, 245),
+            (21, 0x84, 290),
+            (22, 0x84, 9),
+            (23, 0x84, 0),
+        ],
+    )
+
+    analysis = analyzer.analyze_fit_file(_encode_fit([file_id, device, *records, session]))
+
+    streams = analysis.streams
+    assert streams[analyzer.STREAM_TIME] == list(range(10))
+    assert streams[analyzer.STREAM_HEARTRATE] == list(range(120, 130))
+    assert streams[analyzer.STREAM_WATTS] == list(range(200, 300, 10))
+    assert streams[analyzer.STREAM_CADENCE] == [85] * 10
+    assert streams[analyzer.STREAM_DISTANCE] == pytest.approx([8.0 * i for i in range(10)])
+    assert streams[analyzer.STREAM_ALTITUDE] == pytest.approx([100.0 + i for i in range(10)])
+    assert streams[analyzer.STREAM_VELOCITY] == pytest.approx([8.0] * 10)
+    assert streams[analyzer.STREAM_TEMP] == [18] * 10
+    lat, lon = streams[analyzer.STREAM_LATLNG][3]
+    assert (lat, lon) == (pytest.approx(47.003, abs=1e-6), pytest.approx(11.0, abs=1e-6))
+
+    summary = analysis.summary
+    assert summary.start_date == start
+    assert (summary.elapsed_time, summary.moving_time) == (9, 8)
+    assert summary.distance == pytest.approx(72.0)
+    assert summary.average_heartrate == pytest.approx(124.5)
+    assert summary.max_heartrate == 129
+    assert summary.average_watts == pytest.approx(245.0)
+    assert summary.max_watts == 290
+    assert summary.average_speed == pytest.approx(8.0)
+    assert summary.max_speed == pytest.approx(8.5)
+    assert (summary.average_cadence, summary.max_cadence) == (85, 90)
+    assert (summary.total_elevation_gain, summary.total_descent) == (9, 0)
+    assert summary.calories == 12
+    assert summary.device_name == "Garmin Edge 530"

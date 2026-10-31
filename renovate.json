@@ -1,0 +1,17 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "minimumReleaseAge": "3 days",
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "automerge": true,
+  "packageRules": [
+    {
+      "description": "A Postgres major cannot start on the previous major's data volume, which CI does not see (it starts empty). Merge it after a dump and restore.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}
