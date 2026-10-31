@@ -388,6 +388,17 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 - `tests/test_wellness_scores.py` — sleep and recovery score parts, baselines, and bedtime regularity
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
 
+## Container images
+
+[`.github/workflows/image.yml`](../.github/workflows/image.yml) builds the `runtime` stage of [`app/Dockerfile`](../app/Dockerfile) for `linux/amd64` and pushes it to `ghcr.io/mkuf/trainingpulse`. Only pushes to `main` and tags build an image:
+
+| Push | Image tags |
+|---|---|
+| commit to `main` | `latest` |
+| tag `v1.2.0` | `latest`, `v1.2.0` |
+
+`latest` follows whichever of the two was pushed last. Pull requests and other branches build nothing.
+
 ## Demo data
 
 [`app/seed_demo_data.py`](../app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), with GPS loops for outdoor activities, including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`), weigh-ins (`provider=withings`, `external_id` `demo…`), and sleep with stage timelines, daily wellness, and the last 30 days of intraday samples (`provider=google_health`), followed by the derived sleep and recovery scores. OAuth token tables are never touched.
