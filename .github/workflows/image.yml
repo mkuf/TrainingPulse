@@ -36,7 +36,7 @@ jobs:
 
       # Built into the local image store first, so the smoke test runs the
       # exact image that is pushed below (the push reuses the cached layers).
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: app/Dockerfile
@@ -67,7 +67,7 @@ jobs:
             type=ref,event=tag
 
       - if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: app/Dockerfile
