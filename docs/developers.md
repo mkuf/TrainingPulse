@@ -397,7 +397,7 @@ The `test` service builds the `test` stage of [`app/Dockerfile`](../app/Dockerfi
 | commit to `main` | `latest` |
 | tag `v1.2.0` | `latest`, `v1.2.0` |
 
-`latest` follows whichever of the two was pushed last. Pull requests and other branches build nothing.
+`latest` follows whichever of the two was pushed last. Every run starts with the tests (`docker compose run --rm test`) and builds the image only if they pass. A pull request builds the image without pushing it. Other branches build nothing.
 
 ## Demo data
 
