@@ -1,0 +1,862 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "enable": false,
+        "iconColor": "#FC4C02",
+        "name": "Activities",
+        "rawQuery": "SELECT\n  start_date AS time,\n  name || ' (' || sport_type || ', TRIMP: ' || ROUND(COALESCE(trimp, 0)::numeric, 0) || ')' AS text,\n  sport_type AS tags\nFROM active_activities\nWHERE $__timeFilter(start_date)\n  AND sport_type ~ '${sport_type:regex}'\nORDER BY start_date",
+        "target": {
+          "refId": "Anno"
+        }
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "trainingpulse"
+      ],
+      "targetBlank": false,
+      "title": "Dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Intake",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Average daily intake in the time range.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: kcal",
+          "decimals": 0,
+          "noValue": "—",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "/^Intake$/",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH days AS (\n  SELECT generate_series($__timeFrom()::date, $__timeTo()::date, INTERVAL '1 day')::date AS day\n),\nactivity AS (\n  SELECT start_date::date AS day, SUM(COALESCE(computed_calories, calories)) AS kcal\n  FROM active_activities\n  WHERE $__timeFilter(start_date)\n  GROUP BY 1\n)\nSELECT\n  d.day::timestamp AS time,\n  n.kcal AS \"Intake\",\n  w.total_kcal AS \"Total burned\",\n  a.kcal AS \"Activities\",\n  CASE WHEN d.day < CURRENT_DATE THEN n.kcal - w.total_kcal END AS \"Balance\"\nFROM days d\nLEFT JOIN active_daily_nutrition n ON n.day = d.day\nLEFT JOIN active_daily_wellness w ON w.day = d.day\nLEFT JOIN activity a ON a.day = d.day\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Burned",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Average daily energy expenditure in the time range, as reported by your wearable.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: kcal",
+          "decimals": 0,
+          "noValue": "—",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FF9830"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "/^Total burned$/",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH days AS (\n  SELECT generate_series($__timeFrom()::date, $__timeTo()::date, INTERVAL '1 day')::date AS day\n),\nactivity AS (\n  SELECT start_date::date AS day, SUM(COALESCE(computed_calories, calories)) AS kcal\n  FROM active_activities\n  WHERE $__timeFilter(start_date)\n  GROUP BY 1\n)\nSELECT\n  d.day::timestamp AS time,\n  n.kcal AS \"Intake\",\n  w.total_kcal AS \"Total burned\",\n  a.kcal AS \"Activities\",\n  CASE WHEN d.day < CURRENT_DATE THEN n.kcal - w.total_kcal END AS \"Balance\"\nFROM days d\nLEFT JOIN active_daily_nutrition n ON n.day = d.day\nLEFT JOIN active_daily_wellness w ON w.day = d.day\nLEFT JOIN activity a ON a.day = d.day\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Balance",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Average of intake minus total burned, over the finished days that have both.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: kcal",
+          "decimals": 0,
+          "noValue": "—",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "/^Balance$/",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH days AS (\n  SELECT generate_series($__timeFrom()::date, $__timeTo()::date, INTERVAL '1 day')::date AS day\n),\nactivity AS (\n  SELECT start_date::date AS day, SUM(COALESCE(computed_calories, calories)) AS kcal\n  FROM active_activities\n  WHERE $__timeFilter(start_date)\n  GROUP BY 1\n)\nSELECT\n  d.day::timestamp AS time,\n  n.kcal AS \"Intake\",\n  w.total_kcal AS \"Total burned\",\n  a.kcal AS \"Activities\",\n  CASE WHEN d.day < CURRENT_DATE THEN n.kcal - w.total_kcal END AS \"Balance\"\nFROM days d\nLEFT JOIN active_daily_nutrition n ON n.day = d.day\nLEFT JOIN active_daily_wellness w ON w.day = d.day\nLEFT JOIN activity a ON a.day = d.day\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Weight trend",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Latest 7-day average weight. Hidden. Switch on **Show weight** at the top to see it.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "masskg",
+          "decimals": 1,
+          "noValue": "Hidden",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#8AB8FF"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^7-day average$/",
+          "values": false
+        },
+        "textMode": "value",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH daily AS (\n  SELECT day, AVG(weight_kg) AS kg, AVG(fat_pct) AS fat\n  FROM active_body_measurements\n  WHERE day BETWEEN $__timeFrom()::date - 6 AND $__timeTo()::date\n    AND weight_kg IS NOT NULL\n    AND '${show_weight}' = 'true'\n  GROUP BY day\n)\nSELECT\n  day::timestamp AS time,\n  kg AS \"Weight\",\n  AVG(kg) OVER (ORDER BY day RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW) AS \"7-day average\",\n  fat AS \"Body fat\"\nFROM daily\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 5
+    },
+    {
+      "type": "row",
+      "title": "Energy",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "Daily energy",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "**Intake** from your nutrition diary. **Total burned** is the daily energy expenditure your wearable reports (resting and active). **Activities** are the calories of the recorded activities.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: kcal",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Intake"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 60
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total burned"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Activities"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Balance"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH days AS (\n  SELECT generate_series($__timeFrom()::date, $__timeTo()::date, INTERVAL '1 day')::date AS day\n),\nactivity AS (\n  SELECT start_date::date AS day, SUM(COALESCE(computed_calories, calories)) AS kcal\n  FROM active_activities\n  WHERE $__timeFilter(start_date)\n  GROUP BY 1\n)\nSELECT\n  d.day::timestamp AS time,\n  n.kcal AS \"Intake\",\n  w.total_kcal AS \"Total burned\",\n  a.kcal AS \"Activities\",\n  CASE WHEN d.day < CURRENT_DATE THEN n.kcal - w.total_kcal END AS \"Balance\"\nFROM days d\nLEFT JOIN active_daily_nutrition n ON n.day = d.day\nLEFT JOIN active_daily_wellness w ON w.day = d.day\nLEFT JOIN activity a ON a.day = d.day\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Daily macros",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Grams of protein, carbohydrates and fat per day.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "massg",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 0,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Protein"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Carbs"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fat"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT day::timestamp AS time, protein_g AS \"Protein\", carbs_g AS \"Carbs\", fat_g AS \"Fat\"\nFROM active_daily_nutrition\nWHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 8
+    },
+    {
+      "type": "row",
+      "title": "Body",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 9
+    },
+    {
+      "type": "timeseries",
+      "title": "Body weight",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Each measurement as a point, the line is the average of the last 7 calendar days. **Body fat** (right axis) shows when your scale reports it. Hidden. Switch on **Show weight** at the top to see it.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "masskg",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 5,
+            "spanNulls": true
+          },
+          "noValue": "Hidden"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Weight"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "7-day average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Body fat"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#B877D9"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH daily AS (\n  SELECT day, AVG(weight_kg) AS kg, AVG(fat_pct) AS fat\n  FROM active_body_measurements\n  WHERE day BETWEEN $__timeFrom()::date - 6 AND $__timeTo()::date\n    AND weight_kg IS NOT NULL\n    AND '${show_weight}' = 'true'\n  GROUP BY day\n)\nSELECT\n  day::timestamp AS time,\n  kg AS \"Weight\",\n  AVG(kg) OVER (ORDER BY day RANGE BETWEEN INTERVAL '6 days' PRECEDING AND CURRENT ROW) AS \"7-day average\",\n  fat AS \"Body fat\"\nFROM daily\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Weekly energy balance and weight change",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Bars: the average daily intake minus total burned of each week (orange is a surplus, blue a deficit). Line: the change of the weekly average weight against the week before (right axis). About 7700 kcal of balance correspond to one kilogram of body weight. The weight line is hidden until you switch on **Show weight**.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: kcal",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 0,
+            "spanNulls": true,
+            "axisSoftMin": 0,
+            "axisSoftMax": 0,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#5794F2",
+                "value": null
+              },
+              {
+                "color": "#FF9830",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Weight change"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "suffix: kg"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "always"
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 5
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "WITH days AS (\n  SELECT n.day, n.kcal - w.total_kcal AS balance\n  FROM active_daily_nutrition n\n  JOIN active_daily_wellness w ON w.day = n.day\n  WHERE n.day BETWEEN $__timeFrom()::date AND $__timeTo()::date\n    AND n.day < CURRENT_DATE\n),\nweights AS (\n  SELECT date_trunc('week', day)::date AS week, AVG(weight_kg) AS kg\n  FROM active_body_measurements\n  WHERE day BETWEEN $__timeFrom()::date - 7 AND $__timeTo()::date\n    AND weight_kg IS NOT NULL\n    AND '${show_weight}' = 'true'\n  GROUP BY 1\n),\nweeks AS (\n  SELECT date_trunc('week', day)::date AS week, AVG(balance) AS balance\n  FROM days\n  GROUP BY 1\n)\nSELECT\n  w.week::timestamp AS time,\n  w.balance AS \"Average daily balance\",\n  wt.kg - LAG(wt.kg) OVER (ORDER BY w.week) AS \"Weight change\"\nFROM weeks w\nLEFT JOIN weights wt ON wt.week = w.week\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 11
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "trainingpulse",
+    "nutrition",
+    "weight"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "PostgreSQL",
+        "name": "DS_POSTGRESQL",
+        "query": "grafana-postgresql-datasource",
+        "type": "datasource"
+      },
+      {
+        "type": "switch",
+        "name": "show_weight",
+        "label": "Show weight",
+        "description": "Weight, body fat and weight change stay hidden until you switch this on.",
+        "value": "false",
+        "enabledValue": "true",
+        "disabledValue": "false",
+        "hide": 0,
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "time": {
+    "from": "now-90d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5m",
+      "15m",
+      "30m",
+      "1h"
+    ],
+    "time_options": [
+      "30d",
+      "90d",
+      "6M",
+      "1y",
+      "2y"
+    ]
+  },
+  "timezone": "browser",
+  "title": "TrainingPulse — Nutrition, training and weight",
+  "uid": "trainingpulse-nutrition-training-weight",
+  "version": 6
+}

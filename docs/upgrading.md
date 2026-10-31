@@ -24,6 +24,12 @@ TrainingPulse does not keep scores that only one provider calculates.
 
 TrainingPulse does all of this one time, when it starts. It does not download data again from a provider.
 
+## From a release with an Addons folder in Grafana
+
+All dashboards are now in one folder, `grafana/dashboards/`. The nutrition dashboard moves out of the **Addons** folder when Grafana starts. Grafana keeps the empty **Addons** folder. You can delete it in Grafana.
+
+If you push the dashboards with `grafana/sync_dashboards.py`, the variable `GRAFANA_ADDON_FOLDER_ID` has no effect anymore. All dashboards go to `GRAFANA_FOLDER_ID`.
+
 ## From a release without Strava
 
 In these releases, TrainingPulse did not have Strava.

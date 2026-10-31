@@ -47,4 +47,4 @@ providers:
 2. Click **Connect** on the Withings card.
 3. Log in to Withings and accept the access request.
 
-Body data shows in the Grafana dashboards in the **Addons** folder.
+Body data shows on the **Nutrition, training and weight** dashboard in Grafana.

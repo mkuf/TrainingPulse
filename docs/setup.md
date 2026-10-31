@@ -78,7 +78,7 @@ The sync runs all providers each 15 minutes. To change the interval, set `sync.i
 ## 4. Open Grafana
 
 1. Open `http://your-host:3000/`. Alternatively, click **Open dashboards** on the status page.
-2. Find the dashboards in the dashboard list. Body and nutrition dashboards are in the **Addons** folder.
+2. Find the dashboards in the dashboard list.
 
 TrainingPulse adds the Postgres data source **`trainingpulse`** and the dashboards automatically.
 

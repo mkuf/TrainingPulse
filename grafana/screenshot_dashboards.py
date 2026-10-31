@@ -10,13 +10,12 @@ Environment variables (with defaults):
     WIDTH              1920
     HEIGHT             1080            # initial viewport; full_page=True grows it
     WAIT_MS            15000           # tail wait after networkidle for paint to settle
-    TIMERANGE          from=now-30d&to=now (fitness, account_overview, addon dashboards)
+    TIMERANGE          from=now-90d&to=now (fitness, nutrition_training_weight)
+    ACCOUNT_TIMERANGE  from=now-2y&to=now (account_overview)
     SLEEP_TIMERANGE    from=now-14d&to=now (sleep_recovery; short enough that the
                        night-detail curves stay readable)
     ACTIVITY_ID        (required) activity id string used for the activity-detail dashboard
                        (e.g. icu_i55610271)
-    ACTIVITY_FROM_MS   (required) epoch-ms start for the activity-detail time range
-    ACTIVITY_TO_MS     (required) epoch-ms end for the activity-detail time range
 """
 
 from __future__ import annotations
@@ -52,11 +51,10 @@ class Dashboard:
 
 def build_targets() -> list[Dashboard]:
     grafana = env("GRAFANA_URL", "http://grafana:3000").rstrip("/")
-    timerange = env("TIMERANGE", "from=now-30d&to=now")
+    timerange = env("TIMERANGE", "from=now-90d&to=now")
+    account_timerange = env("ACCOUNT_TIMERANGE", "from=now-2y&to=now")
     sleep_timerange = env("SLEEP_TIMERANGE", "from=now-14d&to=now")
     activity_id = env("ACTIVITY_ID", required=True)
-    activity_from = env("ACTIVITY_FROM_MS", required=True)
-    activity_to = env("ACTIVITY_TO_MS", required=True)
 
     return [
         Dashboard(
@@ -65,14 +63,13 @@ def build_targets() -> list[Dashboard]:
         ),
         Dashboard(
             name="account_overview",
-            path=f"{grafana}/d/trainingpulse-account/trainingpulse-account-overview?orgId=1&{timerange}&kiosk",
+            path=f"{grafana}/d/trainingpulse-account/trainingpulse-account-overview?orgId=1&{account_timerange}&kiosk",
         ),
         Dashboard(
             name="activity_detail",
             path=(
                 f"{grafana}/d/trainingpulse-activity-detail/trainingpulse-activity-detail"
-                f"?orgId=1&from={activity_from}&to={activity_to}"
-                f"&var-activity_id={activity_id}&kiosk"
+                f"?orgId=1&var-activity_id={activity_id}&kiosk"
             ),
         ),
         Dashboard(
@@ -112,9 +109,15 @@ async def capture(page: Page, dash: Dashboard, out_dir: str, tail_wait_ms: int) 
         await page.wait_for_load_state("networkidle", timeout=30_000)
     except Exception as exc:
         log.warning("networkidle wait timed out for %s: %s", dash.name, exc)
+    # Grafana only paints virtualised content (tables) inside the viewport, so
+    # grow the viewport to the whole page instead of relying on full_page alone.
+    viewport = page.viewport_size
+    scroll_height = await page.evaluate("() => document.body.scrollHeight")
+    await page.set_viewport_size({"width": viewport["width"], "height": scroll_height})
     await page.wait_for_timeout(tail_wait_ms)
     out_path = os.path.join(out_dir, f"{dash.name}.png")
     await page.screenshot(path=out_path, full_page=True)
+    await page.set_viewport_size(viewport)
     size = os.path.getsize(out_path)
     log.info("wrote %s (%d bytes)", out_path, size)
     return out_path

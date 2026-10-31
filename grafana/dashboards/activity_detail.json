@@ -1,0 +1,1770 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "trainingpulse"
+      ],
+      "targetBlank": false,
+      "title": "Dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
+    }
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Summary",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Distance",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "noValue": "—",
+          "unit": "lengthm",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT distance AS \"Distance\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Time",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "dthms",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT moving_time AS \"Moving\", elapsed_time AS \"Elapsed\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Elevation",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "suffix: m",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT total_elevation_gain AS \"Gain\", total_descent AS \"Descent\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "TRIMP",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT trimp AS \"TRIMP\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 5
+    },
+    {
+      "id": 6,
+      "title": "Energy",
+      "description": "Calories and mechanical work that TrainingPulse calculated: from measured power, else from pace (walks and runs), else from heart rate. A **\\*** marks a value imported from the provider, shown only when TrainingPulse could not calculate one.",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "—",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  CASE\n    WHEN computed_calories IS NOT NULL THEN ROUND(computed_calories::numeric, 0) || ' kcal'\n    WHEN calories IS NOT NULL THEN ROUND(calories::numeric, 0) || ' kcal*'\n  END AS \"Calories\",\n  CASE\n    WHEN computed_kilojoules IS NOT NULL THEN ROUND(computed_kilojoules::numeric, 0) || ' kJ'\n    WHEN kilojoules IS NOT NULL THEN ROUND(kilojoules::numeric, 0) || ' kJ*'\n  END AS \"Work\"\nFROM activities\nWHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Normalized power",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "watt",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT weighted_average_watts AS \"NP\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "description": "Normalized power, computed by TrainingPulse from the power stream (30-second rolling average, fourth-power mean).",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "id": 7
+    },
+    {
+      "id": 8,
+      "title": "Recording device",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "## ${device_name_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "id": 9,
+      "title": "Equipment",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "## ${gear_label_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      }
+    },
+    {
+      "id": 10,
+      "title": "Source",
+      "description": "Provider this activity was imported from. The name links to the activity on the provider's site, where it has one.",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<h2>${source_label_var:raw}</h2>",
+        "mode": "html"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      }
+    },
+    {
+      "id": 11,
+      "title": "Also recorded by",
+      "description": "Other sources that recorded the same activity. Their copies are hidden as duplicates of this one.",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "<h2>${duplicate_sources_var:raw}</h2>",
+        "mode": "html"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      }
+    },
+    {
+      "id": 12,
+      "title": "Description",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "${description_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 13,
+      "title": "Private note",
+      "type": "text",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "${private_note_var}",
+        "mode": "markdown"
+      },
+      "targets": [],
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "type": "row",
+      "title": "Map",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 14
+    },
+    {
+      "id": 15,
+      "title": "Route",
+      "type": "geomap",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "basemap": {
+          "config": {},
+          "name": "Basemap",
+          "type": "osm-standard"
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": false,
+          "showScale": true,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "config": {
+              "style": {
+                "color": {
+                  "fixed": "#FC4C02"
+                },
+                "lineWidth": 3,
+                "opacity": 0.9,
+                "size": {
+                  "fixed": 5,
+                  "max": 10,
+                  "min": 2
+                }
+              }
+            },
+            "location": {
+              "latitude": "lat",
+              "longitude": "lng",
+              "mode": "coords"
+            },
+            "name": "Route",
+            "type": "route"
+          }
+        ],
+        "tooltip": {
+          "mode": "details"
+        },
+        "view": {
+          "allLayers": true,
+          "dashboardVariable": false,
+          "id": "fit",
+          "lat": 0,
+          "lon": 0,
+          "noRepeat": false,
+          "zoom": 12
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  (point->>0)::float AS lat,\n  (point->>1)::float AS lng\nFROM activity_streams,\nLATERAL jsonb_array_elements(data->'latlng') AS point\nWHERE activity_id = '${activity_id}'\n  AND data ? 'latlng'",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      }
+    },
+    {
+      "type": "trend",
+      "title": "Elevation profile",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "lengthm",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#B877D9"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 25,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              },
+              {
+                "id": "displayName",
+                "value": "Elapsed time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Elapsed",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  x.t::float AS \"Elapsed\",\n  ROUND((x.v::float)::numeric, 1) AS \"Altitude\"\nFROM activity_streams s,\nLATERAL ROWS FROM (\n  jsonb_array_elements_text(s.data->'time'),\n  jsonb_array_elements_text(s.data->'altitude')\n) WITH ORDINALITY AS x(t, v, idx)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'altitude'\n  AND x.t IS NOT NULL\nORDER BY x.idx",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 16
+    },
+    {
+      "type": "row",
+      "title": "Streams",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 17
+    },
+    {
+      "type": "trend",
+      "title": "Heart rate",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#F2495C"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              },
+              {
+                "id": "displayName",
+                "value": "Elapsed time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Elapsed",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  x.t::float AS \"Elapsed\",\n  ROUND((x.v::float)::numeric, 0) AS \"Heart rate\"\nFROM activity_streams s,\nLATERAL ROWS FROM (\n  jsonb_array_elements_text(s.data->'time'),\n  jsonb_array_elements_text(s.data->'heartrate')\n) WITH ORDINALITY AS x(t, v, idx)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'heartrate'\n  AND x.t IS NOT NULL\nORDER BY x.idx",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 0,
+        "y": 35
+      },
+      "id": 18
+    },
+    {
+      "type": "stat",
+      "title": "Heart rate summary",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "bpm",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#F2495C"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT average_heartrate AS \"Average\", max_heartrate AS \"Max\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 35
+      },
+      "id": 19
+    },
+    {
+      "type": "trend",
+      "title": "Speed",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "velocitykmh",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              },
+              {
+                "id": "displayName",
+                "value": "Elapsed time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Elapsed",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  x.t::float AS \"Elapsed\",\n  ROUND((x.v::float * 3.6)::numeric, 1) AS \"Speed\"\nFROM activity_streams s,\nLATERAL ROWS FROM (\n  jsonb_array_elements_text(s.data->'time'),\n  jsonb_array_elements_text(s.data->'velocity_smooth')\n) WITH ORDINALITY AS x(t, v, idx)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'velocity_smooth'\n  AND x.t IS NOT NULL\nORDER BY x.idx",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 0,
+        "y": 43
+      },
+      "id": 20
+    },
+    {
+      "type": "stat",
+      "title": "Speed summary",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "noValue": "—",
+          "unit": "velocitykmh",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#5794F2"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT average_speed * 3.6 AS \"Average\", max_speed * 3.6 AS \"Max\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 43
+      },
+      "id": 21
+    },
+    {
+      "type": "trend",
+      "title": "Power",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "watt",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FADE2A"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              },
+              {
+                "id": "displayName",
+                "value": "Elapsed time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Elapsed",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  x.t::float AS \"Elapsed\",\n  ROUND((x.v::float)::numeric, 0) AS \"Power\"\nFROM activity_streams s,\nLATERAL ROWS FROM (\n  jsonb_array_elements_text(s.data->'time'),\n  jsonb_array_elements_text(s.data->'watts')\n) WITH ORDINALITY AS x(t, v, idx)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'watts'\n  AND x.t IS NOT NULL\nORDER BY x.idx",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 0,
+        "y": 51
+      },
+      "id": 22
+    },
+    {
+      "type": "stat",
+      "title": "Power summary",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "watt",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FADE2A"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT average_watts AS \"Average\", weighted_average_watts AS \"Normalized\", best_20min_power AS \"Best 20 min\", max_watts AS \"Max\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 51
+      },
+      "id": 23
+    },
+    {
+      "type": "trend",
+      "title": "Cadence",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: /min",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 15,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              },
+              {
+                "id": "displayName",
+                "value": "Elapsed time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Elapsed",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  x.t::float AS \"Elapsed\",\n  ROUND((x.v::float)::numeric, 0) AS \"Cadence\"\nFROM activity_streams s,\nLATERAL ROWS FROM (\n  jsonb_array_elements_text(s.data->'time'),\n  jsonb_array_elements_text(s.data->'cadence')\n) WITH ORDINALITY AS x(t, v, idx)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'cadence'\n  AND x.t IS NOT NULL\nORDER BY x.idx",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 0,
+        "y": 59
+      },
+      "id": 24
+    },
+    {
+      "type": "stat",
+      "title": "Cadence summary",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "—",
+          "unit": "suffix: /min",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#73BF69"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT average_cadence AS \"Average\", max_cadence AS \"Max\" FROM activities WHERE id = '${activity_id}'",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 59
+      },
+      "id": 25
+    },
+    {
+      "type": "trend",
+      "title": "Temperature",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#FF9830"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Elapsed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dthms"
+              },
+              {
+                "id": "displayName",
+                "value": "Elapsed time"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "xField": "Elapsed",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  x.t::float AS \"Elapsed\",\n  ROUND((x.v::float)::numeric, 1) AS \"Temperature\"\nFROM activity_streams s,\nLATERAL ROWS FROM (\n  jsonb_array_elements_text(s.data->'time'),\n  jsonb_array_elements_text(s.data->'temp')\n) WITH ORDINALITY AS x(t, v, idx)\nWHERE s.activity_id = '${activity_id}'\n  AND s.data ? 'temp'\n  AND x.t IS NOT NULL\nORDER BY x.idx",
+          "format": "table",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      },
+      "id": 26
+    },
+    {
+      "type": "row",
+      "title": "Zones",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "id": 27
+    },
+    {
+      "id": 28,
+      "title": "Heart rate zones",
+      "type": "bargauge",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#96D98D"
+              }
+            ]
+          },
+          "unit": "dthms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 1"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#96D98D",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 2"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#73BF69",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 3"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FADE2A",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 4"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FF9830",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 5"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#F2495C",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  COALESCE((hr_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((hr_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((hr_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((hr_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((hr_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\"\nFROM activities\nWHERE id = '${activity_id}'\n  AND hr_zone_seconds IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 75
+      }
+    },
+    {
+      "id": 29,
+      "title": "Power zones",
+      "type": "bargauge",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#96D98D"
+              }
+            ]
+          },
+          "unit": "dthms"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 1"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#96D98D",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 2"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#73BF69",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 3"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8EE5E5",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 4"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FADE2A",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 5"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#FF9830",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 6"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#F2495C",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Zone 7"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#7057FF",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "text",
+        "namePlacement": "left"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  COALESCE((power_zone_seconds->>'zone_1')::float, 0) AS \"Zone 1\",\n  COALESCE((power_zone_seconds->>'zone_2')::float, 0) AS \"Zone 2\",\n  COALESCE((power_zone_seconds->>'zone_3')::float, 0) AS \"Zone 3\",\n  COALESCE((power_zone_seconds->>'zone_4')::float, 0) AS \"Zone 4\",\n  COALESCE((power_zone_seconds->>'zone_5')::float, 0) AS \"Zone 5\",\n  COALESCE((power_zone_seconds->>'zone_6')::float, 0) AS \"Zone 6\",\n  COALESCE((power_zone_seconds->>'zone_7')::float, 0) AS \"Zone 7\"\nFROM activities\nWHERE id = '${activity_id}'\n  AND power_zone_seconds IS NOT NULL",
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 75
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "trainingpulse",
+    "activity",
+    "detail"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "label": "PostgreSQL",
+        "name": "DS_POSTGRESQL",
+        "query": "grafana-postgresql-datasource",
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT id AS __value, start_date::date || ' — ' || name || ' (' || sport_type || ')' AS __text FROM active_activities ORDER BY start_date DESC LIMIT 200",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Activity",
+        "multi": false,
+        "name": "activity_id",
+        "query": "SELECT id AS __value, start_date::date || ' — ' || name || ' (' || sport_type || ')' AS __text FROM active_activities ORDER BY start_date DESC LIMIT 200",
+        "refresh": 1,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT description FROM activities WHERE id = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "description_var",
+        "query": "SELECT description FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT private_note FROM activities WHERE id = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "private_note_var",
+        "query": "SELECT private_note FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '—') FROM activities WHERE id = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "device_name_var",
+        "query": "SELECT COALESCE(NULLIF(TRIM(device_name), ''), '—') FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '—') FROM activities WHERE id = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "gear_label_var",
+        "query": "SELECT COALESCE(NULLIF(TRIM(gear_name), ''), NULLIF(TRIM(gear_id), ''), '—') FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT CASE source\n  WHEN 'icu' THEN '<a href=\"https://intervals.icu/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">intervals.icu</a>'\n  WHEN 'strava' THEN '<a href=\"https://www.strava.com/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Strava</a>'\n  WHEN 'garmin' THEN '<a href=\"https://connect.garmin.com/modern/activity/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Garmin Connect</a>'\n  WHEN 'google_health' THEN 'Google Health'\n  WHEN 'hammerhead' THEN 'Hammerhead'\n  ELSE source\nEND FROM activities WHERE id = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "source_label_var",
+        "query": "SELECT CASE source\n  WHEN 'icu' THEN '<a href=\"https://intervals.icu/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">intervals.icu</a>'\n  WHEN 'strava' THEN '<a href=\"https://www.strava.com/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Strava</a>'\n  WHEN 'garmin' THEN '<a href=\"https://connect.garmin.com/modern/activity/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Garmin Connect</a>'\n  WHEN 'google_health' THEN 'Google Health'\n  WHEN 'hammerhead' THEN 'Hammerhead'\n  ELSE source\nEND FROM activities WHERE id = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "${DS_POSTGRESQL}"
+        },
+        "definition": "SELECT COALESCE(string_agg(CASE source\n  WHEN 'icu' THEN '<a href=\"https://intervals.icu/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">intervals.icu</a>'\n  WHEN 'strava' THEN '<a href=\"https://www.strava.com/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Strava</a>'\n  WHEN 'garmin' THEN '<a href=\"https://connect.garmin.com/modern/activity/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Garmin Connect</a>'\n  WHEN 'google_health' THEN 'Google Health'\n  WHEN 'hammerhead' THEN 'Hammerhead'\n  ELSE source\nEND, ', ' ORDER BY source), '—') FROM activities WHERE superseded_by = '${activity_id}'",
+        "hide": 2,
+        "includeAll": false,
+        "name": "duplicate_sources_var",
+        "query": "SELECT COALESCE(string_agg(CASE source\n  WHEN 'icu' THEN '<a href=\"https://intervals.icu/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">intervals.icu</a>'\n  WHEN 'strava' THEN '<a href=\"https://www.strava.com/activities/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Strava</a>'\n  WHEN 'garmin' THEN '<a href=\"https://connect.garmin.com/modern/activity/' || regexp_replace(id, '^[^_]+_', '') || '\" target=\"_blank\" rel=\"noopener noreferrer\">Garmin Connect</a>'\n  WHEN 'google_health' THEN 'Google Health'\n  WHEN 'hammerhead' THEN 'Hammerhead'\n  ELSE source\nEND, ', ' ORDER BY source), '—') FROM activities WHERE superseded_by = '${activity_id}'",
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6M",
+    "to": "now"
+  },
+  "timepicker": {
+    "hidden": true
+  },
+  "timezone": "browser",
+  "title": "TrainingPulse — Activity detail",
+  "uid": "trainingpulse-activity-detail",
+  "version": 4
+}

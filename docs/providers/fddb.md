@@ -53,4 +53,4 @@ If FDDB shows its login page, the FDDB sync stops. The status page shows an auth
 | `lang` | Language of the diary pages |
 | `request_delay_ms` | Time between two page requests, in milliseconds |
 
-Nutrition data shows in the Grafana dashboards in the **Addons** folder.
+Nutrition data shows on the **Nutrition, training and weight** dashboard in Grafana.

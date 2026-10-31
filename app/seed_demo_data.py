@@ -95,6 +95,8 @@ DEMO_WELLNESS_PROVIDER = "google_health"
 #: Intraday samples are seeded for the most recent days only, like the
 #: ``intraday`` kind's default history.
 DEMO_INTRADAY_DAYS = 30
+#: Outdoor demo routes start near this point (Lake Constance).
+DEMO_HOME_LATLNG = (47.66, 9.18)
 
 MAX_HR = 185
 REST_HR = 50
@@ -283,7 +285,30 @@ def synthesize_streams(
         for i in range(n)
     ]
 
+    # Position: a wobbly loop back to the start, near a fixed home area, for
+    # activities that move outdoors.
+    latlng: list[list[float]] = []
+    if base_speed_ms > 0 and sport != "VirtualRide" and cum > 0:
+        radius = cum / (2 * math.pi)
+        bearing = rng.uniform(0, 2 * math.pi)
+        phase = rng.uniform(0, 2 * math.pi)
+        start_lat = DEMO_HOME_LATLNG[0] + rng.uniform(-0.02, 0.02)
+        start_lng = DEMO_HOME_LATLNG[1] + rng.uniform(-0.03, 0.03)
+        metres_per_deg_lng = 111_320 * math.cos(math.radians(start_lat))
+        for d in distance:
+            theta = 2 * math.pi * d / cum
+            r = radius * (1 + 0.15 * math.sin(3 * theta + phase))
+            x, y = r * math.cos(theta) - radius, r * math.sin(theta)
+            east = x * math.cos(bearing) - y * math.sin(bearing)
+            north = x * math.sin(bearing) + y * math.cos(bearing)
+            latlng.append([
+                round(start_lat + north / 111_320, 6),
+                round(start_lng + east / metres_per_deg_lng, 6),
+            ])
+
     data: dict = {"time": time_stream}
+    if latlng:
+        data["latlng"] = latlng
     if heartrate:
         data["heartrate"] = heartrate
     if watts:
@@ -526,7 +551,7 @@ def plan_activities(days: int, rng: random.Random) -> list[tuple[datetime, str, 
     return plan
 
 
-# ── Addon data (FDDB + Withings) ─────────────────────────────────────
+# ── Nutrition and body data (FDDB + Withings) ───────────────────────
 
 
 def _history_start_day(days: int) -> datetime:

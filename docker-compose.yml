@@ -85,8 +85,8 @@ services:
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
-      # Kept outside the provisioning directory, and split into core/ and
-      # addons/, so each dashboard is picked up by exactly one provider.
+      # Kept outside the provisioning directory, so Grafana does not read the
+      # dashboard JSON as provisioning config.
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       db:
