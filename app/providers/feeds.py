@@ -224,22 +224,27 @@ class RecordFeed(Feed, Protocol[R_co]):
         """Pure: provider payload to a canonical record, or None to skip."""
 
 
+@runtime_checkable
 class BodyFeed(RecordFeed[BodyRecord], Protocol):
     kind: ClassVar[DataKind] = DataKind.BODY
 
 
+@runtime_checkable
 class NutritionFeed(RecordFeed[NutritionRecord], Protocol):
     kind: ClassVar[DataKind] = DataKind.NUTRITION
 
 
+@runtime_checkable
 class SleepFeed(RecordFeed[SleepRecord], Protocol):
     kind: ClassVar[DataKind] = DataKind.SLEEP
 
 
+@runtime_checkable
 class WellnessFeed(RecordFeed[WellnessRecord], Protocol):
     kind: ClassVar[DataKind] = DataKind.WELLNESS
 
 
+@runtime_checkable
 class IntradayFeed(RecordFeed[SampleRecord], Protocol):
     kind: ClassVar[DataKind] = DataKind.INTRADAY
 
