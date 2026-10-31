@@ -1,4 +1,4 @@
-"""The FastMCP instance, plus the activity, training-load, athlete, and coverage tools.
+"""The MCPServer instance, plus the activity, training-load, athlete, and coverage tools.
 
 Body and nutrition tools are in :mod:`mcp_server.records`; sleep, daily
 wellness, and intraday tools in :mod:`mcp_server.wellness`. Shared conventions
@@ -8,8 +8,7 @@ wellness, and intraday tools in :mod:`mcp_server.wellness`. Shared conventions
 from datetime import timedelta
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
+from mcp.server.mcpserver import MCPServer
 from sqlalchemy import Select, desc, func, select
 
 from config import config
@@ -52,18 +51,7 @@ from resting_hr import resting_hr_on
 APP_NAME = "TrainingPulse MCP"
 
 
-def _allowed_origins(allowed_hosts: list[str]) -> list[str]:
-    origins: list[str] = []
-    for host in allowed_hosts:
-        if host.startswith(("http://", "https://")):
-            origins.append(host)
-            continue
-        origins.append(f"http://{host}")
-        origins.append(f"https://{host}")
-    return origins
-
-
-mcp = FastMCP(
+mcp = MCPServer(
     APP_NAME,
     instructions=(
         "Read-only access to TrainingPulse: activities, training load "
@@ -73,13 +61,6 @@ mcp = FastMCP(
         f"local calendar days in {config.athlete.timezone}, and date ranges "
         "include both ends. compare_* tools treat period A as the baseline and "
         "report deltas as B minus A. Credentials are never exposed."
-    ),
-    stateless_http=True,
-    json_response=True,
-    transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=config.mcp.allowed_hosts,
-        allowed_origins=_allowed_origins(config.mcp.allowed_hosts),
     ),
 )
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from sqlalchemy import Select, func, select
 
 from mcp_server.common import (
@@ -294,7 +294,7 @@ def series_payload(
     return payload
 
 
-def register_wellness_tools(mcp: FastMCP) -> None:
+def register_wellness_tools(mcp: MCPServer) -> None:
     """Register sleep, wellness, and intraday tools on ``mcp``."""
 
     @mcp.tool()

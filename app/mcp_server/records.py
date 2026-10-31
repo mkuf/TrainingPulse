@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from sqlalchemy import Select, func, select
 
 from mcp_server.common import (
@@ -166,7 +166,7 @@ async def _nutrition_summary(*, start_date: date, end_date: date) -> dict[str, A
     }
 
 
-def register_record_tools(mcp: FastMCP) -> None:
+def register_record_tools(mcp: MCPServer) -> None:
     """Register body and nutrition tools on ``mcp``."""
 
     @mcp.tool()
