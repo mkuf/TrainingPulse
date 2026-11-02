@@ -53,8 +53,10 @@ athlete:
 # ── Accounts ─────────────────────────────────────────────────────────
 #
 # One block per service you connect. `imports` picks which data kinds to take
-# from it; omit it to take everything the provider supports. Listing a kind a
-# provider cannot supply is a startup error that says what it can supply.
+# from it; each block below lists everything the provider supports, which is
+# also what an omitted `imports` means. Remove the kinds you don't want.
+# Listing a kind a provider cannot supply is a startup error that says what it
+# can supply.
 #
 #   provider        can supply
 #   icu             activities
@@ -69,6 +71,7 @@ providers:
   # intervals.icu — API key from https://intervals.icu/settings
   icu:
     enabled: true
+    imports: [activities]
     api_key: ${INTERVALS_ICU_API_KEY}
     api_base: https://intervals.icu/api/v1
 
@@ -81,6 +84,7 @@ providers:
   # backfill with streams can take days; it resumes automatically.
   strava:
     enabled: false
+    imports: [activities]
     client_id: ""
     client_secret: ${STRAVA_CLIENT_SECRET:-}
 
@@ -91,6 +95,7 @@ providers:
   # own scope. After adding a kind to `imports`, reconnect from the status page.
   google_health:
     enabled: false
+    imports: [activities, sleep, wellness, intraday]
     client_id: ""
     client_secret: ${GOOGLE_HEALTH_CLIENT_SECRET:-}
     api_base: https://health.googleapis.com/v4
@@ -105,6 +110,7 @@ providers:
   # documented rate-limit budget.
   hammerhead:
     enabled: false
+    imports: [activities]
     client_id: ""
     client_secret: ${HAMMERHEAD_CLIENT_SECRET:-}
     api_base: https://api.hammerhead.io/v1/api
@@ -116,6 +122,7 @@ providers:
   # publishes no rate-limit budget.
   garmin:
     enabled: false
+    imports: [activities, body, sleep, wellness, intraday]
     api_key: ${GARMIN_PERSONAL_API_KEY:-}
     api_base: https://personal.connectapi.garmin.com
 
@@ -130,6 +137,7 @@ providers:
   # reconnect from the status page.
   withings:
     enabled: false
+    imports: [body, sleep, wellness, intraday, blood_pressure]
     client_id: ""
     client_secret: ${WITHINGS_CLIENT_SECRET:-}
     # Blank uses the callback above. Set it only if Withings must reach the
@@ -141,6 +149,7 @@ providers:
   # request), without the `fddb=` prefix.
   fddb:
     enabled: false
+    imports: [nutrition]
     user: ""
     password: ${FDDB_PW:-}
     cookie: ${FDDB_COOKIE:-}
