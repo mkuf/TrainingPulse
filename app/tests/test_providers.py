@@ -27,9 +27,19 @@ from providers.fddb_client import (
     FddbNoDataError,
     parse_diary_html,
 )
-from providers.feeds import FEED_CONTRACTS, BodyRecord, NutritionRecord
+from providers.feeds import (
+    FEED_CONTRACTS,
+    BloodPressureRecord,
+    BodyRecord,
+    NutritionRecord,
+)
 from providers.registry import build_all_providers
-from providers.withings import WithingsBodyFeed, map_measure_group
+from providers.withings import (
+    WithingsBloodPressureFeed,
+    WithingsBodyFeed,
+    map_blood_pressure_group,
+    map_measure_group,
+)
 
 FDDB_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "fddb"
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -231,6 +241,75 @@ def test_withings_group_maps_weight_fat_and_muscle():
         muscle_mass_kg=58.1,
         device="abc123",
     )
+
+
+def test_withings_scale_extras_are_mapped_with_hydration_as_a_share():
+    group = {
+        **WITHINGS_GROUP,
+        "measures": [
+            *WITHINGS_GROUP["measures"],
+            {"value": 4130, "type": 77, "unit": -2},
+            {"value": 312, "type": 88, "unit": -2},
+            {"value": 6, "type": 170, "unit": 0},
+        ],
+    }
+    record = map_measure_group(group)
+
+    assert record.bone_mass_kg == 3.12
+    assert record.body_water_pct == 57.0
+    assert record.visceral_fat == 6
+
+
+WITHINGS_BP_GROUP = {
+    "grpid": 5_123_456_790,
+    "date": 1_751_410_000,
+    "category": 1,
+    "deviceid": "bpm1",
+    "measures": [
+        {"value": 78, "type": 9, "unit": 0},
+        {"value": 121, "type": 10, "unit": 0},
+        {"value": 64, "type": 11, "unit": 0},
+    ],
+}
+
+
+def test_withings_blood_pressure_group_maps_to_a_reading():
+    assert map_blood_pressure_group(WITHINGS_BP_GROUP) == BloodPressureRecord(
+        external_id="5123456790",
+        measured_at=datetime.fromtimestamp(1_751_410_000, tz=timezone.utc),
+        systolic_mmhg=121,
+        diastolic_mmhg=78,
+        pulse_bpm=64,
+        device="bpm1",
+    )
+
+
+def test_a_weigh_in_with_a_pulse_is_not_a_blood_pressure_reading():
+    group = {**WITHINGS_GROUP, "measures": [{"value": 70, "type": 11, "unit": 0}]}
+    assert map_blood_pressure_group(group) is None
+    assert map_measure_group(WITHINGS_BP_GROUP) is None
+
+
+def test_withings_blood_pressure_feed_asks_for_pressure_and_pulse():
+    asked: list[str] = []
+
+    class Client:
+        async def get_measures(self, *, startdate, enddate, meastypes, offset=None):
+            asked.append(meastypes)
+            return {"measuregrps": [WITHINGS_BP_GROUP], "more": 0}
+
+    class Provider:
+        client = Client()
+
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    groups = asyncio.run(
+        WithingsBloodPressureFeed(Provider()).list_records(
+            start, start + timedelta(days=1)
+        )
+    )
+
+    assert asked == ["9,10,11"]
+    assert groups == [WITHINGS_BP_GROUP]
 
 
 def test_withings_group_without_weight_is_skipped():

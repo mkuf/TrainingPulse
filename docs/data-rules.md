@@ -11,6 +11,7 @@ The goal: a provider is a replaceable source of measurements. Switching from one
 - The baseline is defined by the core, not by the first provider that sends a field. For activities it is the `Activity` columns in [`models.py`](../app/models.py); for the other kinds it is the record dataclasses in [`providers/feeds.py`](../app/providers/feeds.py).
 - A new provider maps onto the baseline. It never adds a column of its own.
 - Each field has one meaning and one unit for every provider. Where providers disagree, the mapper converts. Example: cadence is revolutions per minute when cycling and steps per minute (both legs) on foot; per-leg values from FIT, Strava and intervals.icu are doubled by `mapping.steps_per_minute`.
+- **Device measurements.** A value that only a dedicated device measures (a smart scale, a blood pressure monitor) is checked against the major vendors of that kind of device, not against wearables. It can be a field when most of them report it. The same limits apply as for any field: one meaning and one unit, and no vendor estimates or indexes (rule 3, for example metabolic age).
 - Before adding a field, check it against real API responses, not only documentation, and note in the docs which reference providers report it.
 - Descriptive metadata (name, description, notes, device, gear) is not a measurement. It can be a nullable column when it helps the user, but it is a deliberate decision, not a default.
 
@@ -88,7 +89,7 @@ If stream-based summaries are ever wanted, they go in separate `computed_*` colu
 
 For a new provider, feed, field or derived value:
 
-- [ ] Is the field a standard concept that most of Garmin, Fitbit/Google, Oura, Whoop, Polar and Apple report? (rule 1)
+- [ ] Is the field a standard concept that most of Garmin, Fitbit/Google, Oura, Whoop, Polar and Apple report, or a device measurement that most major vendors of that device report? (rule 1)
 - [ ] Does it have the same meaning and unit for every provider, with conversions in the mapper? (rule 1)
 - [ ] Do providers without it leave it `None`, and do dashboards and MCP cope with that? (rule 2)
 - [ ] Is it a measurement, not a provider's score, status or index? (rule 3)

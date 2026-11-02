@@ -52,6 +52,8 @@ EXPECTED_TOOLS = {
     "get_data_coverage",
     "get_body_summary",
     "list_body_measurements",
+    "get_blood_pressure_summary",
+    "list_blood_pressure_readings",
     "get_latest_body_measurement",
     "compare_body_periods",
     "get_nutrition_summary",

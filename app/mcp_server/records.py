@@ -1,6 +1,7 @@
-"""MCP tools for body measurements and nutrition.
+"""MCP tools for body measurements, blood pressure, and nutrition.
 
-Read the core ``body_measurements`` and ``daily_nutrition`` tables, visible
+Read the core ``body_measurements``, ``blood_pressure_readings`` and
+``daily_nutrition`` tables, visible
 rows only, so a day reported by two providers is never counted twice. Dates
 are local calendar days in ``athlete.timezone``, matching the ``day`` column.
 """
@@ -22,7 +23,7 @@ from mcp_server.common import (
     required_date,
     round_or_none,
 )
-from models import BodyMeasurement, DailyNutrition
+from models import BloodPressureReading, BodyMeasurement, DailyNutrition
 
 
 def _visible_between(stmt: Select, model, start: date, end: date) -> Select:
@@ -37,7 +38,14 @@ def _visible_between(stmt: Select, model, start: date, end: date) -> Select:
 # ── Body ────────────────────────────────────────────────────────────
 
 
-BODY_DELTA_FIELDS = ["avg_weight_kg", "avg_fat_pct", "avg_muscle_mass_kg"]
+BODY_DELTA_FIELDS = [
+    "avg_weight_kg",
+    "avg_fat_pct",
+    "avg_muscle_mass_kg",
+    "avg_bone_mass_kg",
+    "avg_body_water_pct",
+    "avg_visceral_fat",
+]
 
 
 def _body_dict(row: BodyMeasurement) -> dict[str, Any]:
@@ -47,6 +55,9 @@ def _body_dict(row: BodyMeasurement) -> dict[str, Any]:
         "weight_kg": round_or_none(row.weight_kg, 2),
         "fat_pct": round_or_none(row.fat_pct),
         "muscle_mass_kg": round_or_none(row.muscle_mass_kg, 2),
+        "bone_mass_kg": round_or_none(row.bone_mass_kg, 2),
+        "body_water_pct": round_or_none(row.body_water_pct),
+        "visceral_fat": round_or_none(row.visceral_fat),
         "provider": row.provider,
         "device": row.device,
     }
@@ -61,6 +72,9 @@ async def _body_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
             func.avg(BodyMeasurement.weight_kg).label("avg_kg"),
             func.avg(BodyMeasurement.fat_pct).label("avg_fat_pct"),
             func.avg(BodyMeasurement.muscle_mass_kg).label("avg_muscle_kg"),
+            func.avg(BodyMeasurement.bone_mass_kg).label("avg_bone_kg"),
+            func.avg(BodyMeasurement.body_water_pct).label("avg_water_pct"),
+            func.avg(BodyMeasurement.visceral_fat).label("avg_visceral_fat"),
         ),
         BodyMeasurement,
         start_date,
@@ -85,6 +99,9 @@ async def _body_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
         "avg_weight_kg": round_or_none(row.avg_kg, 2),
         "avg_fat_pct": round_or_none(row.avg_fat_pct),
         "avg_muscle_mass_kg": round_or_none(row.avg_muscle_kg, 2),
+        "avg_bone_mass_kg": round_or_none(row.avg_bone_kg, 2),
+        "avg_body_water_pct": round_or_none(row.avg_water_pct),
+        "avg_visceral_fat": round_or_none(row.avg_visceral_fat),
         "latest": _body_dict(latest) if latest else None,
         # How far the last weigh-in sits from the period average.
         "latest_vs_avg_kg": (
@@ -92,6 +109,64 @@ async def _body_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
             if latest and row.avg_kg is not None
             else None
         ),
+    }
+
+
+# ── Blood pressure ──────────────────────────────────────────────────
+
+
+def _blood_pressure_dict(row: BloodPressureReading) -> dict[str, Any]:
+    return {
+        "measured_at": local_time(row.measured_at),
+        "day": row.day.isoformat(),
+        "systolic_mmhg": round_or_none(row.systolic_mmhg),
+        "diastolic_mmhg": round_or_none(row.diastolic_mmhg),
+        "pulse_bpm": round_or_none(row.pulse_bpm),
+        "provider": row.provider,
+        "device": row.device,
+    }
+
+
+async def _blood_pressure_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
+    stmt = _visible_between(
+        select(
+            func.count(BloodPressureReading.id).label("count"),
+            func.avg(BloodPressureReading.systolic_mmhg).label("avg_sys"),
+            func.min(BloodPressureReading.systolic_mmhg).label("min_sys"),
+            func.max(BloodPressureReading.systolic_mmhg).label("max_sys"),
+            func.avg(BloodPressureReading.diastolic_mmhg).label("avg_dia"),
+            func.min(BloodPressureReading.diastolic_mmhg).label("min_dia"),
+            func.max(BloodPressureReading.diastolic_mmhg).label("max_dia"),
+            func.avg(BloodPressureReading.pulse_bpm).label("avg_pulse"),
+        ),
+        BloodPressureReading,
+        start_date,
+        end_date,
+    )
+    latest_stmt = _visible_between(
+        select(BloodPressureReading)
+        .order_by(BloodPressureReading.measured_at.desc())
+        .limit(1),
+        BloodPressureReading,
+        start_date,
+        end_date,
+    )
+    async with readonly_session() as session:
+        row = (await session.execute(stmt)).one()
+        latest = (await session.scalars(latest_stmt)).first()
+
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "reading_count": int(row.count or 0),
+        "avg_systolic_mmhg": round_or_none(row.avg_sys),
+        "min_systolic_mmhg": round_or_none(row.min_sys),
+        "max_systolic_mmhg": round_or_none(row.max_sys),
+        "avg_diastolic_mmhg": round_or_none(row.avg_dia),
+        "min_diastolic_mmhg": round_or_none(row.min_dia),
+        "max_diastolic_mmhg": round_or_none(row.max_dia),
+        "avg_pulse_bpm": round_or_none(row.avg_pulse),
+        "latest": _blood_pressure_dict(latest) if latest else None,
     }
 
 
@@ -167,12 +242,14 @@ async def _nutrition_summary(*, start_date: date, end_date: date) -> dict[str, A
 
 
 def register_record_tools(mcp: MCPServer) -> None:
-    """Register body and nutrition tools on ``mcp``."""
+    """Register body, blood pressure, and nutrition tools on ``mcp``."""
 
     @mcp.tool()
     async def get_body_summary(start_date: str, end_date: str) -> dict[str, Any]:
-        """Summarize body measurements (weight min/max/avg, average fat % and
-        muscle mass, latest weigh-in) for a local date range."""
+        """Summarize body measurements (weight min/max/avg, average fat %,
+        muscle mass, bone mass, body water % and visceral fat rating, latest
+        weigh-in) for a local date range. Fields a scale doesn't measure are
+        null."""
         return await _body_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -182,8 +259,9 @@ def register_record_tools(mcp: MCPServer) -> None:
     async def list_body_measurements(
         start_date: str, end_date: str, limit: int | None = None
     ) -> dict[str, Any]:
-        """List body measurements (weight, fat %, muscle mass) in a local date
-        range, newest first. At most ``limit`` rows (default 25, max 100)."""
+        """List body measurements (weight, fat %, muscle mass, bone mass, body
+        water %, visceral fat rating) in a local date range, newest first. At
+        most ``limit`` rows (default 25, max 100)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
@@ -226,8 +304,9 @@ def register_record_tools(mcp: MCPServer) -> None:
         period_b_start: str,
         period_b_end: str,
     ) -> dict[str, Any]:
-        """Compare average weight, fat %, and muscle mass between two local
-        date ranges. Period A is the baseline; ``delta_b_minus_a`` is B minus A.
+        """Compare average weight, fat %, muscle mass, bone mass, body water %
+        and visceral fat rating between two local date ranges. Period A is the
+        baseline; ``delta_b_minus_a`` is B minus A.
         """
         a = await _body_summary(
             start_date=required_date(period_a_start, "period_a_start"),
@@ -241,6 +320,44 @@ def register_record_tools(mcp: MCPServer) -> None:
             "period_a": a,
             "period_b": b,
             "delta_b_minus_a": period_deltas(a, b, BODY_DELTA_FIELDS),
+        }
+
+    @mcp.tool()
+    async def get_blood_pressure_summary(
+        start_date: str, end_date: str
+    ) -> dict[str, Any]:
+        """Summarize blood pressure readings (systolic and diastolic
+        average/min/max in mmHg, average pulse, latest reading) for a local
+        date range."""
+        return await _blood_pressure_summary(
+            start_date=required_date(start_date, "start_date"),
+            end_date=required_date(end_date, "end_date"),
+        )
+
+    @mcp.tool()
+    async def list_blood_pressure_readings(
+        start_date: str, end_date: str, limit: int | None = None
+    ) -> dict[str, Any]:
+        """List blood pressure readings (systolic, diastolic, pulse) in a
+        local date range, newest first. At most ``limit`` rows (default 25,
+        max 100)."""
+        start = required_date(start_date, "start_date")
+        end = required_date(end_date, "end_date")
+        stmt = _visible_between(
+            select(BloodPressureReading)
+            .order_by(BloodPressureReading.measured_at.desc())
+            .limit(clamp_limit(limit)),
+            BloodPressureReading,
+            start,
+            end,
+        )
+        async with readonly_session() as session:
+            rows = (await session.scalars(stmt)).all()
+        return {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "count": len(rows),
+            "readings": [_blood_pressure_dict(row) for row in rows],
         }
 
     @mcp.tool()

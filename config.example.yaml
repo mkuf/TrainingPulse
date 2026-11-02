@@ -62,7 +62,7 @@ athlete:
 #   google_health   activities, sleep, wellness, intraday
 #   hammerhead      activities
 #   garmin          activities, body, sleep, wellness, intraday
-#   withings        body
+#   withings        body, sleep, wellness, intraday, blood_pressure
 #   fddb            nutrition
 
 providers:
@@ -119,9 +119,15 @@ providers:
     api_key: ${GARMIN_PERSONAL_API_KEY:-}
     api_base: https://personal.connectapi.garmin.com
 
-  # Withings — body weight, fat %, and muscle mass from Withings scales.
+  # Withings — body measurements from Withings scales, blood pressure from
+  # Withings monitors, and sleep, wellness, and intraday data from Withings
+  # watches and sleep trackers.
   # Create an app in the Withings Partner Hub; its callback URL must be
   # {app.base_url}/plugins/withings/get_token (unchanged from earlier releases).
+  #
+  # Connecting asks only for the scopes of the imported kinds; sleep, wellness,
+  # and intraday need user.activity. After adding a kind to `imports`,
+  # reconnect from the status page.
   withings:
     enabled: false
     client_id: ""
@@ -165,6 +171,8 @@ data:
     precedence: [icu, strava, google_health, hammerhead, garmin]
     history_days: 3650
     refresh_days: 90
+  # Weight, fat %, muscle mass, and, from smart scales, bone mass, body water %,
+  # and visceral fat rating.
   body:
     precedence: [withings, garmin]
     history_days: 3650
@@ -175,23 +183,28 @@ data:
     refresh_days: 7
   # One main sleep per night: times, stage totals and timeline, naps.
   sleep:
-    precedence: [garmin, google_health]
+    precedence: [garmin, withings, google_health]
     history_days: 3650
     refresh_days: 7
   # Daily recovery values: resting heart rate, HRV, respiration, SpO2, skin
   # temperature deviation, steps, calories. An imported resting heart rate
   # replaces athlete.rest_hr (median of the last 7 days).
   wellness:
-    precedence: [garmin, google_health]
+    precedence: [garmin, withings, google_health]
     history_days: 3650
     refresh_days: 7
   # Heart rate (two-minute averages), HRV (every 5 min asleep), and SpO2
   # samples. Garmin needs two requests per day, so the default history is
   # short; raise history_days for a longer backfill.
   intraday:
-    precedence: [garmin, google_health]
+    precedence: [garmin, withings, google_health]
     history_days: 30
     refresh_days: 1
+  # Systolic and diastolic pressure and pulse from blood pressure monitors.
+  blood_pressure:
+    precedence: [withings]
+    history_days: 3650
+    refresh_days: 7
 
 sync:
   interval_minutes: 15

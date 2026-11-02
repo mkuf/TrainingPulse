@@ -69,6 +69,8 @@ async def test_every_mcp_tool_answers(seeded):
             "list_body_measurements": {**period, "limit": 5},
             "get_latest_body_measurement": {},
             "compare_body_periods": periods,
+            "get_blood_pressure_summary": period,
+            "list_blood_pressure_readings": {**period, "limit": 5},
             "get_nutrition_summary": period,
             "list_daily_nutrition": {**period, "limit": 5},
             "compare_nutrition_periods": periods,
@@ -90,6 +92,11 @@ async def test_every_mcp_tool_answers(seeded):
         assert {tool.name for tool in tools} == set(calls)
         for tool, arguments in calls.items():
             await _call(client, tool, **arguments)
+
+        pressure = await _call(client, "list_blood_pressure_readings", **period, limit=5)
+        assert pressure["readings"], pressure
+        body = await _call(client, "get_body_summary", **period)
+        assert body["avg_body_water_pct"] is not None, body
 
 
 async def test_mcp_tool_errors_reach_the_client(seeded):

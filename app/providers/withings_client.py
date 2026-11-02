@@ -6,7 +6,7 @@ invalid or expired token, 601 is "too many requests". Its refresh tokens
 rotate, so every refresh response's ``refresh_token`` must be stored.
 
 Tokens live in ``oauth_tokens`` with ``provider = 'withings'``; the Withings
-user id goes in ``external_user_id``.
+user id goes in ``external_user_id`` and the granted scopes in ``scopes``.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Iterable
 from urllib.parse import urlencode
 
 import httpx
@@ -32,7 +33,23 @@ PROVIDER = "withings"
 OAUTH_AUTH_URL = "https://account.withings.com/oauth2_user/authorize2"
 OAUTH_TOKEN_URL = "https://wbsapi.withings.net/v2/oauth2"
 MEASURE_URL = "https://wbsapi.withings.net/measure"
-SCOPES = "user.metrics,user.info"
+MEASURE_V2_URL = "https://wbsapi.withings.net/v2/measure"
+SLEEP_URL = "https://wbsapi.withings.net/v2/sleep"
+
+SCOPE_INFO = "user.info"
+SCOPE_METRICS = "user.metrics"
+#: Daily activity, intraday samples, workouts, and sleep.
+SCOPE_ACTIVITY = "user.activity"
+#: Scopes each data kind needs. ``user.info`` is always requested.
+KIND_SCOPES: dict[str, frozenset[str]] = {
+    "body": frozenset({SCOPE_METRICS}),
+    "blood_pressure": frozenset({SCOPE_METRICS}),
+    "sleep": frozenset({SCOPE_ACTIVITY}),
+    "wellness": frozenset({SCOPE_ACTIVITY}),
+    "intraday": frozenset({SCOPE_ACTIVITY}),
+}
+#: Granted to every token stored before scopes were recorded.
+LEGACY_SCOPES = frozenset({SCOPE_INFO, SCOPE_METRICS})
 
 #: ``status`` values in the response envelope.
 _STATUS_OK = 0
@@ -41,6 +58,21 @@ _STATUS_TOO_MANY_REQUESTS = 601
 
 #: Withings allows 120 requests per minute and documents no reset header.
 _RATE_LIMIT_RESET = 60.0
+
+
+def scopes_for(kinds: Iterable[str]) -> str:
+    """Comma-separated scopes to request for the imported ``kinds``."""
+    needed = {SCOPE_INFO}
+    for kind in kinds:
+        needed |= KIND_SCOPES.get(str(kind), frozenset())
+    return ",".join(sorted(needed))
+
+
+def _scope_list(raw: object) -> str | None:
+    """Withings' comma-separated ``scope`` as the stored space-separated form."""
+    if not raw:
+        return None
+    return " ".join(part.strip() for part in str(raw).split(",") if part.strip())
 
 
 class WithingsError(RuntimeError):
@@ -75,12 +107,12 @@ class WithingsClient:
 
     # ── OAuth ───────────────────────────────────────────────────────
 
-    def authorization_url(self, state: str) -> str:
+    def authorization_url(self, *, scopes: str, state: str) -> str:
         params = {
             "response_type": "code",
             "client_id": self.client_id,
             "state": state,
-            "scope": SCOPES,
+            "scope": scopes,
             "redirect_uri": self.redirect_uri,
         }
         return f"{OAUTH_AUTH_URL}?{urlencode(params)}"
@@ -121,11 +153,13 @@ class WithingsClient:
             refresh_token=body["refresh_token"],
             expires_at=int(time.time()) + int(body.get("expires_in", 10800)),
             external_user_id=external_user_id,
+            scopes=_scope_list(body.get("scope")),
         )
         set_ = {
             "access_token": stmt.excluded.access_token,
             "refresh_token": stmt.excluded.refresh_token,
             "expires_at": stmt.excluded.expires_at,
+            "scopes": stmt.excluded.scopes,
         }
         if external_user_id is not None:
             set_["external_user_id"] = stmt.excluded.external_user_id
@@ -141,6 +175,15 @@ class WithingsClient:
 
     async def is_connected(self) -> bool:
         return (await self._get_token()) is not None
+
+    async def granted_scopes(self) -> frozenset[str]:
+        """Scopes of the stored token; empty when not connected."""
+        token = await self._get_token()
+        if token is None:
+            return frozenset()
+        if token.scopes is None:
+            return LEGACY_SCOPES
+        return frozenset(token.scopes.split())
 
     async def get_external_user_id(self) -> str | None:
         token = await self._get_token()
@@ -168,6 +211,8 @@ class WithingsClient:
         token.access_token = body["access_token"]
         token.refresh_token = body.get("refresh_token", token.refresh_token)
         token.expires_at = int(time.time()) + int(body.get("expires_in", 10800))
+        if body.get("scope"):
+            token.scopes = _scope_list(body["scope"])
         await self.session.commit()
 
     async def _ensure_valid_token(self, *, force_refresh: bool = False) -> str:
@@ -223,3 +268,59 @@ class WithingsClient:
         if offset is not None:
             data["offset"] = offset
         return await self._call(MEASURE_URL, data)
+
+    async def get_activity(
+        self, *, startdateymd: str, enddateymd: str, offset: int | None = None
+    ) -> dict:
+        """One page of ``getactivity``: daily totals for local dates, inclusive."""
+        data: dict = {
+            "action": "getactivity",
+            "startdateymd": startdateymd,
+            "enddateymd": enddateymd,
+            "data_fields": "steps,calories,totalcalories",
+        }
+        if offset is not None:
+            data["offset"] = offset
+        return await self._call(MEASURE_V2_URL, data)
+
+    async def get_intraday_activity(self, *, startdate: int, enddate: int) -> dict:
+        """``getintradayactivity`` for at most 24 hours from ``startdate``."""
+        return await self._call(
+            MEASURE_V2_URL,
+            {
+                "action": "getintradayactivity",
+                "startdate": startdate,
+                "enddate": enddate,
+                "data_fields": "heart_rate,rmssd,spo2_auto",
+            },
+        )
+
+    async def get_sleep_summary(
+        self, *, startdateymd: str, enddateymd: str, offset: int | None = None
+    ) -> dict:
+        """One page of sleep ``getsummary`` for local dates, inclusive."""
+        data: dict = {
+            "action": "getsummary",
+            "startdateymd": startdateymd,
+            "enddateymd": enddateymd,
+            "data_fields": (
+                "total_sleep_time,asleepduration,lightsleepduration,"
+                "deepsleepduration,remsleepduration,wakeupduration,rr_average"
+            ),
+        }
+        if offset is not None:
+            data["offset"] = offset
+        return await self._call(SLEEP_URL, data)
+
+    async def get_sleep(self, *, startdate: int, enddate: int) -> dict:
+        """Sleep ``get``: stage segments with their heart rate and HRV, for at
+        most 24 hours from ``startdate``."""
+        return await self._call(
+            SLEEP_URL,
+            {
+                "action": "get",
+                "startdate": startdate,
+                "enddate": enddate,
+                "data_fields": "hr,rmssd",
+            },
+        )

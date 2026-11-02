@@ -246,6 +246,42 @@ class BodyMeasurement(Base):
     weight_kg: Mapped[float] = mapped_column(Float, nullable=False)
     fat_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     muscle_mass_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bone_mass_kg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Body water as a share of body weight.
+    body_water_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: The scale's visceral fat rating, without a unit.
+    visceral_fat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    device: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class BloodPressureReading(Base):
+    """One blood pressure reading from any provider that supplies them.
+
+    ``superseded_by`` works as for :class:`BodyMeasurement`;
+    ``active_blood_pressure_readings`` holds the visible rows.
+    """
+
+    __tablename__ = "blood_pressure_readings"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_id", name="uq_bp_provider_external"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    external_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    measured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    #: Calendar day of ``measured_at`` in ``athlete.timezone``; the unit of
+    #: deduplication.
+    day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    systolic_mmhg: Mapped[float] = mapped_column(Float, nullable=False)
+    diastolic_mmhg: Mapped[float] = mapped_column(Float, nullable=False)
+    pulse_bpm: Mapped[float | None] = mapped_column(Float, nullable=True)
     device: Mapped[str | None] = mapped_column(String(128), nullable=True)
     superseded_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(

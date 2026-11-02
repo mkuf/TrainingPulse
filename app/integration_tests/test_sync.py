@@ -39,6 +39,32 @@ async def test_schema_migration_is_idempotent(empty_database):
         assert set(views) == set(_ACTIVE_VIEWS)
 
 
+async def test_body_composition_columns_are_added_to_an_existing_table(
+    empty_database,
+):
+    from config import config
+
+    async with engine.begin() as conn:
+        await ensure_schema(conn, timezone=config.athlete.timezone)
+        await conn.execute(text("DROP VIEW active_body_measurements"))
+        for column in ("bone_mass_kg", "body_water_pct", "visceral_fat"):
+            await conn.execute(
+                text(f"ALTER TABLE body_measurements DROP COLUMN {column}")
+            )
+        await ensure_schema(conn, timezone=config.athlete.timezone)
+        columns = set(
+            (
+                await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'active_body_measurements'"
+                    )
+                )
+            ).scalars()
+        )
+        assert {"bone_mass_kg", "body_water_pct", "visceral_fat"} <= columns
+
+
 async def test_full_sync_stores_and_derives(empty_database, upstream):
     async with async_session() as session:
         await run_sync(session)

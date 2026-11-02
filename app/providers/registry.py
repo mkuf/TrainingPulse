@@ -86,6 +86,8 @@ def _build_withings(config: Config, session_factory: async_sessionmaker) -> Prov
         client_secret=section.client_secret,
         app_base_url=config.app.base_url,
         redirect_uri=section.redirect_uri,
+        imports=config.providers.imports_of("withings"),
+        timezone=config.athlete.timezone,
     )
 
 

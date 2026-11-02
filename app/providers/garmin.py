@@ -235,9 +235,9 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
 def map_weight_metric(metric: dict) -> BodyRecord | None:
     """Map one ``allWeightMetrics`` entry onto a body record.
 
-    Garmin reports weight and muscle mass in grams. ``timestampGMT`` is a true
-    UTC epoch in milliseconds; ``date`` is local wall-clock time and is only a
-    fallback.
+    Garmin reports weight, muscle mass, and bone mass in grams and body water
+    as a percentage. ``timestampGMT`` is a true UTC epoch in milliseconds;
+    ``date`` is local wall-clock time and is only a fallback.
     """
     weight_g = as_float(metric.get("weight"))
     sample_id = metric.get("samplePk")
@@ -245,12 +245,16 @@ def map_weight_metric(metric: dict) -> BodyRecord | None:
     if not weight_g or sample_id is None or measured_ms is None:
         return None
     muscle_g = as_float(metric.get("muscleMass"))
+    bone_g = as_float(metric.get("boneMass"))
     return BodyRecord(
         external_id=str(sample_id),
         measured_at=datetime.fromtimestamp(measured_ms / 1000.0, tz=timezone.utc),
         weight_kg=round(weight_g / 1000.0, 3),
         fat_pct=as_float(metric.get("bodyFat")),
         muscle_mass_kg=round(muscle_g / 1000.0, 3) if muscle_g else None,
+        bone_mass_kg=round(bone_g / 1000.0, 3) if bone_g else None,
+        body_water_pct=as_float(metric.get("bodyWater")) or None,
+        visceral_fat=as_float(metric.get("visceralFat")) or None,
         device=clip_text(metric.get("sourceType"), 128),
     )
 

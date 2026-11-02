@@ -15,7 +15,7 @@ The user manuals use ASD-STE100 Simplified Technical English.
 - [Strava](providers/strava.md): activities
 - [Google Health](providers/google-health.md): activities
 - [Hammerhead](providers/hammerhead.md): activities
-- [Withings](providers/withings.md): body
+- [Withings](providers/withings.md): body, blood pressure, sleep, wellness, intraday
 - [FDDB](providers/fddb.md): nutrition
 
 ## Developer reference

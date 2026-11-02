@@ -14,6 +14,20 @@ An upgrade keeps your activity history. TrainingPulse changes the database schem
    docker compose up -d --build
    ```
 
+## From a release with Withings body data only
+
+Withings now also gives sleep, wellness, and intraday data. If the `withings` block in `config.yaml` has no `imports` list, TrainingPulse imports these kinds too. They need more access than your Withings connection has.
+
+1. Start the stack.
+2. Open the status page.
+3. Click **Connect** on the Withings card and accept the access request.
+
+Until you connect again, TrainingPulse imports body and blood pressure data and the status page asks you to reconnect. To keep only these, set `imports: [body, blood_pressure]` in the `withings` block.
+
+Blood pressure readings from a Withings monitor are a new data kind, `blood_pressure`. They need no new access.
+
+Body measurements get three new columns: `bone_mass_kg`, `body_water_pct`, and `visceral_fat`. TrainingPulse adds them when it starts. Weigh-ins of the last `refresh_days` days get the values with the next sync. To fill older weigh-ins, click **Start full resync** on the status page.
+
 ## From a release with provider scores
 
 TrainingPulse does not keep scores that only one provider calculates.

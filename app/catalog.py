@@ -29,6 +29,8 @@ class DataKind(StrEnum):
     WELLNESS = "wellness"
     #: Timestamped samples through the day and night (heart rate, HRV, ...).
     INTRADAY = "intraday"
+    #: Readings from a blood pressure monitor.
+    BLOOD_PRESSURE = "blood_pressure"
 
 
 class Dedup(StrEnum):
@@ -90,6 +92,7 @@ KINDS: dict[DataKind, KindSpec] = {
         # Samples cost a request per day and metric, so the default history is
         # short. Today's samples keep growing, hence the one-day refresh.
         KindSpec(DataKind.INTRADAY, "Intraday samples", Dedup.PER_DAY, 30, 1),
+        KindSpec(DataKind.BLOOD_PRESSURE, "Blood pressure", Dedup.PER_DAY, 3650, 7),
     )
 }
 
@@ -124,7 +127,18 @@ PROVIDERS: dict[str, ProviderSpec] = {
                 DataKind.INTRADAY,
             ),
         ),
-        ProviderSpec("withings", "Withings", AuthMethod.OAUTH, (DataKind.BODY,)),
+        ProviderSpec(
+            "withings",
+            "Withings",
+            AuthMethod.OAUTH,
+            (
+                DataKind.BODY,
+                DataKind.SLEEP,
+                DataKind.WELLNESS,
+                DataKind.INTRADAY,
+                DataKind.BLOOD_PRESSURE,
+            ),
+        ),
         ProviderSpec("fddb", "FDDB", AuthMethod.SESSION, (DataKind.NUTRITION,)),
     )
 }
@@ -141,6 +155,7 @@ DEFAULT_PRECEDENCE: dict[DataKind, tuple[str, ...]] = {
     DataKind.SLEEP: ("garmin", "withings", "google_health", "icu"),
     DataKind.WELLNESS: ("garmin", "withings", "google_health", "icu"),
     DataKind.INTRADAY: ("garmin", "withings", "google_health"),
+    DataKind.BLOOD_PRESSURE: ("withings",),
 }
 
 

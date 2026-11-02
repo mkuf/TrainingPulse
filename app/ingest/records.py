@@ -26,6 +26,7 @@ from catalog import DataKind
 from ingest.activities import date_windows
 from ingest.state import SyncState
 from models import (
+    BloodPressureReading,
     BodyMeasurement,
     DailyNutrition,
     DailyWellness,
@@ -34,6 +35,7 @@ from models import (
     WellnessSample,
 )
 from providers.feeds import (
+    BloodPressureRecord,
     BodyRecord,
     NutritionRecord,
     RecordFeed,
@@ -61,6 +63,24 @@ def _body_values(record: BodyRecord, provider: str, tz: ZoneInfo) -> dict[str, A
         "weight_kg": record.weight_kg,
         "fat_pct": record.fat_pct,
         "muscle_mass_kg": record.muscle_mass_kg,
+        "bone_mass_kg": record.bone_mass_kg,
+        "body_water_pct": record.body_water_pct,
+        "visceral_fat": record.visceral_fat,
+        "device": record.device,
+    }
+
+
+def _blood_pressure_values(
+    record: BloodPressureRecord, provider: str, tz: ZoneInfo
+) -> dict[str, Any]:
+    return {
+        "provider": provider,
+        "external_id": record.external_id,
+        "measured_at": record.measured_at,
+        "day": record.measured_at.astimezone(tz).date(),
+        "systolic_mmhg": record.systolic_mmhg,
+        "diastolic_mmhg": record.diastolic_mmhg,
+        "pulse_bpm": record.pulse_bpm,
         "device": record.device,
     }
 
@@ -155,6 +175,12 @@ STORES: dict[DataKind, RecordStore] = {
         WellnessSample,
         ("provider", "metric", "measured_at"),
         _sample_values,
+    ),
+    DataKind.BLOOD_PRESSURE: RecordStore(
+        DataKind.BLOOD_PRESSURE,
+        BloodPressureReading,
+        ("provider", "external_id"),
+        _blood_pressure_values,
     ),
 }
 

@@ -114,6 +114,7 @@ KIND_UNITS: dict[DataKind, tuple[str, str]] = {
     DataKind.WELLNESS: ("day", "days"),
     # Sample counts mean nothing to a reader; days with samples do.
     DataKind.INTRADAY: ("day", "days"),
+    DataKind.BLOOD_PRESSURE: ("reading", "readings"),
 }
 
 SHOWN_KINDS: tuple[DataKind, ...] = (DataKind.ACTIVITIES, *RECORD_KINDS)

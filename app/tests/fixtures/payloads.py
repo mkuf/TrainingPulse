@@ -672,3 +672,98 @@ GARMIN_SPO2_DAY = {
         [1793322000000, 96, None],
     ],
 }
+
+# ── Withings ────────────────────────────────────────────────────────
+#
+# Shaped after the Withings API reference samples, with only the requested
+# data_fields; not yet recorded from a real account.
+
+#: A night on a ScanWatch, Europe/Berlin: 22:40–06:10 local.
+WITHINGS_SLEEP_NIGHT = {
+    "id": 3812345678,
+    "timezone": "Europe/Berlin",
+    "model": 16,
+    "model_id": 93,
+    "startdate": 1793137200,
+    "enddate": 1793164200,
+    "date": "2026-10-28",
+    "created": 1793164800,
+    "modified": 1793164800,
+    "completed": True,
+    "data": {
+        "total_sleep_time": 27000,
+        "lightsleepduration": 15600,
+        "deepsleepduration": 5400,
+        "remsleepduration": 6000,
+        "wakeupduration": 1200,
+        "rr_average": 14,
+    },
+}
+
+#: An afternoon nap the same day, 13:30–14:05 local.
+WITHINGS_SLEEP_NAP = {
+    "id": 3812399999,
+    "timezone": "Europe/Berlin",
+    "model": 16,
+    "model_id": 93,
+    "startdate": 1793190600,
+    "enddate": 1793192700,
+    "date": "2026-10-28",
+    "data": {"total_sleep_time": 1800, "lightsleepduration": 1800, "wakeupduration": 0},
+}
+
+#: Sleep ``get`` for the night: stage segments, each with its own readings.
+WITHINGS_SLEEP_SEGMENTS = [
+    {
+        "startdate": 1793137200,
+        "enddate": 1793137920,
+        "state": 0,
+        "model": "ScanWatch 2",
+        "model_id": 93,
+        "hr": {"1793137200": 62},
+    },
+    {
+        "startdate": 1793137920,
+        "enddate": 1793143800,
+        "state": 1,
+        "model": "ScanWatch 2",
+        "model_id": 93,
+        "hr": {"1793137920": 58, "1793137980": 56},
+        "rmssd": {"1793137920": 48},
+    },
+    {"startdate": 1793143800, "enddate": 1793149200, "state": 2},
+    {"startdate": 1793149200, "enddate": 1793163000, "state": 3},
+    {"startdate": 1793163000, "enddate": 1793164200, "state": 0},
+]
+
+WITHINGS_ACTIVITY_DAY = {
+    "date": "2026-10-28",
+    "timezone": "Europe/Berlin",
+    "deviceid": None,
+    "hash_deviceid": None,
+    "brand": 18,
+    "is_tracker": True,
+    "modified": 1793228000,
+    "steps": 8421,
+    "calories": 512.3,
+    "totalcalories": 2380.6,
+}
+
+#: A day nothing was worn: only Withings' passive calorie estimate.
+WITHINGS_ACTIVITY_NOT_WORN = {
+    "date": "2026-10-29",
+    "timezone": "Europe/Berlin",
+    "is_tracker": True,
+    "steps": 0,
+    "calories": 0,
+    "totalcalories": 1650.2,
+}
+
+#: ``getintradayactivity`` series: 08:00, 08:01 and 08:03:30 UTC heart rate,
+#: one HRV and one SpO2 reading.
+WITHINGS_INTRADAY_SERIES = {
+    "1793174400": {"deviceid": "d1", "model": "ScanWatch 2", "model_id": 93, "heart_rate": 64},
+    "1793174460": {"deviceid": "d1", "model": "ScanWatch 2", "model_id": 93, "heart_rate": 68, "rmssd": 41},
+    "1793174610": {"deviceid": "d1", "model": "ScanWatch 2", "model_id": 93, "heart_rate": 70},
+    "1793175000": {"deviceid": "d1", "model": "ScanWatch 2", "model_id": 93, "steps": 12, "spo2_auto": 97},
+}

@@ -198,6 +198,24 @@ def test_weight_metric_maps_grams_to_kilograms():
     )
 
 
+def test_index_scale_body_composition_is_mapped():
+    # Field names from Garmin Connect's weight service; an Index scale reading
+    # has not been recorded from the Personal API yet.
+    metric = {
+        **payloads.GARMIN_WEIGHT_METRIC,
+        "boneMass": 3420.0,
+        "bodyWater": 56.8,
+        "visceralFat": 7.0,
+    }
+    record = garmin.map_weight_metric(metric)
+
+    assert (record.bone_mass_kg, record.body_water_pct, record.visceral_fat) == (
+        3.42,
+        56.8,
+        7.0,
+    )
+
+
 def test_weight_metric_without_weight_is_skipped():
     metric = {**payloads.GARMIN_WEIGHT_METRIC, "weight": None}
     assert garmin.map_weight_metric(metric) is None

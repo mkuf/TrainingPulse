@@ -482,6 +482,22 @@ def _stream_metrics(
 
 
 #: View name → (table, condition). Each holds only the visible rows.
+async def _add_body_composition_columns(conn: AsyncConnection) -> None:
+    """Add bone mass, body water and visceral fat to ``body_measurements``.
+
+    Weigh-ins synced before them stay NULL until they are listed again.
+    """
+    if not await _table_exists(conn, "body_measurements"):
+        return
+    for column in ("bone_mass_kg", "body_water_pct", "visceral_fat"):
+        if await _column_exists(conn, "body_measurements", column):
+            continue
+        await conn.execute(
+            text(f"ALTER TABLE body_measurements ADD COLUMN {column} FLOAT")
+        )
+        logger.info("Added body_measurements.%s column", column)
+
+
 _ACTIVE_VIEWS = {
     "active_activities": (
         "activities",
@@ -492,6 +508,10 @@ _ACTIVE_VIEWS = {
     "active_sleep_sessions": ("sleep_sessions", "superseded_by IS NULL"),
     "active_daily_wellness": ("daily_wellness", "superseded_by IS NULL"),
     "active_wellness_samples": ("wellness_samples", "superseded_by IS NULL"),
+    "active_blood_pressure_readings": (
+        "blood_pressure_readings",
+        "superseded_by IS NULL",
+    ),
 }
 
 
@@ -657,6 +677,7 @@ async def ensure_schema(conn: AsyncConnection, *, timezone: str = "UTC") -> None
     await _add_deleted_upstream_at(conn)
     await _add_computed_energy(conn)
     await _add_activity_summary_columns(conn)
+    await _add_body_composition_columns(conn)
     await _adopt_core_activity_metrics(conn)
     await _migrate_withings_plugin(conn, timezone)
     await _migrate_fddb_plugin(conn)

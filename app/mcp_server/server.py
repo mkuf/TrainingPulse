@@ -38,6 +38,7 @@ from models import (
     Activity,
     ActivityStream,
     AthleteSettings,
+    BloodPressureReading,
     BodyMeasurement,
     DailyMetrics,
     DailyNutrition,
@@ -56,7 +57,7 @@ mcp = MCPServer(
     instructions=(
         "Read-only access to TrainingPulse: activities, training load "
         "(CTL/ATL/TSB), the athlete profile, gear, body measurements, "
-        "nutrition, and data coverage. Data from several providers is "
+        "blood pressure, nutrition, and data coverage. Data from several providers is "
         "deduplicated, so each workout or day is counted once. All dates are "
         f"local calendar days in {config.athlete.timezone}, and date ranges "
         "include both ends. compare_* tools treat period A as the baseline and "
@@ -704,6 +705,7 @@ async def get_data_coverage() -> dict[str, Any]:
         sleep = await _record_coverage(session, SleepSession)
         wellness = await _record_coverage(session, DailyWellness)
         intraday = await _record_coverage(session, WellnessSample)
+        blood_pressure = await _record_coverage(session, BloodPressureReading)
         by_metric = (
             await session.execute(
                 select(WellnessSample.metric, func.count(WellnessSample.id))
@@ -750,6 +752,7 @@ async def get_data_coverage() -> dict[str, Any]:
         "sleep": sleep,
         "wellness": wellness,
         "intraday": intraday,
+        "blood_pressure": blood_pressure,
         "scores": {
             "days_with_sleep_score": int(scored[0] or 0),
             "days_with_recovery_score": int(scored[1] or 0),

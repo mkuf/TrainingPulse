@@ -16,7 +16,7 @@ Make sure that you have these items:
 | Strava | activities | [Strava](providers/strava.md) |
 | Google Health | activities | [Google Health](providers/google-health.md) |
 | Hammerhead | activities | [Hammerhead](providers/hammerhead.md) |
-| Withings | body (weight, fat %, muscle mass) | [Withings](providers/withings.md) |
+| Withings | body (weight, fat %, muscle mass, bone mass, body water, visceral fat), blood pressure, sleep, wellness, intraday | [Withings](providers/withings.md) |
 | FDDB | nutrition (kcal, macros) | [FDDB](providers/fddb.md) |
 
 ## 1. Write the configuration

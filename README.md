@@ -4,7 +4,7 @@
 
 # TrainingPulse
 
-Self-hosted sync and dashboards for your training: activities from **intervals.icu**, **Strava**, **Google Health**, **Hammerhead** (Karoo bike computers), and **Garmin Connect**, body weight from **Withings** and **Garmin Connect**, nutrition from **FDDB**, and sleep, HRV, resting heart rate, and SpO2 from **Garmin Connect** and **Google Health**, with sleep and recovery scores that work the same for every device. PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
+Self-hosted sync and dashboards for your training: activities from **intervals.icu**, **Strava**, **Google Health**, **Hammerhead** (Karoo bike computers), and **Garmin Connect**, body weight from **Withings** and **Garmin Connect**, nutrition from **FDDB**, and sleep, HRV, resting heart rate, and SpO2 from **Garmin Connect**, **Withings**, and **Google Health**, with sleep and recovery scores that work the same for every device. PostgreSQL storage, training-load metrics (**TRIMP**, CTL, ATL, TSB, FTP estimates), and Grafana visualization.
 
 ## Trademarks and API use
 
@@ -54,7 +54,7 @@ Start with [Setup](docs/setup.md). Then set up each provider that you use:
 | Google Health | activities, sleep, wellness, intraday | [Google Health](docs/providers/google-health.md) |
 | Hammerhead | activities | [Hammerhead](docs/providers/hammerhead.md) |
 | Garmin Connect | activities, body, sleep, wellness, intraday | [Garmin Connect](docs/providers/garmin.md) |
-| Withings | body (weight, fat %, muscle mass) | [Withings](docs/providers/withings.md) |
+| Withings | body (weight, fat %, muscle mass, bone mass, body water, visceral fat), blood pressure, sleep, wellness, intraday | [Withings](docs/providers/withings.md) |
 | FDDB | nutrition (kcal, macros) | [FDDB](docs/providers/fddb.md) |
 
 More manuals:

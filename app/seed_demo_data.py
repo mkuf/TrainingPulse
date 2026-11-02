@@ -25,6 +25,7 @@ All seeded rows belong to athlete id 99_999_999 with activity ids like
 
     DELETE FROM daily_nutrition   WHERE provider = 'fddb';
     DELETE FROM body_measurements WHERE external_id LIKE 'demo%';
+    DELETE FROM blood_pressure_readings WHERE external_id LIKE 'demo%';
     DELETE FROM sleep_sessions    WHERE external_id LIKE 'demo%';
     DELETE FROM daily_wellness    WHERE provider = 'google_health';
     DELETE FROM wellness_samples  WHERE provider = 'google_health';
@@ -66,6 +67,7 @@ from models import (
     Activity,
     ActivityStream,
     AthleteSettings,
+    BloodPressureReading,
     BodyMeasurement,
     DailyMetrics,
     DailyNutrition,
@@ -627,7 +629,38 @@ def generate_weight_measurements(
                 day=measured_at.astimezone(tz).date(),
                 weight_kg=weight_kg,
                 fat_pct=fat_mass_pct,
+                bone_mass_kg=round(3.1 + rng.gauss(0, 0.02), 2),
+                body_water_pct=round(58.5 + progress * 0.4 + rng.gauss(0, 0.3), 1),
+                visceral_fat=float(rng.choice([5, 5, 6])),
                 device="demo-scale",
+            )
+        )
+    return rows
+
+
+def generate_blood_pressure(
+    start_day: date,
+    days: int,
+    rng: random.Random,
+) -> list[BloodPressureReading]:
+    """Morning readings about twice a week."""
+    tz = ZoneInfo(config.athlete.timezone)
+    rows: list[BloodPressureReading] = []
+    for offset in range(days):
+        day = start_day + timedelta(days=offset)
+        if day.weekday() not in (1, 5):
+            continue
+        measured_at = datetime(day.year, day.month, day.day, 6, 45, tzinfo=timezone.utc)
+        rows.append(
+            BloodPressureReading(
+                provider=DEMO_BODY_PROVIDER,
+                external_id=f"demo{offset}",
+                measured_at=measured_at,
+                day=measured_at.astimezone(tz).date(),
+                systolic_mmhg=round(rng.gauss(121, 4)),
+                diastolic_mmhg=round(rng.gauss(78, 3)),
+                pulse_bpm=round(rng.gauss(56, 3)),
+                device="demo-monitor",
             )
         )
     return rows
@@ -830,6 +863,11 @@ async def _truncate(session: AsyncSession) -> None:
     await session.execute(
         delete(BodyMeasurement).where(BodyMeasurement.external_id.like("demo%"))
     )
+    await session.execute(
+        delete(BloodPressureReading).where(
+            BloodPressureReading.external_id.like("demo%")
+        )
+    )
     logger.info("--force: deleting demo sleep, wellness, samples, and scores")
     await session.execute(delete(SleepSession).where(SleepSession.external_id.like("demo%")))
     for model in (DailyWellness, WellnessSample):
@@ -851,13 +889,17 @@ async def _seed_records(
 
     nutrition_rows = generate_daily_nutrition(start_date, args.days, rng, hard_training_days)
     weight_rows = generate_weight_measurements(start_date, args.days, rng)
+    pressure_rows = generate_blood_pressure(start_date, args.days, rng)
     session.add_all(nutrition_rows)
     session.add_all(weight_rows)
+    session.add_all(pressure_rows)
     await session.commit()
     logger.info(
-        "Inserted %d daily_nutrition and %d body_measurements rows",
+        "Inserted %d daily_nutrition, %d body_measurements and "
+        "%d blood_pressure_readings rows",
         len(nutrition_rows),
         len(weight_rows),
+        len(pressure_rows),
     )
     sleeps, wellness, samples = generate_wellness(
         start_date, args.days, rng, hard_training_days
@@ -880,6 +922,7 @@ async def _seed_records(
         DataKind.SLEEP,
         DataKind.WELLNESS,
         DataKind.INTRADAY,
+        DataKind.BLOOD_PRESSURE,
     ):
         await recompute_daily_supersessions(
             session, kind, config.data.kind(kind).precedence

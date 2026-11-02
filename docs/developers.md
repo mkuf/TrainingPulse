@@ -9,8 +9,10 @@ intervals.icu  ─┐
 Strava         ─┤ activities
 Google Health  ─┤
 Hammerhead     ─┤                 ┌→ PostgreSQL (trainingpulse)
-Withings       ─┤ body            │    activities, body_measurements,
-FDDB           ─┘ nutrition       │    daily_nutrition + active_* views
+Withings       ─┤ body, sleep,    │    activities, body_measurements,
+                │ wellness,       │    daily_nutrition, sleep_sessions,
+                │ intraday        │    daily_wellness, wellness_samples
+FDDB           ─┘ nutrition       │    + active_* views
                   → [app/ FastAPI core] ┘
 Grafana → provisioned Postgres datasource
 MCP → same database as core
@@ -62,7 +64,7 @@ flowchart TB
 
 Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 
-- A **data kind** (`activities`, `body`, `nutrition`, `sleep`, `wellness`, `intraday`) is something TrainingPulse stores and shows. The core owns its table, its duplicate rule, its dashboards, and its MCP tools.
+- A **data kind** (`activities`, `body`, `nutrition`, `sleep`, `wellness`, `intraday`, `blood_pressure`) is something TrainingPulse stores and shows. The core owns its table, its duplicate rule, its dashboards, and its MCP tools.
 - A **provider** is an account the user connects. It authenticates once, owns one rate budget, and offers a **feed** per kind it can supply. `ProviderSpec.kinds` lists the kinds that have a working feed; config validation rejects importing anything else.
 
 | Kind | Table | Duplicate rule |
@@ -73,8 +75,9 @@ Two independent axes, both declared in [`catalog.py`](../app/catalog.py):
 | sleep | `sleep_sessions` | `PER_DAY`, keyed by the day the night ends |
 | wellness | `daily_wellness` | `PER_DAY` |
 | intraday | `wellness_samples` | `PER_DAY`, keyed by the local day of each sample |
+| blood_pressure | `blood_pressure_readings` | `PER_DAY`, keyed by the local day of each reading |
 
-The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All seven providers live in [`app/providers/`](../app/providers/). The five activity providers are each their own `ActivityFeed`; Withings and FDDB return separate `BodyFeed` / `NutritionFeed` objects, Garmin also returns body, sleep, wellness, and intraday feeds ([`garmin_wellness.py`](../app/providers/garmin_wellness.py)), and Google Health sleep, wellness, and intraday feeds ([`google_wellness.py`](../app/providers/google_wellness.py)). A provider that gains a second kind returns one more feed from `feeds()`.
+The `Provider` contract is in [`app/providers/base.py`](../app/providers/base.py) and the feed contracts in [`app/providers/feeds.py`](../app/providers/feeds.py). All seven providers live in [`app/providers/`](../app/providers/). The five activity providers are each their own `ActivityFeed`; FDDB returns a separate `NutritionFeed`, Withings body, blood pressure, sleep, wellness, and intraday feeds ([`withings_wellness.py`](../app/providers/withings_wellness.py)), Garmin also returns body, sleep, wellness, and intraday feeds ([`garmin_wellness.py`](../app/providers/garmin_wellness.py)), and Google Health sleep, wellness, and intraday feeds ([`google_wellness.py`](../app/providers/google_wellness.py)). A provider that gains a second kind returns one more feed from `feeds()`.
 
 ### Non-activity kinds
 
@@ -98,7 +101,7 @@ A `RecordFeed` only lists a window (`list_records(start, end)`) and maps each pa
 
 Which fields exist, who calculates what, and how providers are combined is set out in [Data rules](data-rules.md). In short: columns hold only standard concepts most wearables report, missing values stay `None`, proprietary scores are never mapped, and mappers never calculate; the core derives normalized power, work, TRIMP, zones, the power curve ([`ingest/activities.py`](../app/ingest/activities.py)), the sleep and recovery scores ([`app/wellness_scores.py`](../app/wellness_scores.py), formulas in [Sleep and recovery scores](sleep-and-recovery.md)) and the resting heart rate for calories ([`app/resting_hr.py`](../app/resting_hr.py)), from visible rows only. Provider summary values on activities are kept; the stream phase only fills gaps.
 
-OAuth providers whose kinds need different scopes (Google Health) report the readable kinds from `granted_kinds()`, based on the scopes stored in `oauth_tokens.scopes`. The sync skips a kind the token cannot read, and the status page asks for a reconnect.
+OAuth providers whose kinds need different scopes (Google Health, Withings) report the readable kinds from `granted_kinds()`, based on the scopes stored in `oauth_tokens.scopes`. The sync skips a kind the token cannot read, and the status page asks for a reconnect.
 
 ### Adding a data kind
 
@@ -195,11 +198,24 @@ Auth: OAuth, scope `activity:read`. Tokens live in `oauth_tokens` (`provider=ham
 
 | Method | Endpoint | Role |
 |--------|----------|------|
-| List | `POST /measure?action=getmeas&meastypes=1,6,76&category=1` | Weight, fat ratio, muscle mass; pages via `more`/`offset` |
+| Body | `POST /measure?action=getmeas&meastypes=1,6,76,77,88,170&category=1` | Weight, fat ratio, muscle mass, hydration, bone mass, visceral fat; pages via `more`/`offset` |
+| Blood pressure | `POST /measure?action=getmeas&meastypes=9,10,11&category=1` | Diastolic, systolic, pulse |
+| Sleep | `POST /v2/sleep?action=getsummary` | Nights: start, end, stage totals, awake time, `rr_average` for wellness |
+| Stages | `POST /v2/sleep?action=get` | One night's stage segments (`state` 0 awake, 1 light, 2 deep, 3 REM, 4/5 asleep) with `hr` and `rmssd` |
+| Daily activity | `POST /v2/measure?action=getactivity` | `steps`, `calories` (active), `totalcalories` |
+| Intraday | `POST /v2/measure?action=getintradayactivity` | `heart_rate`, `rmssd`, `spo2_auto`; at most 24 hours per call |
 
-Auth: OAuth, scopes `user.metrics,user.info`. Tokens live in `oauth_tokens` (`provider=withings`, Withings `userid` in `external_user_id`). Withings rotates refresh tokens, so every refresh response is stored. Its errors arrive as HTTP 200 with a non-zero `status`: 401 triggers one forced refresh and retry, and 601 raises `SourceRateLimitExceeded`. `category=1` excludes the user's goal weights.
+Auth: OAuth. `user.info` is always requested, `user.metrics` for body and blood pressure, and `user.activity` for sleep, wellness, and intraday; the connect flow asks only for the imported kinds. The granted scopes are stored in `oauth_tokens.scopes`; a token stored before that counts as `user.metrics,user.info`, so it reads body and blood pressure only until the user reconnects. Tokens live in `oauth_tokens` (`provider=withings`, Withings `userid` in `external_user_id`). Withings rotates refresh tokens, so every refresh response is stored. Its errors arrive as HTTP 200 with a non-zero `status`: 401 triggers one forced refresh and retry, and 601 raises `SourceRateLimitExceeded`. `category=1` excludes the user's goal weights.
 
 The callback stays `{app.base_url}/plugins/withings/get_token`, with `/plugins/withings/auth/callback` as a legacy alias, because Partner Hub apps registered it when Withings was a plugin. It answers `HEAD` with 200, which Partner Hub uses to validate the URL.
+
+Sleep summaries carry their own time zone, so a night's day is the local day of its `enddate`. Withings flags neither main sleep nor naps: the longest sleep ending on a day is the night, the others are summed into `nap_seconds`. Nights from an external source only have `asleepduration`. The sleep feed makes one `get` call per night for the stage timeline.
+
+Wellness takes steps and calories from `getactivity` and respiration from the night's `rr_average`. A day without steps or active calories only holds Withings' passive calorie estimate and is not mapped. Withings has no resting heart rate, nightly HRV average, daily SpO2, or skin temperature deviation, so those stay empty. Its sleep score, Withings index, breathing disturbances, and temperature status are not mapped.
+
+Intraday makes two calls per day: `getintradayactivity` (a watch) and sleep `get` (a watch or a Sleep Analyzer mat, whose readings only come from there). The mat's heart rate and HRV fill only sleep segments where the watch has no reading, so one stretch never mixes two devices. Withings has no rollup, so heart rate is averaged into `HEART_RATE_WINDOW_SECONDS` windows by `feeds.heart_rate_windows`. HRV and SpO2 keep their native resolution.
+
+Bone mass, body water, visceral fat, and blood pressure are device measurements that most smart scale and blood pressure monitor vendors report, Garmin and Withings among them (see [Data rules](data-rules.md), rule 1). Withings reports hydration in kilograms; the mapper stores it as a share of the same weigh-in's weight, as Garmin reports it. A blood pressure group needs both systolic and diastolic pressure, so a weigh-in's pulse is never taken for a reading. Fat-free mass (only Withings), and BMR, metabolic age, vascular age, nerve health, and VO2 max (Withings estimates) are not mapped. Garmin's Personal API has no blood pressure endpoint, so Garmin supplies bone mass, body water (`bodyWater`, %), and visceral fat (`visceralFat`) on body only; those field names come from Garmin Connect's weight service and still need checking against an Index scale reading.
 
 ### FDDB
 
@@ -387,6 +403,7 @@ A `DeprecationWarning` fails the tests (`filterwarnings` in [`pytest.ini`](../ap
 - `tests/test_fitfiles.py` — generic FIT-file analyzer: stream/summary derivation and message dispatch, against faked `fitdecode` frames
 - `tests/test_ingest_activities.py` — `choose_winners` precedence and overlap rules, date windows, reconcile diffing
 - `tests/test_garmin.py`, `tests/test_garmin_wellness.py`, `tests/test_google_wellness.py` — Garmin and Google Health mappers, feeds, scopes, pacing, and retries against recorded responses
+- `tests/test_withings_wellness.py` — Withings sleep, wellness, and intraday mappers, feeds, and scopes, against payloads shaped after the API reference
 - `tests/test_wellness_scores.py` — sleep and recovery score parts, baselines, and bedtime regularity
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers
 - `integration_tests/test_sync.py` — schema creation and its idempotency, and full syncs against Postgres: intervals.icu and FDDB answered from recorded payloads through `httpx.MockTransport`, then detail, streams, derived metrics, re-sync, and an activity gone upstream
@@ -416,7 +433,7 @@ docker build -f app/Dockerfile --target runtime -t trainingpulse:smoke .
 
 ## Demo data
 
-[`app/seed_demo_data.py`](../app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), with GPS loops for outdoor activities, including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`), weigh-ins (`provider=withings`, `external_id` `demo…`), and sleep with stage timelines, daily wellness, and the last 30 days of intraday samples (`provider=google_health`), followed by the derived sleep and recovery scores. OAuth token tables are never touched.
+[`app/seed_demo_data.py`](../app/seed_demo_data.py) seeds synthetic `icu_` / `strava_` / `ghealth_` activities (no `hammerhead_` ones) for Grafana screenshots (athlete `99999999`), with GPS loops for outdoor activities, including overlapping duplicates so the supersession path is exercised, plus daily nutrition (`provider=fddb`), weigh-ins with scale extras and blood pressure readings (`provider=withings`, `external_id` `demo…`), and sleep with stage timelines, daily wellness, and the last 30 days of intraday samples (`provider=google_health`), followed by the derived sleep and recovery scores. OAuth token tables are never touched.
 
 ```bash
 docker compose exec app python seed_demo_data.py --force
@@ -434,6 +451,7 @@ docker compose exec app python seed_demo_data.py --force
 - Record sync and per-day dedup: [`app/ingest/records.py`](../app/ingest/records.py)
 - Activity providers: [`app/providers/intervals.py`](../app/providers/intervals.py), [`app/providers/strava.py`](../app/providers/strava.py), [`app/providers/google_health.py`](../app/providers/google_health.py), [`app/providers/hammerhead.py`](../app/providers/hammerhead.py)
 - Body and nutrition providers: [`app/providers/withings.py`](../app/providers/withings.py), [`app/providers/fddb.py`](../app/providers/fddb.py)
+- Sleep, wellness, and intraday feeds: [`app/providers/garmin_wellness.py`](../app/providers/garmin_wellness.py), [`app/providers/google_wellness.py`](../app/providers/google_wellness.py), [`app/providers/withings_wellness.py`](../app/providers/withings_wellness.py)
 - Provider construction from config: [`app/providers/registry.py`](../app/providers/registry.py)
 - Provider HTTP clients: [`app/providers/intervals_client.py`](../app/providers/intervals_client.py), [`app/providers/strava_client.py`](../app/providers/strava_client.py), [`app/providers/google_health_client.py`](../app/providers/google_health_client.py), [`app/providers/hammerhead_client.py`](../app/providers/hammerhead_client.py), [`app/providers/withings_client.py`](../app/providers/withings_client.py), [`app/providers/fddb_client.py`](../app/providers/fddb_client.py)
 - Generic FIT-file analysis and storage: [`app/fitfiles/`](../app/fitfiles/)

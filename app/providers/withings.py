@@ -1,21 +1,36 @@
-"""Withings provider: body measurements from Withings scales.
+"""Withings provider: body measurements from Withings scales, readings from
+Withings blood pressure monitors, plus sleep, daily wellness, and intraday
+samples from Withings watches and sleep trackers (see
+:mod:`providers.withings_wellness`).
 
-Withings also exposes sleep and workouts; neither has a feed yet.
+Withings also exposes workouts; they have no feed yet.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from catalog import AuthMethod, DataKind
-from providers.base import OAuthStateGuard, RateLimitSnapshot, granted_if_connected
-from providers.feeds import BodyRecord, Feed
-from providers.withings_client import WithingsClient
+from providers.base import OAuthStateGuard, RateLimitSnapshot
+from providers.feeds import BloodPressureRecord, BodyRecord, Feed
+from providers.withings_client import (
+    KIND_SCOPES,
+    SCOPE_METRICS,
+    WithingsClient,
+    scopes_for,
+)
+from providers.withings_wellness import (
+    WithingsIntradayFeed,
+    WithingsSleepFeed,
+    WithingsWellnessFeed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +46,27 @@ LEGACY_CALLBACK_PATH = "/plugins/withings/auth/callback"
 #: ``getmeas`` measure types.
 MEASURE_WEIGHT = 1
 MEASURE_FAT_RATIO = 6
+MEASURE_DIASTOLIC = 9
+MEASURE_SYSTOLIC = 10
+MEASURE_PULSE = 11
 MEASURE_MUSCLE_MASS = 76
-_MEASTYPES = f"{MEASURE_WEIGHT},{MEASURE_FAT_RATIO},{MEASURE_MUSCLE_MASS}"
+#: Hydration, in kilograms.
+MEASURE_HYDRATION = 77
+MEASURE_BONE_MASS = 88
+#: Visceral fat, a rating without a unit.
+MEASURE_VISCERAL_FAT = 170
+_BODY_MEASTYPES = ",".join(
+    str(t)
+    for t in (
+        MEASURE_WEIGHT,
+        MEASURE_FAT_RATIO,
+        MEASURE_MUSCLE_MASS,
+        MEASURE_HYDRATION,
+        MEASURE_BONE_MASS,
+        MEASURE_VISCERAL_FAT,
+    )
+)
+_BLOOD_PRESSURE_MEASTYPES = f"{MEASURE_DIASTOLIC},{MEASURE_SYSTOLIC},{MEASURE_PULSE}"
 
 
 def _measure_value(measure: dict) -> float:
@@ -40,28 +74,92 @@ def _measure_value(measure: dict) -> float:
     return float(measure["value"]) * (10.0 ** int(measure["unit"]))
 
 
-def map_measure_group(group: dict) -> BodyRecord | None:
-    """Map one ``getmeas`` measure group onto a body record.
-
-    Pure. Groups without a weight (e.g. a blood-pressure reading) are skipped.
-    """
+def _group_values(group: dict) -> dict[int, float]:
     values: dict[int, float] = {}
     for measure in group.get("measures") or []:
         try:
             values[int(measure["type"])] = _measure_value(measure)
         except (KeyError, TypeError, ValueError):
             continue
+    return values
+
+
+def _device(group: dict) -> str | None:
+    return str(group["deviceid"])[:128] if group.get("deviceid") else None
+
+
+def map_measure_group(group: dict) -> BodyRecord | None:
+    """Map one ``getmeas`` measure group onto a body record.
+
+    Pure. Groups without a weight (e.g. a blood-pressure reading) are skipped.
+    Withings reports hydration in kilograms; it is stored as a share of the
+    same weigh-in's weight, like Garmin reports it.
+    """
+    values = _group_values(group)
     weight = values.get(MEASURE_WEIGHT)
-    if weight is None or group.get("grpid") is None or group.get("date") is None:
+    if not weight or group.get("grpid") is None or group.get("date") is None:
         return None
+    hydration = values.get(MEASURE_HYDRATION)
     return BodyRecord(
         external_id=str(group["grpid"]),
         measured_at=datetime.fromtimestamp(int(group["date"]), tz=timezone.utc),
         weight_kg=round(weight, 3),
         fat_pct=values.get(MEASURE_FAT_RATIO),
         muscle_mass_kg=values.get(MEASURE_MUSCLE_MASS),
-        device=(str(group["deviceid"])[:128] if group.get("deviceid") else None),
+        bone_mass_kg=values.get(MEASURE_BONE_MASS),
+        body_water_pct=(
+            round(hydration / weight * 100, 2) if hydration is not None else None
+        ),
+        visceral_fat=values.get(MEASURE_VISCERAL_FAT),
+        device=_device(group),
     )
+
+
+def map_blood_pressure_group(group: dict) -> BloodPressureRecord | None:
+    """Map one ``getmeas`` measure group onto a blood pressure reading.
+
+    Pure. Groups without both systolic and diastolic pressure (a weigh-in,
+    which may carry a pulse of its own) are skipped.
+    """
+    values = _group_values(group)
+    systolic = values.get(MEASURE_SYSTOLIC)
+    diastolic = values.get(MEASURE_DIASTOLIC)
+    if (
+        not systolic
+        or not diastolic
+        or group.get("grpid") is None
+        or group.get("date") is None
+    ):
+        return None
+    return BloodPressureRecord(
+        external_id=str(group["grpid"]),
+        measured_at=datetime.fromtimestamp(int(group["date"]), tz=timezone.utc),
+        systolic_mmhg=systolic,
+        diastolic_mmhg=diastolic,
+        pulse_bpm=values.get(MEASURE_PULSE) or None,
+        device=_device(group),
+    )
+
+
+async def _list_measure_groups(
+    provider: "WithingsSource", start: datetime, end: datetime, meastypes: str
+) -> list[dict]:
+    """Every measure group in ``[start, end)``, following ``more``/``offset``."""
+    client = provider.client
+    startdate = int(start.timestamp())
+    # getmeas' enddate is inclusive.
+    enddate = int(end.timestamp()) - 1
+    groups: list[dict] = []
+    offset: int | None = None
+    while True:
+        body = await client.get_measures(
+            startdate=startdate, enddate=enddate, meastypes=meastypes, offset=offset
+        )
+        groups.extend(body.get("measuregrps") or [])
+        if not body.get("more") or body.get("offset") in (None, offset):
+            break
+        offset = int(body["offset"])
+    return groups
 
 
 class WithingsBodyFeed:
@@ -73,25 +171,27 @@ class WithingsBodyFeed:
         self._provider = provider
 
     async def list_records(self, start: datetime, end: datetime) -> list[dict]:
-        """Every measure group in ``[start, end)``, following ``more``/``offset``."""
-        client = self._provider.client
-        startdate = int(start.timestamp())
-        # getmeas' enddate is inclusive.
-        enddate = int(end.timestamp()) - 1
-        groups: list[dict] = []
-        offset: int | None = None
-        while True:
-            body = await client.get_measures(
-                startdate=startdate, enddate=enddate, meastypes=_MEASTYPES, offset=offset
-            )
-            groups.extend(body.get("measuregrps") or [])
-            if not body.get("more") or body.get("offset") in (None, offset):
-                break
-            offset = int(body["offset"])
-        return groups
+        return await _list_measure_groups(self._provider, start, end, _BODY_MEASTYPES)
 
     def map_record(self, payload: dict) -> BodyRecord | None:
         return map_measure_group(payload)
+
+
+class WithingsBloodPressureFeed:
+    """Withings blood pressure monitor readings as a ``BloodPressureFeed``."""
+
+    kind = DataKind.BLOOD_PRESSURE
+
+    def __init__(self, provider: "WithingsSource"):
+        self._provider = provider
+
+    async def list_records(self, start: datetime, end: datetime) -> list[dict]:
+        return await _list_measure_groups(
+            self._provider, start, end, _BLOOD_PRESSURE_MEASTYPES
+        )
+
+    def map_record(self, payload: dict) -> BloodPressureRecord | None:
+        return map_blood_pressure_group(payload)
 
 
 class WithingsSource:
@@ -110,6 +210,8 @@ class WithingsSource:
         client_secret: str,
         app_base_url: str = "",
         redirect_uri: str = "",
+        imports: Iterable[DataKind] = (DataKind.BODY,),
+        timezone: str = "UTC",
     ):
         self._session_factory = session_factory
         self._client_id = client_id
@@ -120,7 +222,18 @@ class WithingsSource:
         self._session = None
         self._client: WithingsClient | None = None
         self._oauth_state = OAuthStateGuard()
-        self._feeds: dict[DataKind, Feed] = {DataKind.BODY: WithingsBodyFeed(self)}
+        #: Kinds the configuration imports; the connect flow asks only for
+        #: their scopes.
+        self._imports = tuple(imports)
+        #: Used to turn the engine's UTC windows back into local days.
+        self.timezone = ZoneInfo(timezone)
+        self._feeds: dict[DataKind, Feed] = {
+            DataKind.BODY: WithingsBodyFeed(self),
+            DataKind.SLEEP: WithingsSleepFeed(self),
+            DataKind.WELLNESS: WithingsWellnessFeed(self),
+            DataKind.INTRADAY: WithingsIntradayFeed(self),
+            DataKind.BLOOD_PRESSURE: WithingsBloodPressureFeed(self),
+        }
 
     @property
     def redirect_uri(self) -> str:
@@ -161,14 +274,39 @@ class WithingsSource:
                 await client.close()
 
     async def granted_kinds(self) -> frozenset[DataKind]:
-        return await granted_if_connected(self)
+        """Kinds whose scopes the stored token holds.
+
+        A token granted before a kind was imported (or before Withings had
+        more than body data) lacks its scope until the user reconnects.
+        """
+        if not self.is_configured():
+            return frozenset()
+        async with self._session_factory() as session:
+            client = self._build_client(session)
+            try:
+                granted = await client.granted_scopes()
+            finally:
+                await client.close()
+        return frozenset(
+            kind for kind in self._feeds if KIND_SCOPES[kind.value] <= granted
+        )
 
     async def verify_credentials(self) -> int | None:
-        """Make one cheap authenticated call; return the Withings user id."""
-        now = int(datetime.now(timezone.utc).timestamp())
-        await self.client.get_measures(
-            startdate=now - 86400, enddate=now, meastypes=str(MEASURE_WEIGHT)
-        )
+        """Make one cheap authenticated call; return the Withings user id.
+
+        The call needs a scope the token holds: a token for sleep only has no
+        ``user.metrics``.
+        """
+        now = datetime.now(timezone.utc)
+        if SCOPE_METRICS in await self.client.granted_scopes():
+            await self.client.get_measures(
+                startdate=int(now.timestamp()) - 86400,
+                enddate=int(now.timestamp()),
+                meastypes=str(MEASURE_WEIGHT),
+            )
+        else:
+            today = now.date().isoformat()
+            await self.client.get_activity(startdateymd=today, enddateymd=today)
         user_id = await self.client.get_external_user_id()
         try:
             return int(user_id) if user_id is not None else None
@@ -185,7 +323,9 @@ class WithingsSource:
             state = self._oauth_state.issue()
             async with self._session_factory() as session:
                 client = self._build_client(session)
-                url = client.authorization_url(state=state)
+                url = client.authorization_url(
+                    scopes=scopes_for(self._imports), state=state
+                )
                 await client.close()
             return RedirectResponse(url=url, status_code=307)
 

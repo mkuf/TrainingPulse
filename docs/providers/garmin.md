@@ -1,6 +1,6 @@
 # Garmin Connect
 
-Garmin Connect gives **activities**, **body measurements** (weight, fat %, muscle mass), **sleep**, **daily wellness**, and **intraday** values to TrainingPulse. TrainingPulse uses a Garmin Connect Personal API key. You do not connect Garmin on the status page.
+Garmin Connect gives **activities**, **body measurements** (weight, fat %, muscle mass, and, from an Index scale, bone mass, body water %, and visceral fat rating), **sleep**, **daily wellness**, and **intraday** values to TrainingPulse. TrainingPulse uses a Garmin Connect Personal API key. You do not connect Garmin on the status page.
 
 > **Note:** This provider is a first version. Garmin does not publish response schemas for the Personal API. Some field names are taken from the Garmin Connect web app and are not yet checked against a real account.
 

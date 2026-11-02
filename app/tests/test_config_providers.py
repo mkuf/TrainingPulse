@@ -152,7 +152,7 @@ def test_active_providers_respect_enabled_imports_and_order(load_with):
 
     assert config.active_providers(DataKind.ACTIVITIES) == ["strava", "icu"]
     assert config.active_providers(DataKind.BODY) == ["withings"]
-    assert config.active_providers(DataKind.SLEEP) == []
+    assert config.active_providers(DataKind.NUTRITION) == []
 
 
 def test_warns_when_an_inactive_provider_outranks_an_active_one(load_with):

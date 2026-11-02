@@ -375,6 +375,9 @@ class DataSection(_Section):
     intraday: DataKindSection = Field(
         default_factory=DataKindSection, validate_default=True
     )
+    blood_pressure: DataKindSection = Field(
+        default_factory=DataKindSection, validate_default=True
+    )
 
     @field_validator(*(kind.value for kind in DataKind), mode="after")
     @classmethod

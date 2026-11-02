@@ -41,6 +41,23 @@ class BodyRecord:
     weight_kg: float
     fat_pct: float | None = None
     muscle_mass_kg: float | None = None
+    bone_mass_kg: float | None = None
+    #: Body water as a share of body weight.
+    body_water_pct: float | None = None
+    #: The scale's visceral fat rating, without a unit.
+    visceral_fat: float | None = None
+    device: str | None = None
+
+
+@dataclass(frozen=True)
+class BloodPressureRecord:
+    """One blood pressure reading. Deduplicated per day in ``athlete.timezone``."""
+
+    external_id: str
+    measured_at: datetime
+    systolic_mmhg: float
+    diastolic_mmhg: float
+    pulse_bpm: float | None = None
     device: str | None = None
 
 
@@ -151,6 +168,22 @@ HEART_RATE_WINDOW_SECONDS = 120
 DISPLAY_ONLY_METRICS = frozenset({METRIC_SPO2})
 
 
+def heart_rate_windows(points: dict[int, float]) -> list[tuple[int, float]]:
+    """Average heart-rate points (epoch seconds → bpm) into
+    ``HEART_RATE_WINDOW_SECONDS`` windows, stamped at the window start.
+
+    For providers whose API has no rollup of its own. Windows are aligned to
+    the epoch, so a coarser stream keeps one value per reading.
+    """
+    windows: dict[int, list[float]] = {}
+    for at, bpm in points.items():
+        windows.setdefault(at - at % HEART_RATE_WINDOW_SECONDS, []).append(bpm)
+    return [
+        (start, round(sum(values) / len(values), 2))
+        for start, values in sorted(windows.items())
+    ]
+
+
 @dataclass(frozen=True)
 class SampleRecord:
     """One timestamped value of one metric. Deduplicated per day.
@@ -249,6 +282,11 @@ class IntradayFeed(RecordFeed[SampleRecord], Protocol):
     kind: ClassVar[DataKind] = DataKind.INTRADAY
 
 
+@runtime_checkable
+class BloodPressureFeed(RecordFeed[BloodPressureRecord], Protocol):
+    kind: ClassVar[DataKind] = DataKind.BLOOD_PRESSURE
+
+
 #: Which contract a provider's feed for each kind must satisfy.
 FEED_CONTRACTS: dict[DataKind, type[Feed]] = {
     DataKind.ACTIVITIES: ActivityFeed,
@@ -257,4 +295,5 @@ FEED_CONTRACTS: dict[DataKind, type[Feed]] = {
     DataKind.SLEEP: SleepFeed,
     DataKind.WELLNESS: WellnessFeed,
     DataKind.INTRADAY: IntradayFeed,
+    DataKind.BLOOD_PRESSURE: BloodPressureFeed,
 }

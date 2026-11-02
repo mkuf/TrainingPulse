@@ -804,6 +804,260 @@
         "y": 34
       },
       "id": 11
+    },
+    {
+      "type": "timeseries",
+      "title": "Body composition",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Daily averages from scales that measure them: **body water** (share of body weight) and **visceral fat** (the scale's rating, without a unit) on the left axis, **bone mass** on the right axis. Garmin and Withings scales report these; other providers leave them empty. Hidden. Switch on **Show weight** at the top to see it.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": true
+          },
+          "noValue": "Hidden"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Body water"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Visceral fat"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Bone mass"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#B877D9"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "masskg"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  day::timestamp AS time,\n  AVG(body_water_pct) AS \"Body water\",\n  AVG(visceral_fat) AS \"Visceral fat\",\n  AVG(bone_mass_kg) AS \"Bone mass\"\nFROM active_body_measurements\nWHERE day BETWEEN $__timeFrom()::date AND $__timeTo()::date\n  AND (body_water_pct IS NOT NULL OR visceral_fat IS NOT NULL OR bone_mass_kg IS NOT NULL)\n  AND '${show_weight}' = 'true'\nGROUP BY day\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 12
+    },
+    {
+      "type": "row",
+      "title": "Blood pressure",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "id": 13
+    },
+    {
+      "type": "timeseries",
+      "title": "Blood pressure",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
+      "description": "Each reading from a blood pressure monitor: **systolic** and **diastolic** pressure on the left axis, **pulse** on the right axis.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: mmHg",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "pointSize": 6,
+            "showPoints": "always",
+            "spanNulls": true
+          },
+          "noValue": "No readings"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Systolic"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2495C"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: mmHg"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Diastolic"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8AB8FF"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: mmHg"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pulse"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "suffix: bpm"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "points"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "rawSql": "SELECT\n  measured_at AS time,\n  systolic_mmhg AS \"Systolic\",\n  diastolic_mmhg AS \"Diastolic\",\n  pulse_bpm AS \"Pulse\"\nFROM active_blood_pressure_readings\nWHERE $__timeFilter(measured_at)\nORDER BY 1",
+          "format": "time_series",
+          "refId": "A",
+          "editorMode": "code"
+        }
+      ],
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
+      "id": 14
     }
   ],
   "schemaVersion": 39,
