@@ -7,3 +7,5 @@ Before adding or changing a provider, a mapper, a stored field, a sample metric,
 - Mappers only translate; anything derivable from samples or streams is computed in the core, from visible rows only.
 
 Architecture, provider APIs, and tests are in [docs/developers.md](docs/developers.md).
+
+Add every change that users notice to the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).

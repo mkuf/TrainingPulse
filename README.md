@@ -63,4 +63,5 @@ More manuals:
 - [Data and duplicates](docs/data.md): data kinds, provider order, and stored data.
 - [Sleep and recovery scores](docs/sleep-and-recovery.md): how TrainingPulse calculates them.
 - [Upgrading](docs/upgrading.md): change from an old release.
+- [Changelog](CHANGELOG.md): changes in each release.
 - [Developer notes](docs/developers.md): architecture, HTTP API, configuration schema, and metric formulas.

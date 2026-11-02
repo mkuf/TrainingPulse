@@ -427,6 +427,10 @@ docker build -f app/Dockerfile --target runtime -t trainingpulse:smoke .
 .github/smoke/smoke-test.sh trainingpulse:smoke
 ```
 
+### Releases
+
+Before you tag a release, move the entries under `[Unreleased]` in [`CHANGELOG.md`](../CHANGELOG.md) to a new section for the version and update the compare links at the end of the file. Add an entry under `[Unreleased]` with every change that users notice.
+
 ### Dependency updates
 
 [Renovate](https://docs.renovatebot.com/) ([`renovate.json`](../renovate.json)) proposes updates to `requirements*.txt`, the Dockerfile and compose images, and the workflow's actions, once a release is 3 days old. Every update merges itself once every check on the PR has passed, except a Postgres major: the new server refuses to start on the previous major's data volume, and CI cannot see that because its databases start empty. Merge that one after a dump and restore.
