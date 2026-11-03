@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-03
+
 ### Fixed
 
 - Garmin: strength, yoga and other gym sessions recorded with a GPS profile no longer get a moving time of a few minutes of GPS drift, which also made their computed calories far too low.
@@ -38,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards, a status page, an HTTP API, and an MCP server.
 - Container image on `ghcr.io/mkuf/trainingpulse`.
 
-[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/mkuf/TrainingPulse/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/mkuf/TrainingPulse/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/mkuf/TrainingPulse/releases/tag/v1.0.0
