@@ -75,7 +75,7 @@ Each sync lists the last `refresh_days` days again (see `data.<kind>.refresh_day
 **From your providers:**
 
 - Activity summaries: sport, time, distance, heart rate, and power if available. The `source` column is `icu`, `strava`, `google_health`, or `hammerhead`.
-- Activity streams: heart rate, power, and GPS if available. TrainingPulse uses them for maps, zones, and TRIMP.
+- Activity streams: heart rate, power, and GPS if available. TrainingPulse uses them for maps, zones, and TRIMP. Gym and studio sports (strength, workout, HIIT, yoga, pilates, elliptical, stair stepper) keep no GPS track, distance, speed, or elevation, since indoors these are only drift.
 - For Hammerhead: the `.fit` file of each activity. TrainingPulse downloads it one time and keeps it permanently. Refer to [Hammerhead](providers/hammerhead.md).
 - Activities that a provider deleted. TrainingPulse hides them but keeps them.
 - Body measurements (weight, fat %, muscle mass, bone mass, body water %, visceral fat rating), blood pressure readings, and daily nutrition totals, with the name of the provider.

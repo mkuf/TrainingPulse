@@ -120,6 +120,7 @@ def test_stationary_sport_uses_elapsed_as_moving_time():
     payload = {
         **payloads.GARMIN_SEARCH_ACTIVITY,
         "activityType": {"typeKey": "strength_training"},
+        "duration": 1800.0,
         "elapsedDuration": 1800.0,
         "movingDuration": 0.0,
     }
@@ -127,6 +128,20 @@ def test_stationary_sport_uses_elapsed_as_moving_time():
 
     assert row["sport_type"] == "WeightTraining"
     assert row["moving_time"] == 1800
+
+
+def test_stationary_sport_ignores_moving_time_from_gps_drift():
+    """A GPS profile in the gym gives a moving time of a few minutes of drift."""
+    payload = {
+        **payloads.GARMIN_SEARCH_ACTIVITY,
+        "activityType": {"typeKey": "strength_training"},
+        "duration": 4413.0,
+        "elapsedDuration": 4413.0,
+        "movingDuration": 962.0,
+    }
+    row = garmin.map_row(payload, ATHLETE_ID)
+
+    assert row["moving_time"] == 4413
 
 
 @pytest.mark.parametrize(

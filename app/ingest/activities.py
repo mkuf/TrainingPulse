@@ -33,6 +33,7 @@ from calories import (
     AthleteEnergyInputs,
     compute_energy,
     kilojoules_from_stream,
+    stationary,
 )
 from ingest.state import SyncState
 from resting_hr import resting_hr_on
@@ -125,6 +126,12 @@ _FLOAT_FIELDS = {
 _UPSERT_BATCH = 500
 
 #: Detail-only columns merged from a detail payload.
+#: Streams that describe movement through space. For a stationary sport they
+#: are only indoor GPS and barometer drift.
+_LOCATION_STREAMS = frozenset(
+    {"latlng", "distance", "velocity_smooth", "altitude", "grade_smooth"}
+)
+
 _DETAIL_ONLY_FIELDS = (
     "description",
     "private_note",
@@ -233,6 +240,25 @@ def _as_window(oldest: date, newest: date) -> tuple[datetime, datetime]:
 # ── Upserting ───────────────────────────────────────────────────────
 
 
+def without_location(row: dict) -> dict:
+    """Clear distance, speed and elevation of a stationary sport.
+
+    A watch that records GPS in the gym reports drift as distance and
+    elevation. Applied to every mapped row, list and detail alike, so
+    reconcile compares the same values it stored.
+    """
+    if stationary(row.get("sport_type")):
+        row.update(
+            # distance is NOT NULL; 0 is its "none".
+            distance=0.0,
+            average_speed=None,
+            max_speed=None,
+            total_elevation_gain=None,
+            total_descent=None,
+        )
+    return row
+
+
 def map_rows(
     source: ActivitySource, payloads: Sequence[dict], athlete_id: int
 ) -> list[dict]:
@@ -245,7 +271,7 @@ def map_rows(
             logger.warning("Skipping %s payload: %s", source.name, exc)
             continue
         if row is not None:
-            rows.append(row)
+            rows.append(without_location(row))
     return rows
 
 
@@ -832,6 +858,7 @@ async def _apply_detail(
         await session.commit()
         return result.rowcount > 0
 
+    row = without_location(row)
     # Never let a detail payload rewrite identity or supersession.
     row.pop("id", None)
     row.pop("source", None)
@@ -1016,6 +1043,11 @@ async def _apply_streams(
     activity_day = activity.start_date.date()
     try:
         streams = await source.fetch_streams(activity)
+        if stationary(activity.sport_type):
+            # Indoor GPS drift, not a route: keep it off the maps and charts.
+            streams = {
+                k: v for k, v in streams.items() if k not in _LOCATION_STREAMS
+            }
         stream_types = list(streams.keys())
         sample_count = max((len(value) for value in streams.values()), default=0)
 

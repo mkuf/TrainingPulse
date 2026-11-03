@@ -54,6 +54,8 @@ This is a deliberate choice, not a gap:
 - Reconcile compares re-listed provider values with stored values (`_DIFF_FIELDS`). If the stored value were ours, every reconcile would see a change and download details and streams again, which the Strava budget can't afford.
 - The device's own summary uses every recorded sample and knows about auto-pause. Streams can be resampled (Strava, intervals.icu) or incomplete (Google's TCX drops trackpoints without GPS).
 
+One exception to the exception: for stationary sports (`calories.STATIONARY`: strength, workout, HIIT, yoga, pilates, elliptical, stair stepper) the core clears distance, speed and elevation of every mapped row (`without_location`) and drops the location streams (track, distance, speed, altitude, grade). Indoors these are only GPS and barometer drift. Garmin's moving time for these sports is its timer time, since its `movingDuration` comes from that drift.
+
 So: values that summarize a single recording keep the provider's figure; values that interpret it (load, zones, NP, curves, scores) are always ours. Some summary values are not derived even when missing: total descent is not summed from the altitude stream, because raw altitude noise inflates it.
 
 If stream-based summaries are ever wanted, they go in separate `computed_*` columns next to the provider value (like `computed_calories` next to `calories`), and reconcile keeps comparing only the provider columns.

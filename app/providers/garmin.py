@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import fitfiles
+from calories import stationary
 from catalog import AuthMethod, DataKind
 from models import Activity
 from providers.base import (
@@ -172,10 +173,18 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         logger.warning("Garmin activity %s has no start time; skipping", raw_id)
         return None
 
+    activity_type = payload.get("activityType") or {}
+    sport = sport_type(activity_type.get("typeKey"))
+
     elapsed = as_int(payload.get("elapsedDuration") or payload.get("duration"))
-    # Garmin reports a moving time of 0 for stationary sports (strength, yoga);
-    # use the elapsed time so TRIMP and calorie estimates still see the session.
-    moving = as_int(payload.get("movingDuration")) or elapsed
+    # Garmin derives movingDuration from GPS speed. Stationary sports
+    # (strength, yoga) report 0, or a few minutes of indoor GPS drift when the
+    # profile records GPS; use the timer time so TRIMP and calorie estimates
+    # see the whole session.
+    if stationary(sport):
+        moving = as_int(payload.get("duration")) or elapsed
+    else:
+        moving = as_int(payload.get("movingDuration")) or elapsed
 
     def pick(json_key: str, fit_key: str) -> float | None:
         value = as_float(payload.get(json_key))
@@ -187,9 +196,6 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
     device_watts = average_watts is not None
     # The search payload carries float32 noise (30394.099609375 vs 30394.1).
     distance = round(as_float(payload.get("distance")) or 0.0, 1)
-
-    activity_type = payload.get("activityType") or {}
-    sport = sport_type(activity_type.get("typeKey"))
 
     # Garmin's JSON counts both legs on foot; the FIT file counts one.
     def cadence(stat: str, fit_key: str) -> float | None:

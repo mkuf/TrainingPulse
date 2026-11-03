@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Garmin: strength, yoga and other gym sessions recorded with a GPS profile no longer get a moving time of a few minutes of GPS drift, which also made their computed calories far too low.
+- Gym sessions no longer show a map, distance, speed, or elevation; for a stationary sport these are only indoor GPS drift and are not stored.
+
 ## [1.1.0] - 2026-11-02
 
 ### Added

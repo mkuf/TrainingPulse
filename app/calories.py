@@ -58,12 +58,27 @@ RUNNING = {
     for s in ("Run", "TrailRun", "VirtualRun", "Running", "TreadmillRunning")
 }
 
+#: Gym and studio sports done in one place. A watch that records GPS for them
+#: only records drift, so moving time and the track mean nothing.
+STATIONARY = {
+    _key(s)
+    for s in (
+        "WeightTraining", "Weightlifting", "Workout", "Crossfit", "Hiit",
+        "HighIntensityIntervalTraining", "Yoga", "Pilates", "Elliptical",
+        "StairStepper",
+    )
+}
 
 
 def on_foot(sport_type: str | None) -> bool:
     """True for walking and running sports, whose cadence counts steps."""
     sport = _key(sport_type)
     return sport in WALKING or sport in RUNNING
+
+
+def stationary(sport_type: str | None) -> bool:
+    """True for sports done in one place, whose GPS is only drift."""
+    return _key(sport_type) in STATIONARY
 
 
 #: Compendium of Physical Activities (2024), general-intensity METs.
