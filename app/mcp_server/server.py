@@ -113,7 +113,6 @@ def _activity_row(activity: Activity) -> dict[str, Any]:
         ),
         "calories_method": activity.computed_calories_method
         or ("imported" if activity.calories is not None else None),
-        "imported_calories": round_or_none(activity.calories, 0),
         "average_heart_rate": round_or_none(activity.average_heartrate, 0),
         "average_power": round_or_none(activity.average_watts, 0),
         "gear_name": activity.gear_name,

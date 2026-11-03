@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- MCP: activities report a single `calories` value; `imported_calories` is removed. `calories_method` says whether the value was computed or imported.
+
 ## [1.1.1] - 2026-11-03
 
 ### Fixed
