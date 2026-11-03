@@ -42,6 +42,10 @@ The key expires on the date that you selected. Garmin sends an email approximate
 
 TrainingPulse exchanges the key for an access token that is valid for 24 hours. It gets a new token when necessary. You do not have to do anything.
 
+## Activity types
+
+TrainingPulse maps the Garmin activity type to a sport, for example `trail_running` to `Trail Run`. A sub-type that is not in the list gets the sport of its Garmin parent type when that parent is running, cycling, walking, or swimming. Any other unknown type has no sport. The sport sets the TRIMP rate and the calorie estimate, and for a stationary sport (strength, yoga, pilates, elliptical, stair stepper) TrainingPulse does not store distance, speed, elevation, or a route.
+
 ## FIT files
 
 TrainingPulse downloads the original `.fit` file of each activity one time. It keeps the file permanently in the database. Heart rate, power, and the streams come from this file. Garmin removes some proprietary values from the file, for example VO2max and recovery time.

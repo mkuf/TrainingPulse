@@ -164,6 +164,33 @@ def test_sport_type(type_key, expected):
     assert garmin.sport_type(type_key) == expected
 
 
+@pytest.mark.parametrize(
+    ("type_key", "parent_type_id", "expected"),
+    [
+        ("casual_walking", 9, "Walk"),
+        ("indoor_walking", 9, "Walk"),
+        ("e_bike_mountain", 2, "Ride"),
+        ("trail_running", 1, "Trail Run"),
+        # Fitness equipment is stationary; a guess would clear the distance.
+        ("indoor_climbing", 29, ""),
+        ("golf", None, ""),
+    ],
+)
+def test_sport_type_falls_back_to_moving_parent_types(
+    type_key, parent_type_id, expected
+):
+    assert garmin.sport_type(type_key, parent_type_id) == expected
+
+
+def test_map_row_reads_the_parent_type():
+    payload = {
+        **payloads.GARMIN_SEARCH_ACTIVITY,
+        "activityType": {"typeKey": "indoor_walking", "parentTypeId": 9},
+    }
+
+    assert garmin.map_row(payload, ATHLETE_ID)["sport_type"] == "Walk"
+
+
 def test_list_activities_pages_and_trims_to_the_window(monkeypatch):
     monkeypatch.setattr(garmin, "_PER_PAGE", 2)
     start = _utc("2026-10-20T00:00:00Z")

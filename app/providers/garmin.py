@@ -81,6 +81,8 @@ _TYPE_KEY_SPORT_MAP = {
     "lap_swimming": "Swim",
     "open_water_swimming": "Swim",
     "walking": "Walk",
+    "casual_walking": "Walk",
+    "speed_walking": "Walk",
     "hiking": "Hike",
     "cross_country_skiing_ws": "NordicSki",
     "resort_skiing_snowboarding_ws": "AlpineSki",
@@ -88,9 +90,22 @@ _TYPE_KEY_SPORT_MAP = {
     "hiit": "Workout",
     "cardio": "Workout",
     "yoga": "Yoga",
+    "pilates": "Pilates",
+    "elliptical": "Elliptical",
+    "stair_climbing": "StairStepper",
     "rowing": "Rowing",
     "indoor_rowing": "Rowing",
     "kayaking_v2": "Kayaking",
+}
+
+#: Garmin ``activityType.parentTypeId`` for a sub-type missing above. Only
+#: parents that move through space: a stationary fallback (fitness equipment)
+#: would clear the distance and route of sub-types that do record one.
+_PARENT_TYPE_SPORT_MAP = {
+    1: "Run",
+    2: "Ride",
+    9: "Walk",
+    26: "Swim",
 }
 
 #: The activity search filters by local calendar date, so pad the UTC window
@@ -108,8 +123,17 @@ def activity_id(raw: object) -> str:
     return prefixed_id(ID_PREFIX, raw)
 
 
-def sport_type(type_key: object) -> str:
-    return _TYPE_KEY_SPORT_MAP.get(str(type_key or ""), "")
+def sport_type(type_key: object, parent_type_id: object = None) -> str:
+    sport = _TYPE_KEY_SPORT_MAP.get(str(type_key or ""))
+    if sport is None:
+        sport = _PARENT_TYPE_SPORT_MAP.get(as_int(parent_type_id), "")
+        logger.debug(
+            "Garmin activity type %r (parent %r) is not mapped; using %r",
+            type_key,
+            parent_type_id,
+            sport,
+        )
+    return sport
 
 
 def flatten_detail(detail: dict) -> dict:
@@ -174,7 +198,9 @@ def map_row(payload: dict, athlete_id: int) -> dict | None:
         return None
 
     activity_type = payload.get("activityType") or {}
-    sport = sport_type(activity_type.get("typeKey"))
+    sport = sport_type(
+        activity_type.get("typeKey"), activity_type.get("parentTypeId")
+    )
 
     elapsed = as_int(payload.get("elapsedDuration") or payload.get("duration"))
     # Garmin derives movingDuration from GPS speed. Stationary sports
