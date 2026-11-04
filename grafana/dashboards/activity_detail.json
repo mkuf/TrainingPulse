@@ -638,7 +638,8 @@
           "lat": 0,
           "lon": 0,
           "noRepeat": false,
-          "zoom": 12
+          "zoom": 18,
+          "padding": 10
         }
       },
       "targets": [

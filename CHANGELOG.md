@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Open dashboards** shows only the TrainingPulse dashboards, not every dashboard of the Grafana instance.
 - The dashboards are in a **TrainingPulse** folder in Grafana. `grafana/sync_dashboards.py` creates the folder; `GRAFANA_FOLDER` sets its name.
 - The Sleep and recovery dashboard has the same **Dashboards** menu as the other dashboards.
+- The route map on the Activity detail dashboard zooms in to fit the GPS track instead of stopping at city level.
 
 ## [1.2.0] - 2026-11-03
 
