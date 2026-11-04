@@ -144,6 +144,44 @@ code {
 }
 .link-button:hover { color: var(--danger); }
 
+/* ── Split button with a menu ───────────────────────────── */
+
+.split-button { display: inline-flex; position: relative; }
+.split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-menu > summary { list-style: none; }
+.split-menu > summary::-webkit-details-marker { display: none; }
+.split-toggle {
+    height: 100%;
+    padding-inline: 0.7rem 0.8rem;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left-color: color-mix(in srgb, var(--on-accent) 35%, var(--accent));
+}
+.split-toggle svg { transition: transform 0.15s; }
+.split-menu[open] .split-toggle svg { transform: rotate(180deg); }
+.menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    z-index: 10;
+    min-width: 15rem;
+    margin: 0;
+    padding: 0.35rem;
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+.menu a {
+    display: block;
+    padding: 0.45rem 0.7rem;
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+}
+.menu a:hover, .menu a:focus-visible { background: var(--surface-muted); outline: none; }
+
 /* ── Cards and sections ─────────────────────────────────── */
 
 .card {
@@ -357,6 +395,8 @@ code {
 
 @media (max-width: 560px) {
     .page { padding-top: 1.25rem; }
-    .page-header .btn { width: 100%; }
+    .page-header .split-button { width: 100%; }
+    .page-header .split-main { flex: 1; }
+    .menu { left: 0; }
     .kind-name { width: 100%; }
 }

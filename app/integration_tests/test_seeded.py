@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import date, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -135,6 +136,9 @@ async def test_status_page_and_api(seeded, no_scheduled_sync):
             home = await client.get("/")
             assert home.status_code == 200, home.text
             assert "intervals.icu" in home.text
+            assert f"/dashboards?tag={main.GRAFANA_TAG}" in home.text
+            for uid, _title in main.GRAFANA_DASHBOARDS:
+                assert f"/d/{uid}" in home.text
 
             live = await client.get("/partials/live")
             assert live.status_code == 200, live.text
@@ -150,3 +154,20 @@ async def test_status_page_and_api(seeded, no_scheduled_sync):
             trigger = await client.post("/sync/trigger")
             assert trigger.status_code == 303
             assert not sync_state.is_running
+
+
+async def test_status_page_links_match_the_bundled_dashboards():
+    import json
+
+    import main
+
+    dashboards_dir = Path(__file__).resolve().parents[2] / "grafana" / "dashboards"
+    bundled = {}
+    for path in dashboards_dir.glob("*.json"):
+        dashboard = json.loads(path.read_text(encoding="utf-8"))
+        assert main.GRAFANA_TAG in dashboard["tags"], path.name
+        bundled[dashboard["uid"]] = dashboard["title"]
+    assert bundled
+    assert {uid for uid, _ in main.GRAFANA_DASHBOARDS} == set(bundled)
+    for uid, title in main.GRAFANA_DASHBOARDS:
+        assert bundled[uid].endswith(title), (uid, bundled[uid])

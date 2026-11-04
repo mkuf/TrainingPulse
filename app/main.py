@@ -131,6 +131,20 @@ def _grafana_url() -> str:
     return f"{parts.scheme or 'http'}://{host}:3000"
 
 
+# Every bundled dashboard carries this tag, wherever Grafana keeps it, so
+# "Open dashboards" lists only these.
+GRAFANA_TAG = "trainingpulse"
+# UIDs and short titles of the bundled dashboards in grafana/dashboards/, for
+# the menu next to "Open dashboards". A test keeps both in step with the files.
+GRAFANA_DASHBOARDS: tuple[tuple[str, str], ...] = (
+    ("trainingpulse-fitness", "Fitness & Freshness"),
+    ("trainingpulse-sleep-recovery", "Sleep and recovery"),
+    ("trainingpulse-activity-detail", "Activity detail"),
+    ("trainingpulse-nutrition-training-weight", "Nutrition, training and weight"),
+    ("trainingpulse-account", "Account overview"),
+)
+
+
 def _count_label(kind: DataKind, count: int) -> str:
     singular, plural = KIND_UNITS[kind]
     return f"{count:,} {singular if count == 1 else plural}"
@@ -514,6 +528,8 @@ async def home(request: Request):
     context.update(
         app_name=APP_DISPLAY_NAME,
         grafana_url=_grafana_url(),
+        grafana_tag=GRAFANA_TAG,
+        grafana_dashboards=GRAFANA_DASHBOARDS,
         athlete=config.athlete,
         resting_hr=resting_hr,
         resting_hr_source=(

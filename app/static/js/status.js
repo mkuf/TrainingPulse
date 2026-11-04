@@ -53,6 +53,27 @@
         refresh();
     });
 
+    // Menus built on <details>: close on a pick, an outside click, or Escape.
+    function closeMenus(except) {
+        document.querySelectorAll("details[data-menu][open]").forEach(function (menu) {
+            if (menu !== except) menu.open = false;
+        });
+    }
+
+    document.addEventListener("click", function (event) {
+        const menu = event.target.closest("details[data-menu]");
+        if (menu && event.target.closest(".menu a")) menu.open = false;
+        closeMenus(menu);
+    });
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        const open = document.querySelector("details[data-menu][open]");
+        if (!open) return;
+        open.open = false;
+        open.querySelector("summary").focus();
+    });
+
     document.addEventListener("visibilitychange", function () {
         if (document.visibilityState === "visible") refresh();
     });

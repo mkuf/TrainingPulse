@@ -14,6 +14,12 @@ An upgrade keeps your activity history. TrainingPulse changes the database schem
    docker compose up -d --build
    ```
 
+## From a release with the dashboards in the General folder
+
+The dashboards are now in a **TrainingPulse** folder. The bundled Grafana moves them when it starts.
+
+If you push the dashboards with `grafana/sync_dashboards.py`, run it again. It creates the folder and moves the dashboards into it. If you set `GRAFANA_FOLDER_ID`, the dashboards stay in that folder. Remove the variable to use the new folder.
+
 ## From a release with Withings body data only
 
 Withings now also gives sleep, wellness, and intraday data. If the `withings` block in `config.yaml` has no `imports` list, TrainingPulse imports these kinds too. They need more access than your Withings connection has.

@@ -7,9 +7,21 @@
         <h1>{{ app_name }}</h1>
         <p class="muted">Keeps your training data in sync for your dashboards</p>
     </div>
-    <a class="btn btn-primary" href="{{ grafana_url }}/dashboards" target="_blank" rel="noopener">
-        Open dashboards <span aria-hidden="true">↗</span>
-    </a>
+    <div class="split-button">
+        <a class="btn btn-primary split-main" href="{{ grafana_url }}/dashboards?tag={{ grafana_tag }}" target="_blank" rel="noopener">
+            Open dashboards <span aria-hidden="true">↗</span>
+        </a>
+        <details class="split-menu" data-menu>
+            <summary class="btn btn-primary split-toggle" aria-label="Open a single dashboard" title="Open a single dashboard">
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </summary>
+            <ul class="menu">
+                {% for uid, title in grafana_dashboards %}
+                <li><a href="{{ grafana_url }}/d/{{ uid }}" target="_blank" rel="noopener">{{ title }}</a></li>
+                {% endfor %}
+            </ul>
+        </details>
+    </div>
 </header>
 
 <main>

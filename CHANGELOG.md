@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The arrow next to **Open dashboards** on the status page opens a menu with a link to each dashboard.
+
+### Changed
+
+- **Open dashboards** shows only the TrainingPulse dashboards, not every dashboard of the Grafana instance.
+- The dashboards are in a **TrainingPulse** folder in Grafana. `grafana/sync_dashboards.py` creates the folder; `GRAFANA_FOLDER` sets its name.
+- The Sleep and recovery dashboard has the same **Dashboards** menu as the other dashboards.
+
 ## [1.2.0] - 2026-11-03
 
 ### Changed

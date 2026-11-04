@@ -22,16 +22,18 @@
   "id": null,
   "links": [
     {
-      "asDropdown": false,
-      "icon": "dashboard",
+      "asDropdown": true,
+      "icon": "external link",
       "includeVars": false,
       "keepTime": true,
-      "tags": [],
+      "tags": [
+        "trainingpulse"
+      ],
       "targetBlank": false,
-      "title": "Fitness & Freshness",
-      "tooltip": "Training load",
-      "type": "link",
-      "url": "/d/trainingpulse-fitness"
+      "title": "Dashboards",
+      "tooltip": "",
+      "type": "dashboards",
+      "url": ""
     }
   ],
   "panels": [

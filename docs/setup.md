@@ -77,12 +77,21 @@ The sync runs all providers each 15 minutes. To change the interval, set `sync.i
 
 ## 4. Open Grafana
 
-1. Open `http://your-host:3000/`. Alternatively, click **Open dashboards** on the status page.
-2. Find the dashboards in the dashboard list.
+Click **Open dashboards** on the status page for the list of TrainingPulse dashboards. To go straight to one dashboard, click the arrow next to the button and select it. In Grafana, they are in the **TrainingPulse** folder, and the **Dashboards** menu on each dashboard opens the others.
 
 TrainingPulse adds the Postgres data source **`trainingpulse`** and the dashboards automatically.
 
-If Grafana is not on port `3000` of the app host, set `app.grafana_url`. Then the **Open dashboards** link goes to the correct address.
+If Grafana is not on port `3000` of the app host, set `app.grafana_url`. Then the dashboard links on the status page go to the correct address.
+
+### Use your own Grafana
+
+To show the dashboards in a Grafana you already run, add a Postgres data source for the TrainingPulse database. If Grafana has more than one Postgres data source, select it in the **PostgreSQL** menu at the top of a dashboard. Then push the dashboards with a service account token:
+
+```bash
+GRAFANA_URL=https://grafana.example.com GRAFANA_TOKEN=<token> python3 grafana/sync_dashboards.py
+```
+
+The script puts the dashboards in a **TrainingPulse** folder and creates it if necessary. To use another folder name, set `GRAFANA_FOLDER`. Run the script again after each upgrade.
 
 ## 5. Connect an MCP client (optional)
 
