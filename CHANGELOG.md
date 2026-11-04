@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-04
+
 ### Added
 
 - The status page starts with a Today summary for a quick look on a phone: last night's sleep, recovery, form, fitness and fatigue, and today's calories and macros, with a switch to this week's daily average.
@@ -63,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards, a status page, an HTTP API, and an MCP server.
 - Container image on `ghcr.io/mkuf/trainingpulse`.
 
-[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/mkuf/TrainingPulse/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/mkuf/TrainingPulse/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/mkuf/TrainingPulse/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/mkuf/TrainingPulse/compare/v1.1.0...v1.1.1
