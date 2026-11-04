@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The status page starts with a Today summary for a quick look on a phone: last night's sleep, recovery, form, fitness and fatigue, and today's calories and macros, with a switch to this week's daily average.
+
 ## [1.3.0] - 2026-11-04
 
 ### Added

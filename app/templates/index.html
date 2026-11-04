@@ -25,6 +25,8 @@
 </header>
 
 <main>
+    {% if today %}{% include "_today.html" %}{% endif %}
+
     {% include "_live.html" %}
 
     {% if not setup %}

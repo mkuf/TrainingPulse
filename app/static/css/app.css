@@ -182,6 +182,96 @@ code {
 }
 .menu a:hover, .menu a:focus-visible { background: var(--surface-muted); outline: none; }
 
+/* ── Today ──────────────────────────────────────────────── */
+
+.today { margin-top: 0; }
+.today-grid {
+    display: grid;
+    /* Four columns or two, never three (which would leave one tile alone).
+       At 900px a tile is about 13rem, the narrowest that fits the Nutrition
+       header (title, toggle, link) on one line. */
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+.tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.9rem 0.85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+/* Fixed height, so the toggle in one header doesn't push its tile's value
+   below the others. */
+.tile-head { display: flex; align-items: center; gap: 0.4rem; height: 1.5rem; }
+.tile-head h3 { white-space: nowrap; font-size: 0.85rem; font-weight: 600; color: var(--text-2); }
+.tile-when { font-size: 0.75rem; color: var(--text-3); }
+.tile-actions { display: flex; align-items: center; gap: 0.25rem; margin-left: auto; }
+.segmented {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 999px;
+    background: var(--surface-muted);
+}
+.segmented button {
+    border: 0;
+    background: none;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 550;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    cursor: pointer;
+}
+.segmented button[aria-pressed="true"] {
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+[data-panel] { display: flex; flex-direction: column; gap: 0.35rem; }
+[data-panel][hidden] { display: none; }
+.tile-link {
+    margin-left: auto;
+    color: var(--text-3);
+    text-decoration: none;
+    padding: 0 0.15rem;
+    border-radius: 4px;
+}
+.tile-link:hover, .tile-link:focus-visible { color: var(--accent-strong); }
+.tile-value {
+    font-size: 2rem;
+    font-weight: 650;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.tile-value span {
+    margin-left: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-2);
+}
+.tile-sub { font-size: 0.85rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tile-empty { font-size: 0.85rem; }
+.tile-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
+    gap: 0.5rem 0.75rem;
+    margin: 0.4rem 0 0;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+}
+.tile-facts dt { font-size: 0.75rem; color: var(--text-2); }
+.tile-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile-facts dd span { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
+.tile-facts dd.tile-note { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
+
+@media (max-width: 900px) {
+    .today-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* ── Cards and sections ─────────────────────────────────── */
 
 .card {
@@ -398,5 +488,10 @@ code {
     .page-header .split-button { width: 100%; }
     .page-header .split-main { flex: 1; }
     .menu { left: 0; }
+    /* Phone: sleep and nutrition across, recovery and form side by side. */
+    .today-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+    .tile:first-child, .tile:last-child { grid-column: 1 / -1; }
+    .tile { padding: 0.8rem 0.85rem 0.85rem; }
+    .tile-value { font-size: 1.75rem; }
     .kind-name { width: 100%; }
 }

@@ -74,6 +74,41 @@
         open.querySelector("summary").focus();
     });
 
+    // Tiles with views (Nutrition: today or this week). The choice is a
+    // convenience per browser, so storage that fails is ignored.
+    const VIEW_KEY = "tp.nutrition.view";
+
+    function showView(tile, view) {
+        tile.querySelectorAll("[data-view]").forEach(function (button) {
+            button.setAttribute("aria-pressed", String(button.dataset.view === view));
+        });
+        tile.querySelectorAll("[data-panel]").forEach(function (panel) {
+            panel.hidden = panel.dataset.panel !== view;
+        });
+    }
+
+    document.addEventListener("click", function (event) {
+        const button = event.target.closest("[data-views] [data-view]");
+        if (!button) return;
+        showView(button.closest("[data-views]"), button.dataset.view);
+        try {
+            localStorage.setItem(VIEW_KEY, button.dataset.view);
+        } catch (e) {
+            // Private window or blocked storage.
+        }
+    });
+
+    try {
+        const saved = localStorage.getItem(VIEW_KEY);
+        if (saved === "day" || saved === "week") {
+            document.querySelectorAll("[data-views]").forEach(function (tile) {
+                showView(tile, saved);
+            });
+        }
+    } catch (e) {
+        // Keep the default view.
+    }
+
     document.addEventListener("visibilitychange", function () {
         if (document.visibilityState === "visible") refresh();
     });

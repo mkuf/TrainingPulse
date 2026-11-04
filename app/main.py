@@ -30,6 +30,7 @@ from providers.registry import build_all_providers
 from resting_hr import resting_hr_on
 from schema_migrate import ensure_schema
 from sync import run_sync, sync_state
+from today import today_view
 
 PROVIDER_LABELS: dict[str, str] = {name: spec.label for name, spec in PROVIDERS.items()}
 
@@ -89,6 +90,10 @@ app = FastAPI(title=APP_DISPLAY_NAME, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["num"] = lambda value: f"{value:,}"
+# "+5", "0", "−3" (a real minus sign, which lines up with the plus).
+templates.env.filters["signed"] = lambda value: (
+    f"+{value}" if value > 0 else str(value).replace("-", "\u2212")
+)
 #: Appended to static asset URLs so browsers pick up new CSS, JS, and logos
 #: after an upgrade instead of serving cached copies.
 templates.env.globals["asset_version"] = str(int(datetime.now(timezone.utc).timestamp()))
@@ -518,10 +523,12 @@ async def _live_context() -> dict:
 async def home(request: Request):
     """Status page: accounts, sync progress, and where data comes from."""
     context = await _live_context()
+    tz = ZoneInfo(config.athlete.timezone)
     async with async_session() as session:
+        today = None if context["setup"] else await today_view(session, tz)
         resting_hr = await resting_hr_on(
             session,
-            datetime.now(ZoneInfo(config.athlete.timezone)).date(),
+            datetime.now(tz).date(),
             fallback=config.athlete.rest_hr,
             max_hr=config.athlete.max_hr,
         )
@@ -530,6 +537,7 @@ async def home(request: Request):
         grafana_url=_grafana_url(),
         grafana_tag=GRAFANA_TAG,
         grafana_dashboards=GRAFANA_DASHBOARDS,
+        today=today,
         athlete=config.athlete,
         resting_hr=resting_hr,
         resting_hr_source=(

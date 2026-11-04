@@ -139,6 +139,8 @@ async def test_status_page_and_api(seeded, no_scheduled_sync):
             assert f"/dashboards?tag={main.GRAFANA_TAG}" in home.text
             for uid, _title in main.GRAFANA_DASHBOARDS:
                 assert f"/d/{uid}" in home.text
+            assert 'id="today-title"' in home.text
+            assert "kcal / day" in home.text
 
             live = await client.get("/partials/live")
             assert live.status_code == 200, live.text
@@ -171,3 +173,59 @@ async def test_status_page_links_match_the_bundled_dashboards():
     assert {uid for uid, _ in main.GRAFANA_DASHBOARDS} == set(bundled)
     for uid, title in main.GRAFANA_DASHBOARDS:
         assert bundled[uid].endswith(title), (uid, bundled[uid])
+
+
+async def test_today_view_reads_the_seeded_days(seeded):
+    from zoneinfo import ZoneInfo
+
+    from config import config
+    from database import async_session
+    from today import today_view
+
+    async with async_session() as session:
+        view = await today_view(session, ZoneInfo(config.athlete.timezone))
+
+    assert view.sleep is not None and view.sleep.score is not None
+    assert view.recovery is not None
+    assert view.form is not None and view.form.day == view.today
+    assert view.nutrition is not None
+    assert view.nutrition.through < view.today
+    assert view.nutrition.kcal and view.nutrition.days_logged >= 1
+
+
+async def test_today_view_shows_what_is_logged_today(seeded):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from config import config
+    from database import async_session
+    from models import DailyNutrition
+    from sqlalchemy import delete
+    from today import today_view
+
+    tz = ZoneInfo(config.athlete.timezone)
+    day = datetime.now(tz).date()
+    async with async_session() as session:
+        await session.execute(
+            delete(DailyNutrition).where(DailyNutrition.day == day)
+        )
+        session.add(
+            DailyNutrition(
+                provider="fddb", day=day, kcal=1234.4, protein_g=88.6, fat_g=40.0
+            )
+        )
+        await session.commit()
+
+        view = await today_view(session, tz)
+
+        await session.execute(
+            delete(DailyNutrition).where(DailyNutrition.day == day)
+        )
+        await session.commit()
+
+    assert view.nutrition_today is not None
+    assert view.nutrition_today.kcal == 1234
+    assert view.nutrition_today.protein_g == 89
+    assert view.nutrition_today.carbs_g is None
+    # Today is not part of the weekly average.
+    assert view.nutrition is None or view.nutrition.through < day

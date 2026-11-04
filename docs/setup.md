@@ -83,6 +83,17 @@ TrainingPulse adds the Postgres data source **`trainingpulse`** and the dashboar
 
 If Grafana is not on port `3000` of the app host, set `app.grafana_url`. Then the dashboard links on the status page go to the correct address.
 
+### Today summary
+
+The top of the status page shows the most important values. It is easy to read on a phone:
+
+- **Sleep:** the sleep score of the last night, the time asleep, the sleep stages, and the sleeping heart rate.
+- **Recovery:** the recovery score, HRV, and resting heart rate. HRV and resting heart rate show the difference to your usual values of the last 30 days.
+- **Form:** form (TSB), fitness (CTL), and fatigue (ATL).
+- **Nutrition:** the calories, protein, carbohydrates, and fat that you logged today. Click **Week** to see the average per day of this week (Monday to Sunday). The average does not include today, because you are possibly still logging it. On Monday, it shows last week. The browser keeps your selection.
+
+If a value is older than today, the date shows next to the name. Values older than 3 days do not show. The arrow in each box opens the related Grafana dashboard.
+
 ### Use your own Grafana
 
 To show the dashboards in a Grafana you already run, add a Postgres data source for the TrainingPulse database. If Grafana has more than one Postgres data source, select it in the **PostgreSQL** menu at the top of a dashboard. Then push the dashboards with a service account token:

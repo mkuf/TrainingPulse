@@ -260,7 +260,7 @@ The `active_activities` (`ACTIVITY_VISIBLE`), `active_body_measurements`, and `a
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET`  | `/` | Status page: accounts, sync progress, where each data kind comes from |
+| `GET`  | `/` | Status page: the Today summary ([`today.py`](../app/today.py)), accounts, sync progress, where each data kind comes from |
 | `GET`  | `/partials/live` | The status page's auto-refreshing region, as HTML |
 | `GET`  | `/auth/strava` | Start Strava OAuth |
 | `GET`  | `/auth/strava/callback` | OAuth redirect; stores tokens |

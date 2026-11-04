@@ -5,7 +5,9 @@
         <p>TrainingPulse copies your activities, sleep, wellness, body measurements, and nutrition from the services below into its own database, so your Grafana dashboards work from one place. Turn the ones you use on in config.yaml, then connect any that ask for permission.</p>
     </section>
     {% else %}
-    <section class="status-bar status-{{ sync.state }}" aria-live="polite">
+    <section class="section" aria-labelledby="sync-title">
+    <h2 class="section-title" id="sync-title">Sync</h2>
+    <div class="status-bar status-{{ sync.state }}" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
         <div class="status-text">
             <strong>{{ sync.headline }}</strong>
@@ -18,7 +20,7 @@
             <button type="submit" class="btn">Sync now</button>
         </form>
         {% endif %}
-    </section>
+    </div>
 
     {% if sync.error %}
     <div class="banner {{ 'banner-warn' if sync.rate_limited else 'banner-danger' }}" role="status">
@@ -44,6 +46,7 @@
         <p class="muted small">{{ sync.note }}</p>
     </section>
     {% endif %}
+    </section>
 
     {% endif %}
 
