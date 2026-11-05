@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from today import duration, nutrition_window
+from today import duration, nutrition_window, sleep_stages
 
 
 @pytest.mark.parametrize(
@@ -29,3 +29,23 @@ def test_nutrition_window_covers_finished_days_of_the_week(today, expected):
 )
 def test_duration_is_hours_and_minutes(seconds, expected):
     assert duration(seconds) == expected
+
+
+def test_sleep_stages_are_in_display_order():
+    assert sleep_stages(4_320, 6_060, 16_140, 1_320) == (
+        ("deep", 4_320),
+        ("rem", 6_060),
+        ("light", 16_140),
+        ("awake", 1_320),
+    )
+
+
+@pytest.mark.parametrize(
+    "stages", [(None, 6_060, 16_140, 1_320), (4_320, None, 16_140, 1_320), (4_320, 6_060, None, None)]
+)
+def test_sleep_stages_need_all_three_sleep_stages(stages):
+    assert sleep_stages(*stages) == ()
+
+
+def test_sleep_stages_leave_out_what_has_no_time():
+    assert sleep_stages(4_320, 0, 16_140, None) == (("deep", 4_320), ("light", 16_140))

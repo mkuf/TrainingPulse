@@ -1,4 +1,8 @@
-/* TrainingPulse status page. Light by default, dark when the system asks. */
+/* TrainingPulse status page. Light by default, dark when the system asks.
+
+   Spacing sits on a 4px grid (0.25rem steps). Type: 12, 14, 16, 20 and 32px,
+   weights 400 and 500. Status is always a dot with a label. The accent marks
+   the one primary action and what is in progress. */
 
 :root {
     --bg: #f5f7f9;
@@ -7,19 +11,26 @@
     --border: #e1e5ea;
     --text: #1a1f25;
     --text-2: #56606c;
-    --text-3: #8a939e;
+    --text-3: #66707b;
     --accent: #2f4a7a;
     --accent-strong: #243a61;
     --accent-soft: #e8edf6;
     --on-accent: #ffffff;
     --ok: #15803d;
-    --ok-soft: #e5f4ea;
-    --warn: #b45309;
+    --warn: #ad4f08;
     --warn-soft: #fcf1df;
     --danger: #b91c1c;
     --danger-soft: #fbe9e9;
-    --radius: 14px;
+    /* Same hue per stage as the Sleep and recovery dashboard, re-stepped so
+       neighbouring segments stay apart with color blindness too. */
+    --stage-deep: #1b4fa8;
+    --stage-rem: #cc5fa0;
+    --stage-light: #5794f2;
+    --stage-awake: #d97a12;
+    --radius: 12px;
     --radius-sm: 8px;
+    --radius-xs: 4px;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,17 +41,20 @@
         --border: #29313c;
         --text: #e5e9ee;
         --text-2: #a2abb6;
-        --text-3: #6f7883;
+        --text-3: #87919c;
         --accent: #8ea6d6;
         --accent-strong: #b4c6e8;
         --accent-soft: #1c2638;
         --on-accent: #10172a;
-        --ok: #4ade80;
-        --ok-soft: #10281a;
-        --warn: #fbbf24;
+        --ok: #4cc38a;
+        --warn: #e0a83a;
         --warn-soft: #2d2410;
-        --danger: #f87171;
+        --danger: #f0696c;
         --danger-soft: #331717;
+        --stage-deep: #2a6ac8;
+        --stage-rem: #b0509c;
+        --stage-light: #3a9bd8;
+        --stage-awake: #c8700f;
     }
 }
 
@@ -51,49 +65,65 @@ body {
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 15px;
-    line-height: 1.55;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-variant-numeric: tabular-nums;
 }
 
 .page {
-    max-width: 920px;
+    max-width: 66rem;
     margin: 0 auto;
-    padding: 2rem 1rem 3rem;
+    padding: 2rem 1.5rem 3rem;
 }
 
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: 1.4rem; font-weight: 650; }
-h2 { font-size: 1.05rem; font-weight: 600; }
-h3 { font-size: 1rem; font-weight: 600; }
+h1 { font-size: 1.25rem; line-height: 1.75rem; font-weight: 500; }
+h2 { font-size: 1rem; line-height: 1.5rem; font-weight: 500; }
+h3 { font-size: 0.875rem; font-weight: 500; }
 
 a { color: var(--accent-strong); }
 code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.85em;
+    font-size: 0.75rem;
     background: var(--surface-muted);
-    padding: 0.1em 0.35em;
-    border-radius: 4px;
+    padding: 0.125rem 0.25rem;
+    border-radius: var(--radius-xs);
 }
 
 .muted { color: var(--text-2); }
-.small { font-size: 0.85rem; }
+.small { font-size: 0.75rem; line-height: 1rem; }
+
+.icon {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
 
 /* ── Header ─────────────────────────────────────────────── */
 
 .page-header {
     display: flex;
     align-items: center;
-    gap: 0.9rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
-    margin-bottom: 1.5rem;
+    margin-bottom: 2rem;
 }
-.page-header .logo { border-radius: 10px; flex-shrink: 0; }
+.page-header .logo { flex-shrink: 0; }
 .page-title { flex: 1; min-width: 12rem; }
-.page-title p { font-size: 0.9rem; }
+.page-title p { color: var(--text-2); }
 
 .page-footer {
     margin-top: 2.5rem;
-    text-align: center;
     color: var(--text-3);
 }
 
@@ -103,24 +133,22 @@ code {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem;
-    padding: 0.55rem 1rem;
-    border-radius: 999px;
+    gap: 0.25rem;
+    min-height: 2.25rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--text);
     font: inherit;
-    font-weight: 550;
+    font-weight: 500;
     text-decoration: none;
     cursor: pointer;
     white-space: nowrap;
-    transition: background 0.15s, border-color 0.15s;
+    transition: background-color 150ms var(--ease), border-color 150ms var(--ease), transform 150ms var(--ease);
 }
 .btn:hover { background: var(--surface-muted); }
-.btn:focus-visible, .link-button:focus-visible, summary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-}
+.btn:active { transform: scale(0.98); }
 .btn-primary {
     background: var(--accent);
     border-color: var(--accent);
@@ -136,11 +164,20 @@ code {
     border: none;
     padding: 0;
     font: inherit;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
     color: var(--text-2);
     text-decoration: underline;
     text-underline-offset: 2px;
     cursor: pointer;
+    position: relative;
+    transition: color 150ms var(--ease);
+}
+/* 24px to tap around 16px of text. */
+.link-button::after {
+    content: "";
+    position: absolute;
+    inset: -0.25rem;
 }
 .link-button:hover { color: var(--danger); }
 
@@ -152,66 +189,72 @@ code {
 .split-menu > summary::-webkit-details-marker { display: none; }
 .split-toggle {
     height: 100%;
-    padding-inline: 0.7rem 0.8rem;
+    padding-inline: 0.5rem;
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
     border-left-color: color-mix(in srgb, var(--on-accent) 35%, var(--accent));
 }
-.split-toggle svg { transition: transform 0.15s; }
-.split-menu[open] .split-toggle svg { transform: rotate(180deg); }
+.split-toggle .icon { transition: transform 150ms var(--ease); }
+.split-menu[open] .split-toggle .icon { transform: rotate(180deg); }
 .menu {
     position: absolute;
     right: 0;
-    top: calc(100% + 6px);
+    top: calc(100% + 0.5rem);
     z-index: 10;
     min-width: 15rem;
     margin: 0;
-    padding: 0.35rem;
+    padding: 0.25rem;
     list-style: none;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+.split-menu[open] .menu { animation: menu-in 180ms var(--ease); }
+@keyframes menu-in {
+    from { opacity: 0; transform: translateY(-4px); }
 }
 .menu a {
     display: block;
-    padding: 0.45rem 0.7rem;
-    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
     color: var(--text);
     text-decoration: none;
+    transition: background-color 150ms var(--ease);
 }
 .menu a:hover, .menu a:focus-visible { background: var(--surface-muted); outline: none; }
 
 /* ── Today ──────────────────────────────────────────────── */
 
-.today { margin-top: 0; }
 .today-grid {
     display: grid;
-    /* Four columns or two, never three (which would leave one tile alone).
-       At 900px a tile is about 13rem, the narrowest that fits the Nutrition
-       header (title, toggle, link) on one line. */
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Sleep is wider because it carries the stage bar. Four columns or two,
+       never three (which would leave one tile alone). Above the breakpoint a
+       narrow tile is at least 13rem, what the Nutrition header (title, toggle,
+       link) needs on one line. */
+    grid-template-columns: 1.5fr 1fr 1fr 1fr;
     gap: 0.75rem;
 }
 .tile {
+    /* Header, summary and facts share rows across the tiles in a line, so the
+       facts start at the same height however long the summary is. */
+    display: grid;
+    grid-row: span 3;
+    grid-template-rows: subgrid;
+    min-width: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 0.9rem 0.85rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
+    padding: 1rem;
 }
-/* Fixed height, so the toggle in one header doesn't push its tile's value
-   below the others. */
-.tile-head { display: flex; align-items: center; gap: 0.4rem; height: 1.5rem; }
-.tile-head h3 { white-space: nowrap; font-size: 0.85rem; font-weight: 600; color: var(--text-2); }
-.tile-when { font-size: 0.75rem; color: var(--text-3); }
+.tile-head { display: flex; align-items: center; gap: 0.5rem; height: 1.5rem; }
+.tile-head h3 { white-space: nowrap; color: var(--text-2); }
+.tile-when { font-size: 0.75rem; line-height: 1rem; color: var(--text-3); }
 .tile-actions { display: flex; align-items: center; gap: 0.25rem; margin-left: auto; }
 .segmented {
     display: inline-flex;
     padding: 2px;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--surface-muted);
 }
 .segmented button {
@@ -219,57 +262,96 @@ code {
     background: none;
     color: var(--text-2);
     font: inherit;
-    font-size: 0.72rem;
-    font-weight: 550;
-    padding: 0.1rem 0.4rem;
-    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    padding: 0 0.375rem;
+    border-radius: 6px;
     cursor: pointer;
+    position: relative;
+    transition: color 150ms var(--ease), background-color 150ms var(--ease);
+}
+/* Taller to tap than it looks: 28px in a 24px control. */
+.segmented button::after {
+    content: "";
+    position: absolute;
+    inset: -0.25rem 0;
 }
 .segmented button[aria-pressed="true"] {
     background: var(--surface);
     color: var(--text);
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
-.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-[data-panel] { display: flex; flex-direction: column; gap: 0.35rem; }
+[data-panel] { display: contents; }
 [data-panel][hidden] { display: none; }
 .tile-link {
-    margin-left: auto;
+    display: flex;
+    /* 24px to tap, with the 16px icon in the same place. */
+    padding: 0.25rem;
+    margin: 0 -0.25rem 0 auto;
     color: var(--text-3);
-    text-decoration: none;
-    padding: 0 0.15rem;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
+    transition: color 150ms var(--ease);
 }
-.tile-link:hover, .tile-link:focus-visible { color: var(--accent-strong); }
+.tile-actions .tile-link { margin-left: -0.25rem; }
+.tile-link:hover, .tile-link:focus-visible { color: var(--text); }
+.tile-summary { display: flex; flex-direction: column; gap: 0.25rem; }
 .tile-value {
     font-size: 2rem;
-    font-weight: 650;
-    line-height: 1.1;
-    font-variant-numeric: tabular-nums;
+    line-height: 2.25rem;
+    font-weight: 500;
 }
 .tile-value span {
-    margin-left: 0.35rem;
-    font-size: 0.8rem;
-    font-weight: 500;
+    font-size: 0.75rem;
+    font-weight: 400;
     color: var(--text-2);
 }
-.tile-sub { font-size: 0.85rem; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.tile-empty { font-size: 0.85rem; }
+.tile-sub { color: var(--text-2); }
+.tile-empty { align-self: start; }
 .tile-facts {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(4.5rem, 1fr));
-    gap: 0.5rem 0.75rem;
-    margin: 0.4rem 0 0;
-    padding-top: 0.6rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    align-content: start;
+    margin: 0;
+    padding-top: 0.75rem;
     border-top: 1px solid var(--border);
 }
-.tile-facts dt { font-size: 0.75rem; color: var(--text-2); }
-.tile-facts dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
-.tile-facts dd span { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
-.tile-facts dd.tile-note { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
+.tile-facts-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tile-facts-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tile-fact-wide { grid-column: span 2; }
+.tile-facts dt { font-size: 0.75rem; line-height: 1rem; color: var(--text-2); }
+.tile-facts dd { margin: 0; font-weight: 500; }
+.tile-facts dd span { font-size: 0.75rem; font-weight: 400; color: var(--text-2); }
+.tile-facts dd.tile-note { font-size: 0.75rem; line-height: 1rem; font-weight: 400; color: var(--text-2); }
 
-@media (max-width: 900px) {
+/* The stage bar takes the place of the divider line above the facts, which
+   are its legend. Its segments are sized by flex-grow, in seconds. */
+.tile-foot { display: grid; align-content: start; }
+.tile-foot-bar .tile-facts { border-top: 0; }
+.stage-bar {
+    display: flex;
+    gap: 2px;
+    height: 0.5rem;
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+}
+.stage-bar span { flex-basis: 0; min-width: 2px; }
+.stage-deep { background: var(--stage-deep); }
+.stage-rem { background: var(--stage-rem); }
+.stage-light { background: var(--stage-light); }
+.stage-awake { background: var(--stage-awake); }
+.swatch {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 0.25rem;
+    border-radius: 2px;
+}
+
+@media (max-width: 1000px) {
+    /* Sleep and nutrition across, recovery and form side by side. */
     .today-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tile:first-child, .tile:last-child { grid-column: 1 / -1; }
 }
 
 /* ── Cards and sections ─────────────────────────────────── */
@@ -278,59 +360,69 @@ code {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 1.1rem 1.25rem;
+    padding: 1rem;
 }
 .card-title { margin-bottom: 0.75rem; }
-.section { margin-top: 2rem; }
+.section { margin-top: 2.5rem; }
 .section-title { margin-bottom: 0.75rem; }
-.section-lead { font-size: 0.9rem; margin: -0.35rem 0 0.85rem; max-width: 46rem; }
+.section-lead { margin: -0.25rem 0 0.75rem; max-width: 46rem; }
 
 .intro { background: var(--accent-soft); border-color: transparent; }
-.intro h2 { margin-bottom: 0.4rem; }
+.intro h2 { margin-bottom: 0.25rem; }
 
-/* ── Status bar ─────────────────────────────────────────── */
+/* ── Status dot and bar ─────────────────────────────────── */
 
-.status-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-    flex-wrap: wrap;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.85rem 1.1rem;
-}
 .status-dot {
-    width: 10px;
-    height: 10px;
+    position: relative;
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 50%;
     flex-shrink: 0;
     background: var(--text-3);
 }
+
+.status-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+}
 .status-text { flex: 1; min-width: 12rem; display: flex; flex-direction: column; }
-.status-text .muted { font-size: 0.875rem; }
+.status-text strong { font-weight: 500; }
 .status-ok .status-dot { background: var(--ok); }
 .status-catching-up .status-dot, .status-waiting .status-dot { background: var(--warn); }
 .status-error .status-dot { background: var(--danger); }
-.status-running .status-dot {
+.status-running .status-dot { background: var(--accent); }
+/* Only a running sync moves: the one thing on the page that is live. */
+.status-running .status-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
     background: var(--accent);
-    animation: pulse 1.4s ease-in-out infinite;
+    animation: pulse 1.4s var(--ease) infinite;
 }
 @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
-    50% { box-shadow: 0 0 0 6px var(--accent-soft); }
+    from { opacity: 0.6; transform: scale(1); }
+    to { opacity: 0; transform: scale(2.5); }
 }
 @media (prefers-reduced-motion: reduce) {
-    .status-running .status-dot { animation: none; }
+    .status-running .status-dot::after,
+    .split-menu[open] .menu { animation: none; }
+    .btn, .btn:active, .split-toggle .icon { transition: none; transform: none; }
 }
 
 .banner {
     margin-top: 0.75rem;
-    padding: 0.8rem 1.1rem;
+    padding: 1rem;
     border-radius: var(--radius);
-    font-size: 0.9rem;
 }
-.banner p { overflow-wrap: anywhere; }
+.banner strong { font-weight: 500; }
+.banner p { overflow-wrap: anywhere; color: var(--text); }
 .banner-danger { background: var(--danger-soft); color: var(--danger); }
 .banner-warn { background: var(--warn-soft); color: var(--warn); }
 
@@ -342,156 +434,161 @@ code {
     display: flex;
     justify-content: space-between;
     gap: 0.5rem;
-    margin-bottom: 0.3rem;
-    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
 }
 .bar {
-    height: 8px;
-    border-radius: 999px;
+    height: 0.5rem;
+    border-radius: var(--radius-xs);
     background: var(--surface-muted);
     overflow: hidden;
 }
 .bar > span {
     display: block;
     height: 100%;
-    border-radius: inherit;
     background: var(--accent);
-    transition: width 0.4s ease;
 }
-.bar-thin { height: 5px; }
+.bar-thin { height: 0.25rem; border-radius: 2px; }
 
 /* ── Providers ──────────────────────────────────────────── */
 
 .provider-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-    gap: 0.85rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+    gap: 0.75rem;
 }
 .provider {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
+    gap: 0.25rem;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 1rem 1.1rem;
+    padding: 1rem;
 }
 .provider-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+    min-height: 1.5rem;
 }
-.provider .hint { color: var(--text-3); margin-top: auto; padding-top: 0.5rem; }
-.provider-actions { margin-top: 0.35rem; }
-.provider-off {
-    background: transparent;
-    border-style: dashed;
+.provider .hint { color: var(--text-3); padding-top: 0.5rem; }
+.provider-actions { margin-top: 0.25rem; }
+
+.accounts-off {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 0.75rem;
+    align-items: baseline;
+    padding: 0.75rem 1rem;
 }
-.provider-off h3 { color: var(--text-2); }
-.provider-missing, .provider-disconnected { border-color: var(--warn); }
+.provider-grid + .accounts-off { margin-top: 0.25rem; }
+.accounts-off > p { color: var(--text-2); }
+.accounts-off > .hint { grid-column: 2; color: var(--text-3); }
 
 .quota { margin-top: 0.5rem; }
-.quota p { margin-top: 0.3rem; }
+.quota .bar-label { margin-bottom: 0.25rem; }
+.quota p { margin-top: 0.25rem; }
 .quota-high .bar > span { background: var(--warn); }
 
-.pill {
+.state {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
     font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.15rem 0.6rem;
-    border-radius: 999px;
+    line-height: 1rem;
+    color: var(--text-2);
     white-space: nowrap;
 }
-.pill-ok { background: var(--ok-soft); color: var(--ok); }
-.pill-warn { background: var(--warn-soft); color: var(--warn); }
-.pill-danger { background: var(--danger-soft); color: var(--danger); }
-.pill-muted { background: var(--surface-muted); color: var(--text-2); }
+.state-ok .status-dot { background: var(--ok); }
+.state-warn .status-dot { background: var(--warn); }
+.state-danger .status-dot { background: var(--danger); }
+.state-muted .status-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-3); }
 
 /* ── Data kinds ─────────────────────────────────────────── */
 
-.list-card { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.list-card { padding-block: 0; }
 .kind-row {
     display: flex;
     align-items: center;
     gap: 1rem;
     flex-wrap: wrap;
-    padding: 0.85rem 0;
+    padding: 0.75rem 0;
     border-bottom: 1px solid var(--border);
 }
 .kind-row:last-child { border-bottom: none; }
-.kind-name { display: flex; flex-direction: column; width: 13.5rem; }
+.kind-name { display: flex; flex-direction: column; width: 16rem; }
+.kind-name strong { font-weight: 500; }
 .chain {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.4rem;
+    gap: 0.5rem;
     flex: 1;
     margin: 0;
     padding: 0;
     list-style: none;
 }
 .chip {
+    position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    font-size: 0.85rem;
-    padding: 0.25rem 0.7rem;
-    border-radius: 999px;
-    background: var(--surface-muted);
+    gap: 0.25rem;
+    min-height: 1.5rem;
+    padding: 0 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--text-2);
 }
-.chip { position: relative; }
-.chip + .chip { margin-left: 0.9rem; }
+.chip + .chip { margin-left: 1rem; }
 .chip + .chip::before {
     content: "›";
     position: absolute;
-    left: -0.95rem;
+    left: -1.0625rem;
+    width: 1rem;
+    text-align: center;
     color: var(--text-3);
 }
-.chip-lead { background: var(--accent-soft); color: var(--accent-strong); font-weight: 550; }
-.chip-off { color: var(--text-2); background: transparent; border: 1px dashed var(--border); }
-.chip-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
-.chip-hidden { font-variant-numeric: tabular-nums; font-weight: 400; color: var(--text-3); }
+.chip-lead { background: var(--surface-muted); border-color: transparent; color: var(--text); font-weight: 500; }
+.chip-off { border-style: dashed; }
+.chip-count { font-weight: 400; color: var(--text-2); }
+.chip-hidden { font-weight: 400; color: var(--text-3); }
 
 /* ── Athlete settings ───────────────────────────────────── */
 
 .settings {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    gap: 0.75rem;
-    margin: 0 0 0.85rem;
+    gap: 1rem;
+    margin: 0 0 1rem;
 }
-.settings div {
-    background: var(--surface-muted);
-    border-radius: var(--radius-sm);
-    padding: 0.65rem 0.85rem;
-}
-.settings dt { font-size: 0.8rem; color: var(--text-2); }
-.settings dd { margin: 0; font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.settings dd span { font-size: 0.8rem; font-weight: 500; color: var(--text-2); }
-.settings dd.settings-note { font-size: 0.75rem; font-weight: 500; color: var(--text-2); }
-.settings dd.small-value { font-size: 1rem; padding-top: 0.2rem; overflow-wrap: anywhere; }
+.settings dt { font-size: 0.75rem; line-height: 1rem; color: var(--text-2); }
+.settings dd { margin: 0; font-size: 1.25rem; line-height: 1.75rem; font-weight: 500; }
+.settings dd span { font-size: 0.75rem; font-weight: 400; color: var(--text-2); }
+.settings dd.settings-note { font-size: 0.75rem; line-height: 1rem; font-weight: 400; color: var(--text-2); }
+.settings dd.small-value { font-size: 0.875rem; overflow-wrap: anywhere; }
 
 .advanced {
     margin-top: 1rem;
     border-top: 1px solid var(--border);
-    padding-top: 0.85rem;
+    padding-top: 0.75rem;
 }
 .advanced summary {
+    padding-block: 0.125rem;
     cursor: pointer;
-    font-weight: 550;
+    font-weight: 500;
     color: var(--text-2);
 }
-.advanced p { margin: 0.6rem 0 0.85rem; font-size: 0.9rem; color: var(--text-2); max-width: 44rem; }
+.advanced p { margin: 0.5rem 0 0.75rem; color: var(--text-2); max-width: 44rem; }
 
 @media (max-width: 560px) {
-    .page { padding-top: 1.25rem; }
+    .page { padding: 1.5rem 1rem 2.5rem; }
+    .page-header { margin-bottom: 1.5rem; }
     .page-header .split-button { width: 100%; }
     .page-header .split-main { flex: 1; }
     .menu { left: 0; }
-    /* Phone: sleep and nutrition across, recovery and form side by side. */
-    .today-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
-    .tile:first-child, .tile:last-child { grid-column: 1 / -1; }
-    .tile { padding: 0.8rem 0.85rem 0.85rem; }
-    .tile-value { font-size: 1.75rem; }
+    /* Recovery and form share a line here, too narrow for two columns of facts. */
+    .tile-facts:not(.tile-facts-3, .tile-facts-4) { grid-template-columns: minmax(0, 1fr); }
     .kind-name { width: 100%; }
+    .section { margin-top: 2rem; }
 }

@@ -313,16 +313,16 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
 
         if not section.enabled:
             status, status_label, tone = "off", "Off", "muted"
-            hint = f"Turned off. Set providers.{name}.enabled to true in config.yaml."
+            hint = f"Turn it on with providers.{name}.enabled in config.yaml"
         elif not configured:
             status, status_label, tone = "missing", "Needs setup", "danger"
-            hint = f"Add its credentials under providers.{name} in config.yaml."
+            hint = f"Add its credentials under providers.{name} in config.yaml"
         elif not oauth:
             status, status_label, tone = "ready", "Ready", "ok"
             hint = (
-                "Uses the API key from config.yaml."
+                "Uses the API key from config.yaml"
                 if provider.auth is AuthMethod.API_KEY
-                else "Signs in with the login from config.yaml."
+                else "Signs in with the login from config.yaml"
             )
         elif connected:
             missing = await _ungranted_imports(provider, name)
@@ -330,14 +330,14 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 status, status_label, tone = "connected", "Reconnect needed", "warn"
                 hint = (
                     f"Disconnect and connect {label} again to allow "
-                    f"{', '.join(KINDS[kind].label.lower() for kind in missing)}."
+                    f"{', '.join(KINDS[kind].label.lower() for kind in missing)}"
                 )
             else:
                 status, status_label, tone = "connected", "Connected", "ok"
-                hint = f"You gave TrainingPulse access to your {label} account."
+                hint = f"You gave TrainingPulse access to your {label} account"
         else:
             status, status_label, tone = "disconnected", "Not connected", "warn"
-            hint = f"Connect your {label} account to start syncing."
+            hint = f"Connect your {label} account to start syncing"
 
         # Amounts, including hidden duplicates, live in "Where your data
         # comes from"; the card is about the connection only.
@@ -482,12 +482,12 @@ def _sync_view(pending: dict) -> dict:
                 }
             )
     if sync_state.is_running:
-        note = "This updates live while the sync runs."
+        note = "This updates live while the sync runs"
     else:
         note = (
-            f"The rest is fetched over the next syncs, starting {_until(next_run)}."
+            f"The rest is fetched over the next syncs, starting {_until(next_run)}"
             if next_run
-            else "The rest is fetched over the next syncs."
+            else "The rest is fetched over the next syncs"
         )
 
     return {

@@ -52,12 +52,15 @@
 
     <section class="section">
         <h2 class="section-title">Your accounts</h2>
+        {% set active = providers|rejectattr("status", "equalto", "off")|list %}
+        {% set off = providers|selectattr("status", "equalto", "off")|list %}
+        {% if active %}
         <div class="provider-grid">
-            {% for p in providers %}
+            {% for p in active %}
             <article class="provider provider-{{ p.status }}">
                 <header class="provider-head">
                     <h3>{{ p.label }}</h3>
-                    <span class="pill pill-{{ p.tone }}">{{ p.status_label }}</span>
+                    <span class="state state-{{ p.tone }}"><span class="status-dot" aria-hidden="true"></span>{{ p.status_label }}</span>
                 </header>
 
                 {% if p.quota %}
@@ -67,14 +70,14 @@
                         <span class="muted">{{ p.quota.daily_used|num }} of {{ p.quota.daily_limit|num }}</span>
                     </div>
                     <div class="bar bar-thin"><span style="width: {{ p.quota.pct }}%"></span></div>
-                    <p class="muted small">{{ p.quota.fifteen_used }} of {{ p.quota.fifteen_limit }} in the last 15 min · checked {{ p.quota.checked }}</p>
+                    <p class="muted small">{{ p.quota.fifteen_used|num }} of {{ p.quota.fifteen_limit|num }} in the last 15 min · checked {{ p.quota.checked }}</p>
                 </div>
                 {% endif %}
 
                 <p class="hint small">{{ p.hint }}</p>
 
                 {% if p.status == 'disconnected' %}
-                <a class="btn btn-primary btn-block" href="{{ p.connect_path }}">Connect {{ p.label }}</a>
+                <a class="btn btn-block" href="{{ p.connect_path }}">Connect {{ p.label }}</a>
                 {% elif p.status == 'connected' %}
                 <form action="{{ p.disconnect_path }}" method="post" class="provider-actions">
                     <button type="submit" class="link-button">Disconnect</button>
@@ -83,6 +86,14 @@
             </article>
             {% endfor %}
         </div>
+        {% endif %}
+        {% if off %}
+        <div class="accounts-off">
+            <span class="state state-muted"><span class="status-dot" aria-hidden="true"></span>Off</span>
+            <p>{% for p in off %}<span title="{{ p.hint }}">{{ p.label }}</span>{{ ", " if not loop.last }}{% endfor %}</p>
+            <p class="small hint">Turn one on with <code>enabled</code> under <code>providers</code> in config.yaml</p>
+        </div>
+        {% endif %}
     </section>
 
     {% if kinds %}

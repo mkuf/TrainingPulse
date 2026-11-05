@@ -1,5 +1,6 @@
+{% from "_icons.html" import arrow_up_right %}
 {% macro macros(n) %}
-<dl class="tile-facts">
+<dl class="tile-facts tile-facts-3">
     {% if n.protein_g is not none %}<div><dt>Protein</dt><dd>{{ n.protein_g }} <span>g</span></dd></div>{% endif %}
     {% if n.carbs_g is not none %}<div><dt>Carbs</dt><dd>{{ n.carbs_g }} <span>g</span></dd></div>{% endif %}
     {% if n.fat_g is not none %}<div><dt>Fat</dt><dd>{{ n.fat_g }} <span>g</span></dd></div>{% endif %}
@@ -13,21 +14,31 @@
             <header class="tile-head">
                 <h3>Sleep</h3>
                 {% if today.sleep and today.sleep.day != today.today %}<span class="tile-when">{{ today.sleep.day.strftime("%a %-d %b") }}</span>{% endif %}
-                <a class="tile-link" href="{{ sleep_url }}" target="_blank" rel="noopener" aria-label="Sleep and recovery dashboard">↗</a>
+                <a class="tile-link" href="{{ sleep_url }}" target="_blank" rel="noopener" aria-label="Sleep and recovery dashboard">{{ arrow_up_right() }}</a>
             </header>
             {% if today.sleep %}
             {% set s = today.sleep %}
-            <p class="tile-value">{{ s.score if s.score is not none else "–" }}<span>score</span></p>
-            <p class="tile-sub">{% if s.asleep %}{{ s.asleep }} asleep · {% endif %}{{ s.window }}</p>
-            <dl class="tile-facts">
-                {% if s.deep %}<div><dt>Deep</dt><dd>{{ s.deep }}</dd></div>{% endif %}
-                {% if s.rem %}<div><dt>REM</dt><dd>{{ s.rem }}</dd></div>{% endif %}
-                {% if s.light %}<div><dt>Light</dt><dd>{{ s.light }}</dd></div>{% endif %}
-                {% if s.awake %}<div><dt>Awake</dt><dd>{{ s.awake }}</dd></div>{% endif %}
-                {% if s.sleeping_hr is not none %}<div><dt>Sleeping HR</dt><dd>{{ s.sleeping_hr }} <span>bpm</span></dd></div>{% endif %}
-            </dl>
+            <div class="tile-summary">
+                <p class="tile-value">{{ s.score if s.score is not none else "–" }} <span>score</span></p>
+                <p class="tile-sub">{% if s.asleep %}{{ s.asleep }} asleep · {% endif %}{{ s.window }}</p>
+            </div>
+            <div class="tile-foot{{ ' tile-foot-bar' if s.stages }}">
+                {% if s.stages %}
+                {% set names = {"deep": ("Deep", s.deep), "rem": ("REM", s.rem), "light": ("Light", s.light), "awake": ("Awake", s.awake)} %}
+                <div class="stage-bar" role="img" aria-label="Sleep stages: {% for key, seconds in s.stages %}{{ names[key][0] }} {{ names[key][1] }}{{ ", " if not loop.last }}{% endfor %}">
+                    {% for key, seconds in s.stages %}<span class="stage-{{ key }}" style="flex-grow: {{ seconds|round|int }}" title="{{ names[key][0] }} {{ names[key][1] }}"></span>{% endfor %}
+                </div>
+                {% endif %}
+                <dl class="tile-facts tile-facts-4">
+                    {% if s.deep %}<div><dt>{% if s.stages %}<span class="swatch stage-deep" aria-hidden="true"></span>{% endif %}Deep</dt><dd>{{ s.deep }}</dd></div>{% endif %}
+                    {% if s.rem %}<div><dt>{% if s.stages %}<span class="swatch stage-rem" aria-hidden="true"></span>{% endif %}REM</dt><dd>{{ s.rem }}</dd></div>{% endif %}
+                    {% if s.light %}<div><dt>{% if s.stages %}<span class="swatch stage-light" aria-hidden="true"></span>{% endif %}Light</dt><dd>{{ s.light }}</dd></div>{% endif %}
+                    {% if s.awake %}<div><dt>{% if s.stages %}<span class="swatch stage-awake" aria-hidden="true"></span>{% endif %}Awake</dt><dd>{{ s.awake }}</dd></div>{% endif %}
+                    {% if s.sleeping_hr is not none %}<div class="tile-fact-wide"><dt>Sleeping HR</dt><dd>{{ s.sleeping_hr }} <span>bpm</span></dd></div>{% endif %}
+                </dl>
+            </div>
             {% else %}
-            <p class="tile-empty muted">No night in the last few days.</p>
+            <p class="tile-empty muted">No night in the last few days</p>
             {% endif %}
         </article>
 
@@ -35,17 +46,17 @@
             <header class="tile-head">
                 <h3>Recovery</h3>
                 {% if today.recovery and today.sleep.day != today.today %}<span class="tile-when">{{ today.sleep.day.strftime("%a %-d %b") }}</span>{% endif %}
-                <a class="tile-link" href="{{ sleep_url }}" target="_blank" rel="noopener" aria-label="Sleep and recovery dashboard">↗</a>
+                <a class="tile-link" href="{{ sleep_url }}" target="_blank" rel="noopener" aria-label="Sleep and recovery dashboard">{{ arrow_up_right() }}</a>
             </header>
             {% if today.recovery %}
             {% set r = today.recovery %}
-            <p class="tile-value">{{ r.score if r.score is not none else "–" }}<span>score</span></p>
+            <div class="tile-summary"><p class="tile-value">{{ r.score if r.score is not none else "–" }} <span>score</span></p></div>
             <dl class="tile-facts">
-                {% if r.hrv_ms is not none %}<div><dt>HRV</dt><dd>{{ r.hrv_ms }} <span>ms</span></dd>{% if r.hrv_pct_of_usual is not none %}<dd class="tile-note">{{ r.hrv_pct_of_usual }} % of usual</dd>{% endif %}</div>{% endif %}
-                {% if r.resting_hr is not none %}<div><dt>Resting HR</dt><dd>{{ r.resting_hr }} <span>bpm</span></dd>{% if r.resting_hr_delta is not none %}<dd class="tile-note">{{ r.resting_hr_delta|signed }} vs. usual</dd>{% endif %}</div>{% endif %}
+                {% if r.hrv_ms is not none %}<div><dt>HRV</dt><dd>{{ r.hrv_ms }} <span>ms</span></dd>{% if r.hrv_pct_of_usual is not none %}<dd class="tile-note">{{ r.hrv_pct_of_usual }}% of usual</dd>{% endif %}</div>{% endif %}
+                {% if r.resting_hr is not none %}<div><dt>Resting HR</dt><dd>{{ r.resting_hr }} <span>bpm</span></dd>{% if r.resting_hr_delta is not none %}<dd class="tile-note">{{ r.resting_hr_delta|signed }} vs usual</dd>{% endif %}</div>{% endif %}
             </dl>
             {% else %}
-            <p class="tile-empty muted">No recovery data in the last few days.</p>
+            <p class="tile-empty muted">No recovery data in the last few days</p>
             {% endif %}
         </article>
 
@@ -53,17 +64,17 @@
             <header class="tile-head">
                 <h3>Form</h3>
                 {% if today.form and today.form.day != today.today %}<span class="tile-when">{{ today.form.day.strftime("%a %-d %b") }}</span>{% endif %}
-                <a class="tile-link" href="{{ grafana_url }}/d/trainingpulse-fitness" target="_blank" rel="noopener" aria-label="Fitness and freshness dashboard">↗</a>
+                <a class="tile-link" href="{{ grafana_url }}/d/trainingpulse-fitness" target="_blank" rel="noopener" aria-label="Fitness and freshness dashboard">{{ arrow_up_right() }}</a>
             </header>
             {% if today.form %}
             {% set f = today.form %}
-            <p class="tile-value">{{ f.form|signed }}<span>TSB</span></p>
+            <div class="tile-summary"><p class="tile-value">{{ f.form|signed }} <span>TSB</span></p></div>
             <dl class="tile-facts">
                 <div><dt>Fitness</dt><dd>{{ f.fitness }} <span>CTL</span></dd></div>
                 <div><dt>Fatigue</dt><dd>{{ f.fatigue }} <span>ATL</span></dd></div>
             </dl>
             {% else %}
-            <p class="tile-empty muted">No training load yet.</p>
+            <p class="tile-empty muted">No training load yet</p>
             {% endif %}
         </article>
 
@@ -75,27 +86,31 @@
                         <button type="button" data-view="day" aria-pressed="true">Today</button>
                         <button type="button" data-view="week" aria-pressed="false">Week</button>
                     </div>
-                    <a class="tile-link" href="{{ grafana_url }}/d/trainingpulse-nutrition-training-weight" target="_blank" rel="noopener" aria-label="Nutrition dashboard">↗</a>
+                    <a class="tile-link" href="{{ grafana_url }}/d/trainingpulse-nutrition-training-weight" target="_blank" rel="noopener" aria-label="Nutrition dashboard">{{ arrow_up_right() }}</a>
                 </div>
             </header>
             <div data-panel="day">
                 {% if today.nutrition_today %}
                 {% set n = today.nutrition_today %}
-                <p class="tile-value">{{ n.kcal|num }}<span>kcal</span></p>
-                <p class="tile-sub">Logged today so far</p>
+                <div class="tile-summary">
+                    <p class="tile-value">{{ n.kcal|num }} <span>kcal</span></p>
+                    <p class="tile-sub">Logged today so far</p>
+                </div>
                 {{ macros(n) }}
                 {% else %}
-                <p class="tile-empty muted">Nothing logged today yet.</p>
+                <p class="tile-empty muted">Nothing logged today yet</p>
                 {% endif %}
             </div>
             <div data-panel="week" hidden>
                 {% if today.nutrition %}
                 {% set n = today.nutrition %}
-                <p class="tile-value">{{ n.kcal|num }}<span>kcal / day</span></p>
+                <div class="tile-summary">
+                <p class="tile-value">{{ n.kcal|num }} <span>kcal / day</span></p>
                 <p class="tile-sub">{{ "Last week, " if n.last_week }}{{ n.start.strftime("%a") }}{% if n.through != n.start %}–{{ n.through.strftime("%a") }}{% endif %} · {{ n.days_logged }} of {{ (n.through - n.start).days + 1 }} days logged</p>
+                </div>
                 {{ macros(n) }}
                 {% else %}
-                <p class="tile-empty muted">Nothing logged this week yet.</p>
+                <p class="tile-empty muted">Nothing logged this week yet</p>
                 {% endif %}
             </div>
         </article>

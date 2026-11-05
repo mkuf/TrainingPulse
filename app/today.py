@@ -34,6 +34,9 @@ class SleepView:
     light: str | None
     awake: str | None
     sleeping_hr: int | None
+    #: (stage, seconds) in display order, for the night's stage bar. Empty
+    #: without all of deep, REM and light.
+    stages: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,21 @@ def duration(seconds: float | None) -> str | None:
     return f"{minutes // 60}:{minutes % 60:02d}"
 
 
+def sleep_stages(
+    deep: float | None, rem: float | None, light: float | None, awake: float | None
+) -> tuple[tuple[str, float], ...]:
+    """The stages of a night to draw as shares of a bar, in display order.
+
+    A provider without stage data leaves them ``None``. A bar without one of
+    the three sleep stages would overstate the others, so there is none.
+    ``awake`` is optional because it is not part of the time asleep.
+    """
+    if deep is None or rem is None or light is None:
+        return ()
+    stages = (("deep", deep), ("rem", rem), ("light", light), ("awake", awake or 0))
+    return tuple(stage for stage in stages if stage[1] > 0)
+
+
 def _int(value: float | None) -> int | None:
     return None if value is None else round(value)
 
@@ -151,6 +169,9 @@ async def today_view(session: AsyncSession, tz: ZoneInfo) -> TodayView:
             light=duration(row.light_seconds),
             awake=duration(row.awake_seconds),
             sleeping_hr=_int(scores.sleep_avg_hr) if scores else None,
+            stages=sleep_stages(
+                row.deep_seconds, row.rem_seconds, row.light_seconds, row.awake_seconds
+            ),
         )
         wellness = await session.scalar(
             select(DailyWellness).where(

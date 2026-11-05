@@ -11,3 +11,4 @@ __pycache__/
 .kilo
 *.sql
 CLAUDE.md
+.claude

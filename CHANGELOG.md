@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Sleep tile on the status page shows last night's deep, REM, light and awake time as one bar. Nights without stage data show no bar.
+
+### Changed
+
+- The status page has a calmer design: consistent spacing and type, a status dot instead of colored pills on the accounts, one highlighted button, and aligned Today tiles. Faint text is easier to read.
+- Accounts that are turned off share one line under the status page's account cards, instead of a card each.
+- The small controls on the status page are easier to tap on a phone.
+- Numbers on the status page use one format, for example `38 of 2,500` and `104% of usual`.
+
 ## [1.4.0] - 2026-11-04
 
 ### Added
