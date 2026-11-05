@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The status page has a calmer design: consistent spacing and type, a status dot instead of colored pills on the accounts, one highlighted button, and aligned Today tiles. Faint text is easier to read.
-- Accounts that are turned off share one line under the status page's account cards, instead of a card each.
+- Accounts that are turned off share one row under the status page's account cards, instead of a card each. Smaller account cards stack beside taller ones on desktop.
+- The status page shows less text: accounts that work have no hint, and turned-off accounts, data source order and athlete settings are explained in the [documentation](docs/README.md).
 - The small controls on the status page are easier to tap on a phone.
 - Numbers on the status page use one format, for example `38 of 2,500` and `104% of usual`.
 

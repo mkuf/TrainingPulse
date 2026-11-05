@@ -311,19 +311,16 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
             except Exception as exc:  # noqa: BLE001 - status page must render
                 logger.warning("%s connection check failed: %s", name, exc)
 
+        # A hint only says what to do; a working account has nothing to add.
         if not section.enabled:
             status, status_label, tone = "off", "Off", "muted"
-            hint = f"Turn it on with providers.{name}.enabled in config.yaml"
+            hint = ""
         elif not configured:
             status, status_label, tone = "missing", "Needs setup", "danger"
             hint = f"Add its credentials under providers.{name} in config.yaml"
         elif not oauth:
             status, status_label, tone = "ready", "Ready", "ok"
-            hint = (
-                "Uses the API key from config.yaml"
-                if provider.auth is AuthMethod.API_KEY
-                else "Signs in with the login from config.yaml"
-            )
+            hint = ""
         elif connected:
             missing = await _ungranted_imports(provider, name)
             if missing:
@@ -334,10 +331,10 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 )
             else:
                 status, status_label, tone = "connected", "Connected", "ok"
-                hint = f"You gave TrainingPulse access to your {label} account"
+                hint = ""
         else:
             status, status_label, tone = "disconnected", "Not connected", "warn"
-            hint = f"Connect your {label} account to start syncing"
+            hint = "Connect to start syncing"
 
         # Amounts, including hidden duplicates, live in "Where your data
         # comes from"; the card is about the connection only.
@@ -544,7 +541,7 @@ async def home(request: Request):
             f"{PROVIDER_LABELS.get(resting_hr.provider, resting_hr.provider)} · "
             f"{resting_hr.days}-day median"
             if resting_hr.source == "imported"
-            else "From config.yaml"
+            else "Your configured value"
         ),
     )
     return templates.TemplateResponse(request, "index.html", context)

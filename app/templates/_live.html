@@ -57,7 +57,8 @@
         {% if active %}
         <div class="provider-grid">
             {% for p in active %}
-            <article class="provider provider-{{ p.status }}">
+            {# Height in units, see .provider in app.css. A hint on a connected account asks to reconnect, and can wrap. #}
+            <article class="provider provider-{{ p.status }}{{ ' provider-xl' if p.status == 'connected' and p.hint else ' provider-tall' if p.hint or p.quota or p.status == 'connected' }}">
                 <header class="provider-head">
                     <h3>{{ p.label }}</h3>
                     <span class="state state-{{ p.tone }}"><span class="status-dot" aria-hidden="true"></span>{{ p.status_label }}</span>
@@ -74,7 +75,7 @@
                 </div>
                 {% endif %}
 
-                <p class="hint small">{{ p.hint }}</p>
+                {% if p.hint %}<p class="hint small">{{ p.hint }}</p>{% endif %}
 
                 {% if p.status == 'disconnected' %}
                 <a class="btn btn-block" href="{{ p.connect_path }}">Connect {{ p.label }}</a>
@@ -89,9 +90,10 @@
         {% endif %}
         {% if off %}
         <div class="accounts-off">
-            <span class="state state-muted"><span class="status-dot" aria-hidden="true"></span>Off</span>
-            <p>{% for p in off %}<span title="{{ p.hint }}">{{ p.label }}</span>{{ ", " if not loop.last }}{% endfor %}</p>
-            <p class="small hint">Turn one on with <code>enabled</code> under <code>providers</code> in config.yaml</p>
+            <h3 id="accounts-off-title">Turned off</h3>
+            <ul class="off-list" aria-labelledby="accounts-off-title">
+                {% for p in off %}<li class="chip chip-off">{{ p.label }}</li>{% endfor %}
+            </ul>
         </div>
         {% endif %}
     </section>
@@ -99,7 +101,7 @@
     {% if kinds %}
     <section class="section">
         <h2 class="section-title">Where your data comes from</h2>
-        <p class="section-lead muted">When two accounts record the same workout or day, the first one in the list wins and the other copy is hidden; a grey <span class="chip-hidden">(+N)</span> counts those hidden copies. Change the order with <code>data.&lt;kind&gt;.precedence</code> in config.yaml.</p>
+        <p class="section-lead muted">If two accounts record the same thing, the first one wins. <span class="chip-hidden">(+N)</span> counts the hidden copies.</p>
         <div class="card list-card">
             {% for k in kinds %}
             <div class="kind-row">
