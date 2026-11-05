@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-06
+
 ### Changed
 
 - Connected accounts on the status page have **Disconnect** beside their status, so a card without a quota takes one row instead of two.
@@ -85,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards, a status page, an HTTP API, and an MCP server.
 - Container image on `ghcr.io/mkuf/trainingpulse`.
 
-[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/mkuf/TrainingPulse/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/mkuf/TrainingPulse/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/mkuf/TrainingPulse/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/mkuf/TrainingPulse/compare/v1.2.0...v1.3.0
