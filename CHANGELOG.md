@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Connected accounts on the status page have **Disconnect** beside their status, so a card without a quota takes one row instead of two.
+
 ## [1.5.0] - 2026-11-06
 
 ### Added
