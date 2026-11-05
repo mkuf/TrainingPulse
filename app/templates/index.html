@@ -6,7 +6,6 @@
     <img src="/static/assets/favicon.svg?v={{ asset_version }}" width="40" height="40" alt="" class="logo">
     <div class="page-title">
         <h1>{{ app_name }}</h1>
-        <p class="muted">Keeps your training data in sync for your dashboards</p>
     </div>
     <div class="split-button">
         <a class="btn btn-primary split-main" href="{{ grafana_url }}/dashboards?tag={{ grafana_tag }}" target="_blank" rel="noopener">
@@ -40,11 +39,10 @@
                 <div><dt>FTP</dt><dd>{{ athlete.ftp }} <span>W</span></dd></div>
                 <div><dt>Time zone</dt><dd class="small-value">{{ athlete.timezone }}</dd></div>
             </dl>
-            <p class="muted small">Heart-rate and power zones are calculated from these values</p>
 
-            <details class="advanced">
-                <summary>Full resync</summary>
-                <p>Downloads everything again from every account and recalculates all metrics with the settings above. Use it if a setting was wrong from the start or your data looks broken. With Strava it can take several days because of its rate limits.</p>
+            <details class="advanced disclosure">
+                <summary>Full resync{{ chevron_down() }}</summary>
+                <p>Downloads everything again and recalculates all metrics. Rate limits can stretch this to several days.</p>
                 <form action="/sync/full" method="post" data-sync-action
                       data-confirm="Full resync downloads everything again and can take a long time. Start it?">
                     <button type="submit" class="btn btn-caution">Start full resync</button>

@@ -94,7 +94,6 @@
                 {% set n = today.nutrition_today %}
                 <div class="tile-summary">
                     <p class="tile-value">{{ n.kcal|num }} <span>kcal</span></p>
-                    <p class="tile-sub">Logged today so far</p>
                 </div>
                 {{ macros(n) }}
                 {% else %}

@@ -1,57 +1,55 @@
+{% from "_icons.html" import chevron_down %}
 <div id="live" data-running="{{ 'true' if sync.running else 'false' }}">
     {% if setup %}
     <section class="card intro">
         <h2>Connect your first account</h2>
         <p>TrainingPulse copies your activities, sleep, wellness, body measurements, and nutrition from the services below into its own database, so your Grafana dashboards work from one place. Turn the ones you use on in config.yaml, then connect any that ask for permission.</p>
     </section>
-    {% else %}
-    <section class="section" aria-labelledby="sync-title">
-    <h2 class="section-title" id="sync-title">Sync</h2>
-    <div class="status-bar status-{{ sync.state }}" aria-live="polite">
-        <span class="status-dot" aria-hidden="true"></span>
-        <div class="status-text">
-            <strong>{{ sync.headline }}</strong>
-            {% if sync.detail %}<span class="muted" title="{{ sync.last_sync_local }}">{{ sync.detail }}</span>{% endif %}
-        </div>
-        {% if sync.running %}
-        <span class="muted small">Syncing…</span>
-        {% else %}
-        <form action="/sync/trigger" method="post" data-sync-action>
-            <button type="submit" class="btn">Sync now</button>
-        </form>
-        {% endif %}
-    </div>
-
-    {% if sync.error %}
-    <div class="banner {{ 'banner-warn' if sync.rate_limited else 'banner-danger' }}" role="status">
-        <strong>{{ 'Paused for a rate limit' if sync.rate_limited else 'Something went wrong' }}</strong>
-        <p>{{ sync.error }}</p>
-    </div>
-    {% endif %}
-
-    {% if sync.bars %}
-    <section class="card progress-card">
-        <h2 class="card-title">Filling in your history</h2>
-        {% for bar in sync.bars %}
-        <div class="bar-row">
-            <div class="bar-label">
-                <span>{{ bar.label }}</span>
-                <span class="muted">{{ bar.done|num }} of {{ bar.total|num }}</span>
-            </div>
-            <div class="bar" role="progressbar" aria-valuenow="{{ bar.pct }}" aria-valuemin="0" aria-valuemax="100">
-                <span style="width: {{ bar.pct }}%"></span>
-            </div>
-        </div>
-        {% endfor %}
-        <p class="muted small">{{ sync.note }}</p>
-    </section>
-    {% endif %}
-    </section>
-
     {% endif %}
 
     <section class="section">
         <h2 class="section-title">Your accounts</h2>
+        {% if not setup %}
+        <div class="sync">
+        <div class="status-bar status-{{ sync.state }}" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div class="status-text">
+                <strong>{{ sync.headline }}</strong>
+                {% if sync.detail %}<span class="muted" title="{{ sync.last_sync_local }}">{{ sync.detail }}</span>{% endif %}
+            </div>
+            {% if not sync.running %}
+            <form action="/sync/trigger" method="post" data-sync-action>
+                <button type="submit" class="btn">Sync now</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if sync.error %}
+        <div class="banner {{ 'banner-warn' if sync.rate_limited else 'banner-danger' }}" role="status">
+            <strong>{{ 'Paused for a rate limit' if sync.rate_limited else 'Something went wrong' }}</strong>
+            <p>{{ sync.error }}</p>
+        </div>
+        {% endif %}
+
+        {% if sync.bars %}
+        <section class="card progress-card">
+            <h2 class="card-title">Filling in your history</h2>
+            {% for bar in sync.bars %}
+            <div class="bar-row">
+                <div class="bar-label">
+                    <span>{{ bar.label }}</span>
+                    <span class="muted">{{ bar.done|num }} of {{ bar.total|num }}</span>
+                </div>
+                <div class="bar" role="progressbar" aria-valuenow="{{ bar.pct }}" aria-valuemin="0" aria-valuemax="100">
+                    <span style="width: {{ bar.pct }}%"></span>
+                </div>
+            </div>
+            {% endfor %}
+            {% if sync.note %}<p class="muted small">{{ sync.note }}</p>{% endif %}
+        </section>
+        {% endif %}
+        </div>
+        {% endif %}
         {% set active = providers|rejectattr("status", "equalto", "off")|list %}
         {% set off = providers|selectattr("status", "equalto", "off")|list %}
         {% if active %}
@@ -71,7 +69,7 @@
                         <span class="muted">{{ p.quota.daily_used|num }} of {{ p.quota.daily_limit|num }}</span>
                     </div>
                     <div class="bar bar-thin"><span style="width: {{ p.quota.pct }}%"></span></div>
-                    <p class="muted small">{{ p.quota.fifteen_used|num }} of {{ p.quota.fifteen_limit|num }} in the last 15 min · checked {{ p.quota.checked }}</p>
+                    {% if p.quota.high or p.quota.fifteen_high %}<p class="muted small">{{ p.quota.fifteen_used|num }} of {{ p.quota.fifteen_limit|num }} in the last 15 min · checked {{ p.quota.checked }}</p>{% endif %}
                 </div>
                 {% endif %}
 
@@ -88,7 +86,8 @@
             {% endfor %}
         </div>
         {% endif %}
-        {% if off %}
+        {# Only before the first account works: the intro above refers to these services. #}
+        {% if setup and off %}
         <div class="accounts-off">
             <h3 id="accounts-off-title">Turned off</h3>
             <ul class="off-list" aria-labelledby="accounts-off-title">
@@ -99,8 +98,9 @@
     </section>
 
     {% if kinds %}
-    <section class="section">
-        <h2 class="section-title">Where your data comes from</h2>
+    {# Closed by default. status.js keeps it as it was across live refreshes. #}
+    <details class="section disclosure" id="data-sources">
+        <summary><h2>Data sources</h2>{{ chevron_down() }}</summary>
         <p class="section-lead muted">If two accounts record the same thing, the first one wins. <span class="chip-hidden">(+N)</span> counts the hidden copies.</p>
         <div class="card list-card">
             {% for k in kinds %}
@@ -113,13 +113,13 @@
                     {% for c in k.chain %}
                     <li class="chip{{ ' chip-lead' if loop.first }}{{ ' chip-off' if c.off }}"
                         {% if c.off %}title="Turned off. Its earlier entries still count until another account replaces them."{% endif %}>
-                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}{% if c.hidden %} <span class="chip-hidden" title="{{ c.hidden|num }} more hidden: an account ranked higher has the same entries">(+{{ c.hidden|num }})</span>{% endif %}
+                        {{ c.label }}{% if c.off %} (off){% endif %}{% if c.count and k.chain|length > 1 %} <span class="chip-count">{{ c.count|num }}</span>{% endif %}{% if c.hidden %} <span class="chip-hidden" title="{{ c.hidden|num }} more hidden: an account ranked higher has the same entries">(+{{ c.hidden|num }})</span>{% endif %}
                     </li>
                     {% endfor %}
                 </ol>
             </div>
             {% endfor %}
         </div>
-    </section>
+    </details>
     {% endif %}
 </div>

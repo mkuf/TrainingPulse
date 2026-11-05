@@ -24,7 +24,13 @@
         try {
             const res = await fetch("/partials/live", { cache: "no-store" });
             const live = liveRegion();
-            if (res.ok && live) live.outerHTML = await res.text();
+            if (res.ok && live) {
+                const html = await res.text();
+                const open = document.getElementById("data-sources")?.open;
+                live.outerHTML = html;
+                const sources = document.getElementById("data-sources");
+                if (sources && open) sources.open = true;
+            }
         } catch (e) {
             // Offline or restarting; try again on the next tick.
         }

@@ -336,8 +336,8 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
             status, status_label, tone = "disconnected", "Not connected", "warn"
             hint = "Connect to start syncing"
 
-        # Amounts, including hidden duplicates, live in "Where your data
-        # comes from"; the card is about the connection only.
+        # Amounts, including hidden duplicates, live in "Data sources"; the card
+        # is about the connection only.
         usable = status in ("ready", "connected")
 
         quota = None
@@ -351,6 +351,10 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 "fifteen_limit": snapshot.limit_15min,
                 "pct": pct,
                 "high": pct >= 80,
+                "fifteen_high": (
+                    bool(snapshot.limit_15min)
+                    and snapshot.used_15min >= 0.8 * snapshot.limit_15min
+                ),
                 "checked": _ago(snapshot.checked_at),
             }
 
@@ -479,7 +483,7 @@ def _sync_view(pending: dict) -> dict:
                 }
             )
     if sync_state.is_running:
-        note = "This updates live while the sync runs"
+        note = ""
     else:
         note = (
             f"The rest is fetched over the next syncs, starting {_until(next_run)}"
@@ -518,7 +522,7 @@ async def _live_context() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Status page: accounts, sync progress, and where data comes from."""
+    """Status page: accounts, sync progress, and data sources."""
     context = await _live_context()
     tz = ZoneInfo(config.athlete.timezone)
     async with async_session() as session:
