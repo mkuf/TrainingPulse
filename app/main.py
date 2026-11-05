@@ -368,13 +368,8 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 "tone": tone,
                 "hint": hint,
                 "quota": quota,
-                # Height in grid rows. A hint on a connected account asks to
-                # reconnect, and can wrap.
-                "rows": (
-                    3 if status == "connected" and hint
-                    else 2 if hint or quota or status == "connected"
-                    else 1
-                ),
+                # Height in grid rows: one for the header, more for what is below it.
+                "rows": 3 if hint and quota else 2 if hint or quota else 1,
                 "usable": usable,
                 "connect_path": provider.connect_path,
                 "disconnect_path": provider.disconnect_path,

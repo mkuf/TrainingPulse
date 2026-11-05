@@ -58,6 +58,11 @@
             <article class="provider provider-{{ p.status }}{{ ' provider-tall' if p.rows > 1 }}" style="--span: {{ p.rows }}">
                 <header class="provider-head">
                     <h3>{{ p.label }}</h3>
+                    {% if p.status == 'connected' %}
+                    <form action="{{ p.disconnect_path }}" method="post">
+                        <button type="submit" class="link-button">Disconnect</button>
+                    </form>
+                    {% endif %}
                     <span class="state state-{{ p.tone }}"><span class="status-dot" aria-hidden="true"></span>{{ p.status_label }}</span>
                 </header>
 
@@ -76,10 +81,6 @@
 
                 {% if p.status == 'disconnected' %}
                 <a class="btn btn-block" href="{{ p.connect_path }}">Connect {{ p.label }}</a>
-                {% elif p.status == 'connected' %}
-                <form action="{{ p.disconnect_path }}" method="post" class="provider-actions">
-                    <button type="submit" class="link-button">Disconnect</button>
-                </form>
                 {% endif %}
             </article>
             {% endfor %}
