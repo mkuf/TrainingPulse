@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The status page has a calmer design: consistent spacing and type, a status dot instead of colored pills on the accounts, one highlighted button, and aligned Today tiles. Faint text is easier to read.
-- Accounts that are turned off no longer have a card on the status page. Until the first account works, they share one row under the account cards. Smaller account cards stack beside taller ones on desktop.
+- Account cards on the status page pack together without gaps, whatever their size.
+- Accounts that are turned off no longer have a card on the status page. Until the first account works, they share one row under the account cards.
 - The status page shows less text: accounts that work have no hint, and turned-off accounts, data source order and athlete settings are explained in the [documentation](docs/README.md). The last 15 minutes of API quota appear only near a limit.
 - The sync status on the status page is part of **Your accounts**. **Where your data comes from** is now **Data sources**, and starts closed.
 - The small controls on the status page are easier to tap on a phone.

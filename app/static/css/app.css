@@ -468,30 +468,35 @@ code {
 
 /* ── Providers ──────────────────────────────────────────── */
 
-/* Columns, not a grid: a card keeps its own height and smaller ones stack
-   beside a taller one. The space sits between cards because a browser drops
-   margins where a column breaks. */
+/* Cards span one to three rows and fill columns top to bottom. Dense placement
+   puts a smaller card in any free slot, and a row grows for longer text, so
+   edges always line up. card_rows() in main.py works out how many rows fit. */
 .provider-grid {
-    columns: 3 16rem;
-    column-gap: 0.75rem;
+    display: grid;
+    grid-auto-flow: column dense;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(var(--rows-3), minmax(4rem, auto));
+    gap: 0.75rem;
 }
 .provider {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    break-inside: avoid;
-    /* One height unit. Two units plus the gap make a tall card, three an extra
-       tall one, so a stack of small cards ends level with a tall one beside it. */
-    min-height: 4rem;
     justify-content: center;
+    gap: 0.25rem;
+    grid-row: span var(--span);
+    min-width: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 1rem;
 }
-.provider + .provider { margin-top: 0.75rem; }
-.provider-tall { min-height: 8.75rem; justify-content: flex-start; }
-.provider-xl { min-height: 13.5rem; justify-content: flex-start; }
+.provider-tall { justify-content: flex-start; }
+@media (max-width: 840px) {
+    .provider-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-rows: repeat(var(--rows-2), minmax(4rem, auto));
+    }
+}
 .provider-head {
     display: flex;
     align-items: center;
@@ -626,5 +631,10 @@ code {
     .kind-name { width: 100%; }
     .section { margin-top: 2rem; }
     /* One column: nothing to line up beside, so cards take their own height. */
-    .provider, .provider-tall, .provider-xl { min-height: 0; }
+    .provider-grid {
+        grid-auto-flow: row;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: none;
+    }
+    .provider { grid-row: auto; }
 }

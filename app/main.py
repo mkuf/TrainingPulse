@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import distinct, func, select, true
 
+from card_layout import card_rows
 from catalog import KINDS, PROVIDERS, AuthMethod, DataKind
 from config import config
 from config_loader import redacted_dump
@@ -367,6 +368,13 @@ async def _provider_views(counts: dict[DataKind, dict[str, dict]]) -> list[dict]
                 "tone": tone,
                 "hint": hint,
                 "quota": quota,
+                # Height in grid rows. A hint on a connected account asks to
+                # reconnect, and can wrap.
+                "rows": (
+                    3 if status == "connected" and hint
+                    else 2 if hint or quota or status == "connected"
+                    else 1
+                ),
                 "usable": usable,
                 "connect_path": provider.connect_path,
                 "disconnect_path": provider.disconnect_path,
@@ -512,7 +520,9 @@ async def _live_context() -> dict:
         since = await _kind_since(session, athlete_id)
         pending = await _pending_counts(session, athlete_id)
     providers = await _provider_views(counts)
+    spans = [view["rows"] for view in providers if view["status"] != "off"]
     return {
+        "card_rows": {columns: card_rows(spans, columns) for columns in (2, 3)},
         "setup": not any(view["usable"] for view in providers),
         "sync": _sync_view(pending),
         "providers": providers,
