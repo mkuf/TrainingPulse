@@ -50,11 +50,24 @@
             </header>
             {% if today.recovery %}
             {% set r = today.recovery %}
-            <div class="tile-summary"><p class="tile-value">{{ r.score if r.score is not none else "–" }} <span>score</span></p></div>
+            <div class="tile-summary">
+                <p class="tile-value">{{ r.score if r.score is not none else "–" }} <span>score</span></p>
+                {% if r.status %}<p class="tile-sub">{{ r.status_label }}</p>{% endif %}
+            </div>
+            <div class="tile-foot{{ ' tile-foot-bar' if r.status }}">
+                {% if r.status %}
+                <div class="range-bar" role="img" aria-label="Recovery score {{ r.score }} of 100: {{ r.status_label }}">
+                    <div class="range-bands">
+                        {% for status, label, width in r.bands %}<span class="range-{{ status }}{{ ' range-current' if status == r.status }}" style="flex-grow: {{ width }}" title="{{ label }}"></span>{% endfor %}
+                    </div>
+                    <span class="range-marker" style="left: {{ r.score }}%"></span>
+                </div>
+                {% endif %}
             <dl class="tile-facts">
                 {% if r.hrv_ms is not none %}<div><dt>HRV</dt><dd>{{ r.hrv_ms }} <span>ms</span></dd>{% if r.hrv_pct_of_usual is not none %}<dd class="tile-note">{{ r.hrv_pct_of_usual }}% of usual</dd>{% endif %}</div>{% endif %}
                 {% if r.resting_hr is not none %}<div><dt>Resting HR</dt><dd>{{ r.resting_hr }} <span>bpm</span></dd>{% if r.resting_hr_delta is not none %}<dd class="tile-note">{{ r.resting_hr_delta|signed }} vs usual</dd>{% endif %}</div>{% endif %}
             </dl>
+            </div>
             {% else %}
             <p class="tile-empty muted">No recovery data in the last few days</p>
             {% endif %}

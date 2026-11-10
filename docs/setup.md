@@ -88,7 +88,7 @@ If Grafana is not on port `3000` of the app host, set `app.grafana_url`. Then th
 The top of the status page shows the most important values. It is easy to read on a phone:
 
 - **Sleep:** the sleep score of the last night, the time asleep, the sleep stages, and the sleeping heart rate.
-- **Recovery:** the recovery score, HRV, and resting heart rate. HRV and resting heart rate show the difference to your usual values of the last 30 days.
+- **Recovery:** the recovery score with its status (for example **Normal**), a bar that shows where the score is in the range from 0 to 100, HRV, and resting heart rate. HRV and resting heart rate show the difference to your usual values of the last 30 days.
 - **Form:** form (TSB), fitness (CTL), and fatigue (ATL).
 - **Nutrition:** the calories, protein, carbohydrates, and fat that you logged today. Click **Week** to see the average per day of this week (Monday to Sunday). The average does not include today, because you are possibly still logging it. On Monday, it shows last week. The browser keeps your selection.
 

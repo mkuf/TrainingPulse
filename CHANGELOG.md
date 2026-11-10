@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The **recovery score** has a new scale. It now measures HRV (60 %) and resting heart rate (40 %) against your usual values in units of your own day-to-day variation: 70 is a usual day, and each standard deviation better or worse moves the score 15 points. Before, 50 was a usual day and fixed limits (±20 % HRV, ±5 bpm) applied to everyone. The sleep score is no longer part of it. All stored recovery scores are calculated again on the next sync, so past values change. See [Sleep and recovery scores](docs/sleep-and-recovery.md).
+- The recovery score needs 14 of the previous 30 days with data instead of 7, so a new device has no recovery score in its first two weeks.
+- The recovery score has a status: **Above normal** (85 or more), **Normal** (60–84), **Below normal** (40–59), or **Well below normal**. The Today summary shows it under the score, with a bar that marks the score in the range from 0 to 100, the MCP tools return it as `status`, and the **Recovery** panel on the Sleep and recovery dashboard takes its color from it.
+- The Sleep and recovery dashboard has a **Recovery score** panel that shows the score over its status bands, and the **HRV** panel shows your usual range as a band instead of the 30-day average.
 - The **Asleep** panel on the Sleep and recovery dashboard shows hours and minutes (for example `7h:37m`) instead of rounding to the full hour.
 - The MCP server explains its values to agents: the server instructions define TRIMP, CTL/ATL/TSB, the sleep and recovery scores with their parts, and the calorie methods, and the tool descriptions give units, value lists, and how averages are formed.
 - An MCP tool that gets an invalid argument now says what is wrong, for example `metric must be one of heart_rate, hrv, spo2`. Before, the client got only `Error executing tool`.

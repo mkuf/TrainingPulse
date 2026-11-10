@@ -339,6 +339,34 @@ code {
 .stage-rem { background: var(--stage-rem); }
 .stage-light { background: var(--stage-light); }
 .stage-awake { background: var(--stage-awake); }
+
+/* The whole 0–100 range of the recovery score in its status bands, with a
+   marker at the score. The band the score is in keeps its full color. The
+   bands are divided by borders, not gaps, so the marker's percent is exact. */
+.range-bar { position: relative; }
+.range-bands {
+    display: flex;
+    height: 0.5rem;
+    border-radius: var(--radius-xs);
+    overflow: hidden;
+}
+.range-bands span { flex-basis: 0; opacity: 0.3; }
+.range-bands span + span { border-left: 2px solid var(--surface); }
+.range-bands .range-current { opacity: 1; }
+.range-well_below_normal { background: var(--danger); }
+.range-below_normal { background: var(--warn); }
+.range-normal { background: var(--ok); }
+.range-above_normal { background: var(--stage-light); }
+.range-marker {
+    position: absolute;
+    top: -0.25rem;
+    bottom: -0.25rem;
+    width: 4px;
+    margin-left: -2px;
+    border-radius: 2px;
+    background: var(--text);
+    box-shadow: 0 0 0 2px var(--surface);
+}
 .swatch {
     display: inline-block;
     width: 0.5rem;

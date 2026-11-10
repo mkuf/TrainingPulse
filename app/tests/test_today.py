@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from today import duration, nutrition_window, sleep_stages
+from today import duration, nutrition_window, recovery_bands, sleep_stages
 
 
 @pytest.mark.parametrize(
@@ -49,3 +49,21 @@ def test_sleep_stages_need_all_three_sleep_stages(stages):
 
 def test_sleep_stages_leave_out_what_has_no_time():
     assert sleep_stages(4_320, 0, 16_140, None) == (("deep", 4_320), ("light", 16_140))
+
+
+def test_recovery_bands_cover_the_whole_range_lowest_first():
+    bands = recovery_bands()
+
+    assert [status for status, _, _ in bands] == [
+        "well_below_normal",
+        "below_normal",
+        "normal",
+        "above_normal",
+    ]
+    assert [label for _, label, _ in bands] == [
+        "Well below normal: 0–39",
+        "Below normal: 40–59",
+        "Normal: 60–84",
+        "Above normal: 85–100",
+    ]
+    assert sum(width for _, _, width in bands) == 100

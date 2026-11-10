@@ -110,7 +110,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "TrainingPulse's own score, computed the same way for every provider.",
+      "description": "How good the night was, on a fixed scale that is the same for every provider. 100 is a night that meets your sleep need, undisturbed and at your regular time. The Sleep score parts panel shows what it is made of.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -165,16 +165,38 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "HRV and resting heart rate against your 30-day medians, plus the sleep score.",
+      "description": "HRV and resting heart rate against your usual values of the last 30 days. 70 is a usual day for you. 85 or more is above normal, 60–84 normal, 40–59 below normal, under 40 well below normal.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "#73BF69",
-            "mode": "fixed"
+            "mode": "thresholds"
           },
           "decimals": 0,
           "unit": "none",
-          "noValue": "–"
+          "noValue": "–",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#E02F44",
+                "value": null
+              },
+              {
+                "color": "#FF9830",
+                "value": 40
+              },
+              {
+                "color": "#73BF69",
+                "value": 60
+              },
+              {
+                "color": "#5794F2",
+                "value": 85
+              }
+            ]
+          },
+          "min": 0,
+          "max": 100
         },
         "overrides": []
       },
@@ -519,7 +541,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "",
+      "description": "The two scores have different scales. The sleep score is fixed: 100 is a night that meets your sleep need, undisturbed and at your regular time. The recovery score compares with your usual values: 70 is a usual day.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -537,7 +559,8 @@
           },
           "unit": "none",
           "decimals": 0,
-          "min": 0
+          "min": 0,
+          "max": 100
         },
         "overrides": [
           {
@@ -791,6 +814,97 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
+      "description": "70 is a usual day for you. 85 or more is above normal, 60–84 normal, 40–59 below normal, under 40 well below normal.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "pointSize": 4,
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "barAlignment": 0,
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#E02F44",
+                "value": null
+              },
+              {
+                "color": "#FF9830",
+                "value": 40
+              },
+              {
+                "color": "#73BF69",
+                "value": 60
+              },
+              {
+                "color": "#5794F2",
+                "value": 85
+              }
+            ]
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 25
+      },
+      "id": 25,
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": [],
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRESQL}"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT day::timestamp AS time, recovery_score AS \"Recovery\" FROM daily_scores WHERE day >= $__timeFrom()::date AND day <= $__timeTo()::date AND recovery_score IS NOT NULL ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Recovery score",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRESQL}"
+      },
       "description": "Sleeping heart rate is TrainingPulse's average of the heart-rate samples while asleep.",
       "fieldConfig": {
         "defaults": {
@@ -874,8 +988,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 0,
+        "w": 8,
+        "x": 8,
         "y": 25
       },
       "id": 14,
@@ -911,7 +1025,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "The night's average RMSSD. Recovery compares each night with the 30-day median.",
+      "description": "The night's average RMSSD. The band is your usual range: the median of the previous 30 days plus and minus one standard deviation, shown from 14 days of data. The recovery score measures each night against it.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -949,7 +1063,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "30-day average"
+              "options": "Usual range"
             },
             "properties": [
               {
@@ -960,18 +1074,55 @@
                 }
               },
               {
-                "id": "custom.lineStyle",
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.fillBelowTo",
+                "value": "Usual range (low)"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 20
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Usual range (low)"
+            },
+            "properties": [
+              {
+                "id": "color",
                 "value": {
-                  "fill": "dash",
-                  "dash": [
-                    6,
-                    4
-                  ]
+                  "mode": "fixed",
+                  "fixedColor": "#37872D"
                 }
               },
               {
                 "id": "custom.lineWidth",
-                "value": 1
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
               }
             ]
           }
@@ -979,8 +1130,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 25
       },
       "id": 15,
@@ -1004,7 +1155,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT day::timestamp AS time,\n  hrv_ms AS \"Night avg\",\n  avg(hrv_ms) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS \"30-day average\"\nFROM active_daily_wellness WHERE hrv_ms IS NOT NULL\n  AND day >= $__timeFrom()::date - 30 AND day <= $__timeTo()::date ORDER BY 1",
+          "rawSql": "SELECT d.day::timestamp AS time,\n  d.hrv_ms AS \"Night avg\",\n  u.median - u.spread AS \"Usual range (low)\",\n  u.median + u.spread AS \"Usual range\"\nFROM active_daily_wellness d\nLEFT JOIN LATERAL (\n  SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY w.hrv_ms) AS median,\n    greatest(stddev_samp(w.hrv_ms), 0.05 * percentile_cont(0.5) WITHIN GROUP (ORDER BY w.hrv_ms)) AS spread\n  FROM active_daily_wellness w\n  WHERE w.day >= d.day - 30 AND w.day < d.day AND w.hrv_ms IS NOT NULL\n  HAVING count(*) >= 14\n) u ON true\nWHERE d.hrv_ms IS NOT NULL\n  AND d.day >= $__timeFrom()::date AND d.day <= $__timeTo()::date ORDER BY 1",
           "refId": "A"
         }
       ],

@@ -33,6 +33,7 @@ from mcp_server.common import (
 )
 from models import DailyScores, DailyWellness, SleepSession, WellnessSample
 from providers.feeds import DISPLAY_ONLY_METRICS, SAMPLE_METRICS, SAMPLE_UNITS
+from wellness_scores import recovery_status
 
 DEFAULT_MAX_POINTS = 300
 MAX_POINTS = 2000
@@ -66,10 +67,11 @@ def _scores_dict(scores: DailyScores | None, which: str) -> dict[str, Any] | Non
     value = getattr(scores, f"{which}_score")
     if value is None:
         return None
-    return {
-        "score": round_or_none(value),
-        "parts": getattr(scores, f"{which}_score_parts"),
-    }
+    result = {"score": round_or_none(value)}
+    if which == "recovery":
+        result["status"] = recovery_status(value)
+    result["parts"] = getattr(scores, f"{which}_score_parts")
+    return result
 
 
 # ── Sleep ───────────────────────────────────────────────────────────
@@ -473,10 +475,10 @@ def register_wellness_tools(mcp: MCPServer) -> None:
         minus the personal baseline the provider keeps, in °C.
         ``active_kcal`` is energy burned by movement, ``total_kcal``
         includes the resting metabolism. ``recovery_score`` is null when it
-        could not be computed, else ``score`` and ``parts``; the part
-        values are: ``hrv`` the night's HRV as a ratio of its 30-day median,
-        ``resting_hr`` bpm above (+) or below (-) its 30-day median,
-        ``sleep`` the night's sleep score."""
+        could not be computed, else ``score``, ``status`` and ``parts``;
+        the part values are: ``hrv`` the night's HRV as a ratio of its
+        30-day median, ``resting_hr`` bpm above (+) or below (-) its 30-day
+        median."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(

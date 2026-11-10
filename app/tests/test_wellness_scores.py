@@ -62,27 +62,89 @@ def test_a_night_without_time_asleep_has_no_score():
     assert ws.sleep_score(_night(asleep_seconds=None), sleep_need_hours=8) == (None, {})
 
 
-def test_recovery_is_centred_on_the_personal_baseline():
-    score, parts = ws.recovery_score(hrv_ratio=1.0, resting_hr_delta=0.0, sleep=50.0)
-
-    assert score == 50
-    assert parts["hrv"]["score"] == 50
-    assert parts["resting_hr"]["score"] == 50
+HRV_USUAL = ws.Usual(median=80.0, spread=8.0)
+REST_USUAL = ws.Usual(median=46.0, spread=2.0)
 
 
-def test_high_hrv_and_low_resting_hr_mean_good_recovery():
-    score, _ = ws.recovery_score(hrv_ratio=1.2, resting_hr_delta=-5.0, sleep=100.0)
-    assert score == 100
-
-    score, _ = ws.recovery_score(hrv_ratio=0.8, resting_hr_delta=5.0, sleep=0.0)
-    assert score == 0
-
-
-def test_recovery_needs_a_personal_baseline():
-    assert ws.recovery_score(hrv_ratio=None, resting_hr_delta=None, sleep=90.0) == (
-        None,
-        {},
+def _recovery(hrv_ms=80.0, resting_hr=46.0, hrv_usual=HRV_USUAL, rest_usual=REST_USUAL):
+    return ws.recovery_score(
+        hrv_ms=hrv_ms,
+        hrv_usual=hrv_usual,
+        resting_hr=resting_hr,
+        resting_hr_usual=rest_usual,
     )
+
+
+def test_a_usual_day_scores_70():
+    score, parts = _recovery()
+
+    assert score == 70
+    assert set(parts) == set(ws.RECOVERY_WEIGHTS)
+    assert parts["hrv"] == {"value": 1.0, "score": 70, "weight": 60}
+    assert parts["resting_hr"] == {"value": 0.0, "score": 70, "weight": 40}
+
+
+def test_recovery_counts_in_the_athletes_own_variation():
+    # One standard deviation better on both: higher HRV, lower resting HR.
+    score, parts = _recovery(hrv_ms=88.0, resting_hr=44.0)
+    assert score == 85
+    assert parts["hrv"]["value"] == 1.1
+    assert parts["resting_hr"]["value"] == -2.0
+
+    # The same 8 ms are half as unusual for someone who varies twice as much.
+    score, _ = _recovery(hrv_ms=72.0, hrv_usual=ws.Usual(80.0, 16.0))
+    assert score == pytest.approx(0.6 * 62.5 + 0.4 * 70, abs=0.1)
+
+
+def test_recovery_parts_are_clamped():
+    assert _recovery(hrv_ms=160.0, resting_hr=30.0)[0] == 100
+    assert _recovery(hrv_ms=20.0, resting_hr=70.0)[0] == 0
+
+
+def test_recovery_uses_the_part_that_has_a_usual_value():
+    score, parts = _recovery(hrv_ms=None, resting_hr=48.0)
+
+    assert parts["hrv"]["score"] is None
+    assert score == 55
+
+
+def test_recovery_needs_a_usual_value():
+    assert _recovery(hrv_usual=None, rest_usual=None) == (None, {})
+    assert _recovery(hrv_ms=None, resting_hr=None) == (None, {})
+
+
+@pytest.mark.parametrize(
+    "score, status",
+    [
+        (100, "above_normal"),
+        (85, "above_normal"),
+        (84.9, "normal"),
+        (70, "normal"),
+        (60, "normal"),
+        (59.9, "below_normal"),
+        (40, "below_normal"),
+        (39.9, "well_below_normal"),
+        (0, "well_below_normal"),
+        (None, None),
+    ],
+)
+def test_recovery_status_names_the_band(score, status):
+    assert ws.recovery_status(score) == status
+
+
+def test_usual_needs_two_weeks_and_has_a_minimum_spread():
+    day = date(2026, 10, 29)
+    history = {day - timedelta(days=offset): 60.0 for offset in range(1, 14)}
+    assert ws.usual(history, day, min_spread=3.0) is None
+
+    history[day - timedelta(days=14)] = 60.0
+    history[day] = 999.0  # the day itself is never part of its own usual value
+    assert ws.usual(history, day, min_spread=3.0) == ws.Usual(60.0, 3.0)
+
+    history[day - timedelta(days=1)] = 88.0
+    found = ws.usual(history, day, min_spread=3.0)
+    assert found.median == 60.0
+    assert found.spread == pytest.approx(7.48, abs=0.01)
 
 
 def test_baseline_needs_a_week_of_the_last_30_days():

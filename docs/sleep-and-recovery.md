@@ -31,18 +31,40 @@ The score does not use the time in deep or REM sleep. Devices detect sleep stage
 
 ## Recovery score
 
-The recovery score is a number from 0 to 100 for each day. 50 means a normal day for you.
+The recovery score is a number from 0 to 100 for each day. It shows how the night's HRV and the day's resting heart rate compare with your usual values. **70 means a usual day for you.**
 
-| Part | Weight | 100 points | 50 points | 0 points |
-|---|---|---|---|---|
-| HRV of the night ÷ median of the last 30 days | 40 % | 120 % | 100 % | 80 % |
-| Resting heart rate − median of the last 30 days | 30 % | 5 bpm lower | equal | 5 bpm higher |
-| Sleep score of the night | 30 % | 100 | 50 | 0 |
+| Score | Status | Meaning |
+|---|---|---|
+| 85–100 | Above normal | Clearly better than your usual night |
+| 60–84 | Normal | Inside your usual range |
+| 40–59 | Below normal | Outside your usual range |
+| 0–39 | Well below normal | Rare for you, for example when you are ill or very tired |
+
+The score has two parts:
+
+| Part | Weight | Better is |
+|---|---|---|
+| HRV of the night | 60 % | higher |
+| Resting heart rate | 40 % | lower |
+
+For each part, TrainingPulse uses the previous 30 days:
+
+- Your **usual value** is the median of these days.
+- Your **usual variation** is the standard deviation of these days. It is at least 5 % of the usual value for HRV and at least 1 bpm for the resting heart rate.
+
+A value equal to your usual value gives 70 points. Each usual variation in the better direction adds 15 points. Each usual variation in the worse direction subtracts 15 points. Thus, the same change counts less for a person whose values change much from day to day.
+
+An example: your usual HRV is 80 ms and it usually varies by 8 ms. A night with 72 ms gives 55 points for the HRV part. A night with 88 ms gives 85 points.
+
+The recovery score does not include the sleep score. The sleep score has a fixed scale, and the dashboards show it beside the recovery score.
+
+The recovery score does not know how much you trained, so it is not a training readiness. To decide how hard to train, use it together with your form (TSB).
 
 ## Missing data
 
 If a part has no data, TrainingPulse does not use it. It divides the other weights so that their sum is 100 %. Some examples:
 
 - Regularity needs at least 3 nights in the last 7 days.
-- The comparisons with the last 30 days need at least 7 days of data. A new device has no recovery score in its first week.
+- The HRV part of the sleep score needs at least 7 of the last 30 days.
+- The recovery score needs at least 14 of the last 30 days. A new device has no recovery score in its first two weeks.
 - The heart-rate dip needs heart-rate samples (the `intraday` data kind) for about 2 hours before you sleep.

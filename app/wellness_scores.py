@@ -22,13 +22,21 @@ physiology      20 %   mean of: heart-rate dip asleep vs. awake ≥ 15 % → 0 %
 Stage shares (deep, REM) are left out on purpose: devices detect stages
 differently, so a stage-heavy score would jump when switching devices.
 
-**Recovery score** (0–100): HRV vs. its 30-day median (40 %; 120 % → 100,
-100 % → 50, 80 % → 0), resting heart rate vs. its 30-day median (30 %;
-5 bpm below → 100, equal → 50, 5 above → 0), and the night's sleep score
-(30 %).
+**Recovery score** (0–100): how far the night's HRV (60 %) and the day's
+resting heart rate (40 %) are from the athlete's usual values, measured in
+the athlete's own day-to-day variation. The usual value is the median of the
+previous 30 days and the variation their standard deviation. A usual night
+scores 70; each standard deviation better (higher HRV, lower resting heart
+rate) adds 15 points and each one worse takes 15 away. The sleep score is not
+part of it: it has its own scale and is shown beside it.
 
-A part without data is left out and the remaining weights are scaled up. A
-personal baseline needs at least 7 of the previous 30 days.
+The score reads as a status: 85 or more is above normal, 60–84 normal, 40–59
+below normal, under 40 well below normal.
+
+A part without data is left out and the remaining weights are scaled up. The
+sleep score's HRV comparison needs at least 7 of the previous 30 days; the
+recovery score needs 14, because a standard deviation of fewer days is not
+stable.
 """
 
 from __future__ import annotations
@@ -59,7 +67,26 @@ SLEEP_WEIGHTS = {
     "regularity": 10,
     "physiology": 20,
 }
-RECOVERY_WEIGHTS = {"hrv": 40, "resting_hr": 30, "sleep": 30}
+RECOVERY_WEIGHTS = {"hrv": 60, "resting_hr": 40}
+
+#: The recovery score of a day that is exactly as usual.
+RECOVERY_NORMAL = 70.0
+#: Points for one standard deviation better or worse than usual.
+RECOVERY_POINTS_PER_SD = 15.0
+#: Lowest score of each status, best first.
+RECOVERY_STATUSES = (
+    (85.0, "above_normal"),
+    (60.0, "normal"),
+    (40.0, "below_normal"),
+    (0.0, "well_below_normal"),
+)
+#: Days of the previous 30 that the recovery score needs.
+RECOVERY_MIN_DAYS = 14
+#: Smallest day-to-day variation the score assumes, so that a few very even
+#: days do not turn the next small change into a large deviation: HRV as a
+#: share of its median, resting heart rate in bpm.
+HRV_MIN_SPREAD_RATIO = 0.05
+RESTING_HR_MIN_SPREAD = 1.0
 
 BASELINE_DAYS = 30
 BASELINE_MIN_DAYS = 7
@@ -160,38 +187,89 @@ def sleep_score(
     return weighted(parts, SLEEP_WEIGHTS), parts
 
 
+@dataclass(frozen=True)
+class Usual:
+    """What a value usually is for the athlete: median and day-to-day spread."""
+
+    median: float
+    spread: float
+
+
+def deviation_score(deviation: float | None) -> float | None:
+    """0–100 for a deviation from usual in standard deviations, better = positive."""
+    if deviation is None:
+        return None
+    score = RECOVERY_NORMAL + RECOVERY_POINTS_PER_SD * deviation
+    return round(min(100.0, max(0.0, score)), 1)
+
+
+def recovery_status(score: float | None) -> str | None:
+    """The status a recovery score reads as, ``None`` without a score."""
+    if score is None:
+        return None
+    return next(name for lowest, name in RECOVERY_STATUSES if score >= lowest)
+
+
 def recovery_score(
     *,
-    hrv_ratio: float | None,
-    resting_hr_delta: float | None,
-    sleep: float | None,
+    hrv_ms: float | None,
+    hrv_usual: Usual | None,
+    resting_hr: float | None,
+    resting_hr_usual: Usual | None,
 ) -> tuple[float | None, dict]:
-    """Pure. ``None`` without a personal HRV or resting-HR baseline: the sleep
-    score alone says nothing about recovery."""
-    if hrv_ratio is None and resting_hr_delta is None:
+    """Pure. ``None`` when neither value can be compared with a usual one.
+
+    The part values stay readable on their own: HRV as a ratio of its median,
+    resting heart rate as bpm above (+) or below (-) its median.
+    """
+    hrv_ratio = hrv_deviation = rest_delta = rest_deviation = None
+    if hrv_ms is not None and hrv_usual is not None and hrv_usual.median:
+        hrv_ratio = round(hrv_ms / hrv_usual.median, 3)
+        hrv_deviation = (hrv_ms - hrv_usual.median) / hrv_usual.spread
+    if resting_hr is not None and resting_hr_usual is not None:
+        rest_delta = round(resting_hr - resting_hr_usual.median, 1)
+        # A lower resting heart rate is the better direction.
+        rest_deviation = (resting_hr_usual.median - resting_hr) / resting_hr_usual.spread
+    if hrv_deviation is None and rest_deviation is None:
         return None, {}
     parts = {
-        "hrv": _part(hrv_ratio, scale(hrv_ratio, 0.8, 1.2), RECOVERY_WEIGHTS["hrv"]),
+        "hrv": _part(hrv_ratio, deviation_score(hrv_deviation), RECOVERY_WEIGHTS["hrv"]),
         "resting_hr": _part(
-            resting_hr_delta,
-            scale(resting_hr_delta, 5.0, -5.0),
+            rest_delta,
+            deviation_score(rest_deviation),
             RECOVERY_WEIGHTS["resting_hr"],
         ),
-        "sleep": _part(sleep, sleep, RECOVERY_WEIGHTS["sleep"]),
     }
     return weighted(parts, RECOVERY_WEIGHTS), parts
 
 
-def baseline(history: dict[date, float], day: date) -> float | None:
-    """Median of the values in the ``BASELINE_DAYS`` before ``day``."""
-    window = [
+def _window(history: dict[date, float], day: date) -> list[float]:
+    """The values in the ``BASELINE_DAYS`` before ``day``."""
+    return [
         value
         for when, value in history.items()
         if day - timedelta(days=BASELINE_DAYS) <= when < day
     ]
+
+
+def baseline(history: dict[date, float], day: date) -> float | None:
+    """Median of the values in the ``BASELINE_DAYS`` before ``day``."""
+    window = _window(history, day)
     if len(window) < BASELINE_MIN_DAYS:
         return None
     return statistics.median(window)
+
+
+def usual(history: dict[date, float], day: date, *, min_spread: float) -> Usual | None:
+    """Median and standard deviation of the ``BASELINE_DAYS`` before ``day``.
+
+    ``None`` with fewer than ``RECOVERY_MIN_DAYS`` values. The spread is never
+    below ``min_spread``.
+    """
+    window = _window(history, day)
+    if len(window) < RECOVERY_MIN_DAYS:
+        return None
+    return Usual(statistics.median(window), max(statistics.stdev(window), min_spread))
 
 
 def bedtime_spread(
@@ -289,15 +367,9 @@ async def recompute_daily_scores(
     rows: list[dict] = []
     for day in sorted(set(sleep_by_day) | {row.day for row in wellness}):
         hrv_base = baseline(hrv_history, day)
-        rest_base = baseline(rest_history, day)
         hrv_ratio = (
             round(hrv_history[day] / hrv_base, 3)
             if day in hrv_history and hrv_base
-            else None
-        )
-        rest_delta = (
-            round(rest_history[day] - rest_base, 1)
-            if day in rest_history and rest_base is not None
             else None
         )
 
@@ -331,7 +403,14 @@ async def recompute_daily_scores(
                 sleep_need_hours=sleep_need_hours,
             )
         recovery, recovery_parts = recovery_score(
-            hrv_ratio=hrv_ratio, resting_hr_delta=rest_delta, sleep=score
+            hrv_ms=hrv_history.get(day),
+            hrv_usual=usual(
+                hrv_history, day, min_spread=HRV_MIN_SPREAD_RATIO * (hrv_base or 0.0)
+            ),
+            resting_hr=rest_history.get(day),
+            resting_hr_usual=usual(
+                rest_history, day, min_spread=RESTING_HR_MIN_SPREAD
+            ),
         )
         rows.append(
             {

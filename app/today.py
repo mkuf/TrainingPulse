@@ -18,9 +18,36 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import DailyMetrics, DailyNutrition, DailyScores, DailyWellness, SleepSession
+from wellness_scores import RECOVERY_STATUSES, recovery_status
 
 #: Older nights or metrics are not "today" any more; the tile shows nothing.
 MAX_AGE_DAYS = 3
+
+
+RECOVERY_STATUS_LABELS = {
+    "above_normal": "Above normal",
+    "normal": "Normal",
+    "below_normal": "Below normal",
+    "well_below_normal": "Well below normal",
+}
+
+
+
+
+def recovery_bands() -> tuple[tuple[str, str, int], ...]:
+    """(status, label with its score range, width in points), lowest first.
+
+    The bands of the tile's range bar, read from the score's own limits.
+    """
+    bands = []
+    upper = 100
+    for lowest, status in RECOVERY_STATUSES:
+        low = int(lowest)
+        top = upper if upper == 100 else upper - 1
+        label = f"{RECOVERY_STATUS_LABELS[status]}: {low}–{top}"
+        bands.append((status, label, upper - low))
+        upper = low
+    return tuple(reversed(bands))
 
 
 @dataclass(frozen=True)
@@ -42,12 +69,20 @@ class SleepView:
 @dataclass(frozen=True)
 class RecoveryView:
     score: int | None
+    #: The status the score falls in, e.g. "below_normal".
+    status: str | None
+    #: The same for reading, e.g. "Below normal".
+    status_label: str | None
     hrv_ms: int | None
     #: HRV as a share of its 30-day median, in %.
     hrv_pct_of_usual: int | None
     resting_hr: int | None
     #: Resting heart rate minus its 30-day median, in bpm.
     resting_hr_delta: int | None
+
+    @property
+    def bands(self) -> tuple[tuple[str, str, int], ...]:
+        return recovery_bands()
 
 
 @dataclass(frozen=True)
@@ -181,14 +216,17 @@ async def today_view(session: AsyncSession, tz: ZoneInfo) -> TodayView:
         )
         parts = scores.recovery_score_parts if scores else None
         hrv_ratio = _part_value(parts, "hrv")
+        recovery_score = _int(scores.recovery_score) if scores else None
         recovery = RecoveryView(
-            score=_int(scores.recovery_score) if scores else None,
+            score=recovery_score,
+            status=recovery_status(recovery_score),
+            status_label=RECOVERY_STATUS_LABELS.get(recovery_status(recovery_score)),
             hrv_ms=_int(wellness.hrv_ms) if wellness else None,
             hrv_pct_of_usual=None if hrv_ratio is None else round(100 * hrv_ratio),
             resting_hr=_int(wellness.resting_hr) if wellness else None,
             resting_hr_delta=_int(_part_value(parts, "resting_hr")),
         )
-        if recovery == RecoveryView(None, None, None, None, None):
+        if recovery == RecoveryView(None, None, None, None, None, None, None):
             recovery = None
 
     metrics = await session.scalar(

@@ -48,6 +48,7 @@ from models import (
     SleepSession,
     WellnessSample,
 )
+import wellness_scores as ws
 from resting_hr import resting_hr_on
 
 APP_NAME = "TrainingPulse MCP"
@@ -55,6 +56,10 @@ APP_NAME = "TrainingPulse MCP"
 
 _TRIMP_WEIGHTS = ", ".join(
     f"zone {zone}: {weight:g}" for zone, weight in sorted(ZONE_WEIGHTS.items())
+)
+
+_RECOVERY_STATUSES = ", ".join(
+    f"`{name}` from {lowest:g}" for lowest, name in reversed(ws.RECOVERY_STATUSES)
 )
 
 # What every tool shares: conventions, and the meaning of the values
@@ -89,9 +94,17 @@ TRIMP with time constants of 42 and 7 days. TSB (form) is CTL minus ATL.
 - Sleep score and recovery score: 0-100, higher is better. `parts` maps each \
 part to `value` (the raw input, in the part's own unit), `score` (0-100) and \
 `weight` (percent). A part without data has a null score and is left out; \
-the other weights are scaled up. Both scores compare with the athlete's own \
-30-day median, so they are null or partial until 7 of the previous 30 days \
-have data.
+the other weights are scaled up.
+- Sleep score: how good the night was on a fixed scale; 100 means the sleep \
+need was met in an efficient, undisturbed, regular night.
+- Recovery score: how the night's HRV and the day's resting heart rate \
+compare with the athlete's own usual values (median of the previous 30 days), \
+counted in the athlete's own day-to-day variation. {ws.RECOVERY_NORMAL:g} is \
+a usual day, not a mediocre one; each standard deviation better or worse \
+moves it {ws.RECOVERY_POINTS_PER_SD:g} points. `status` names the band: \
+{_RECOVERY_STATUSES}. It is null until {ws.RECOVERY_MIN_DAYS} of the previous \
+30 days have data. It does not include the sleep score or training load, so \
+it is not training readiness: judge that from recovery together with TSB.
 - calories: computed by TrainingPulse where it can; `calories_method` says \
 how, most reliable first: `power` (measured power), `acsm` (ACSM walking or \
 running equation from distance, elevation and body weight), `hr_power` (power \
