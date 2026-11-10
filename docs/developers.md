@@ -384,6 +384,19 @@ Conventions, shared through [`app/mcp_server/common.py`](../app/mcp_server/commo
 - `compare_*` tools treat period A as the baseline and return `delta_b_minus_a`.
 - Every aggregate reads only visible rows (`ACTIVITY_VISIBLE` for activities, `superseded_by IS NULL` for records), so data reported by several providers is not double-counted and activities gone upstream are left out. `get_activity` still resolves a hidden activity when asked for it by id, and reports `superseded_by` and `deleted_upstream_at` so the caller can tell.
 
+### Explaining values to agents
+
+An agent sees only the server instructions, the tool descriptions, and the returned field names. It does not see this documentation or the code. Check every new or changed tool and returned field against these rules:
+
+- **Units.** A field name carries its unit (`distance_km`, `hrv_ms`, `moving_time_minutes`). The suffixes in use are listed in `INSTRUCTIONS` in [`server.py`](../app/mcp_server/server.py). If a name cannot carry the unit, the tool description states it.
+- **Computed values.** A value that TrainingPulse computes (TRIMP, CTL/ATL/TSB, the scores, calories) is defined one time, in `INSTRUCTIONS`. Tool descriptions use the term and do not repeat the definition. Numbers that the code owns, such as the TRIMP zone weights, are inserted from the code.
+- **Fixed values.** If a field or an argument has a fixed set of values (`calories_method`, `stage`, `metric`, stream types), the description lists all of them.
+- **Missing values.** A value that was not measured or cannot be computed is `null`, not `0`. Use `hours_or_none` and `minutes_or_none` for nullable columns. Columns that are `NOT NULL` with a default of 0 (`distance`, `moving_time`) are the exception, and the description says so.
+- **Aggregates.** The description says what an average counts: per activity, per measurement, or per day with data. It also says which fields are totals.
+- **Nested data.** If a tool returns the rows of another tool (`latest`, `period_a`, `night`), the description names that tool. For other nested data, such as score parts or `points`, the description gives the keys.
+- **Errors.** For an argument the caller can correct, raise `ArgumentError` from [`common.py`](../app/mcp_server/common.py) with a message that says what is valid. The SDK hides the message of every other exception from the client.
+- **Arguments.** Dates are `YYYY-MM-DD`. If the valid values of an argument come from the data (`sport_type`, `gear_name`), the description says which tool returns them.
+
 The mcp container mounts the same `config.yaml` as the app. If you would rather it not see provider credentials, point its `TP_CONFIG_FILE` at a reduced file — it only needs `athlete.*`, `mcp.*`, and `database.url`.
 
 ## Tests

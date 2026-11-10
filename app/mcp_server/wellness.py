@@ -16,11 +16,14 @@ from mcp.server.mcpserver import MCPServer
 from sqlalchemy import Select, func, select
 
 from mcp_server.common import (
+    ArgumentError,
     check_range,
     clamp_limit,
     downsample,
+    hours_or_none,
     local_day_bounds,
     local_time,
+    minutes_or_none,
     period_deltas,
     readonly_session,
     required_date,
@@ -52,7 +55,7 @@ def _max_points(value: int | None) -> int:
 
 def _check_metric(metric: str) -> str:
     if metric not in SAMPLE_METRICS:
-        raise ValueError(f"metric must be one of {', '.join(SAMPLE_METRICS)}")
+        raise ArgumentError(f"metric must be one of {', '.join(SAMPLE_METRICS)}")
     return metric
 
 
@@ -87,12 +90,13 @@ def _sleep_dict(row: SleepSession, scores: DailyScores | None) -> dict[str, Any]
         "start": local_time(row.start_at),
         "end": local_time(row.end_at),
         "in_bed_hours": seconds_to_hours((row.end_at - row.start_at).total_seconds()),
-        "asleep_hours": seconds_to_hours(row.asleep_seconds),
-        "deep_minutes": seconds_to_minutes(row.deep_seconds),
-        "light_minutes": seconds_to_minutes(row.light_seconds),
-        "rem_minutes": seconds_to_minutes(row.rem_seconds),
-        "awake_minutes": seconds_to_minutes(row.awake_seconds),
-        "nap_minutes": seconds_to_minutes(row.nap_seconds),
+        # None when the device does not report the value, e.g. no stages.
+        "asleep_hours": hours_or_none(row.asleep_seconds),
+        "deep_minutes": minutes_or_none(row.deep_seconds),
+        "light_minutes": minutes_or_none(row.light_seconds),
+        "rem_minutes": minutes_or_none(row.rem_seconds),
+        "awake_minutes": minutes_or_none(row.awake_seconds),
+        "nap_minutes": minutes_or_none(row.nap_seconds),
         "has_stage_timeline": bool(row.stages),
         "sleeping_hr_avg": round_or_none(scores.sleep_avg_hr) if scores else None,
         "sleeping_hr_min": round_or_none(scores.sleep_min_hr) if scores else None,
@@ -141,11 +145,12 @@ async def _sleep_summary(*, start_date: date, end_date: date) -> dict[str, Any]:
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "nights": nights,
-        "avg_asleep_hours": seconds_to_hours(row.asleep) if nights else None,
-        "avg_deep_minutes": seconds_to_minutes(row.deep) if nights else None,
-        "avg_light_minutes": seconds_to_minutes(row.light) if nights else None,
-        "avg_rem_minutes": seconds_to_minutes(row.rem) if nights else None,
-        "avg_awake_minutes": seconds_to_minutes(row.awake) if nights else None,
+        # Each average covers the nights that report the value.
+        "avg_asleep_hours": hours_or_none(row.asleep),
+        "avg_deep_minutes": minutes_or_none(row.deep),
+        "avg_light_minutes": minutes_or_none(row.light),
+        "avg_rem_minutes": minutes_or_none(row.rem),
+        "avg_awake_minutes": minutes_or_none(row.awake),
         "avg_sleep_score": round_or_none(row.score),
         "avg_sleeping_hr": round_or_none(row.sleeping_hr),
         "total_nap_minutes": seconds_to_minutes(row.naps),
@@ -301,7 +306,13 @@ def register_wellness_tools(mcp: MCPServer) -> None:
     async def get_sleep_summary(start_date: str, end_date: str) -> dict[str, Any]:
         """Summarize sleep for a local date range (nights are dated by the day
         they end): average time asleep, stage minutes, sleep score, sleeping
-        heart rate, nap minutes, and the latest night."""
+        heart rate, nap minutes, and the latest night.
+
+        Each average covers the nights that report the value, so stage
+        averages are null when no device in the range detects stages.
+        ``avg_sleeping_hr`` is the mean heart rate while asleep, in bpm.
+        ``total_nap_minutes`` is a total, not an average. ``latest_night``
+        has the fields of list_sleep."""
         return await _sleep_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -313,7 +324,19 @@ def register_wellness_tools(mcp: MCPServer) -> None:
     ) -> dict[str, Any]:
         """List nights in a local date range, newest first, with stage
         durations, naps, sleeping heart rate, and the sleep score with its
-        parts. At most ``limit`` nights (default 25, max 100)."""
+        parts. At most ``limit`` nights (default 25, max 100).
+
+        ``in_bed_hours`` is ``end`` minus ``start``; ``asleep_hours`` leaves
+        out the time awake. Stage minutes are null when the device does not
+        detect stages. ``sleeping_hr_avg`` / ``sleeping_hr_min`` are bpm
+        from the heart-rate samples of the night, null without samples.
+        ``sleep_score`` is null when it could not be computed, else
+        ``score`` and ``parts``; the part values are: ``duration`` hours
+        asleep, ``efficiency`` percent of the time in bed spent asleep,
+        ``restfulness`` minutes awake, ``regularity`` standard deviation of
+        the bedtimes of the last 7 nights in minutes, ``physiology`` the heart-rate
+        dip asleep versus awake in percent (``hr_dip_pct``) and the night's
+        HRV as a ratio of the 30-day median (``hrv_ratio``)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
@@ -341,7 +364,15 @@ def register_wellness_tools(mcp: MCPServer) -> None:
         samples between falling asleep and waking. Each series reports its
         typical ``interval_seconds``; SpO2 is ``display_only`` (no min/max/avg,
         use the wellness ``spo2_avg``/``spo2_min``). Each series is downsampled
-        to at most ``max_points`` (default 300, max 2000)."""
+        to at most ``max_points`` (default 300, max 2000).
+
+        ``available`` is false when no night ends on that day. ``night`` has
+        the fields of list_sleep and ``wellness`` those of
+        list_daily_wellness. ``stages`` is a list of ``start``, ``end`` and
+        ``stage``, one of ``awake``, ``light``, ``deep``, ``rem``, or
+        ``asleep`` for devices that only tell asleep from awake; it is empty
+        without a timeline. ``series`` holds only the metrics that have
+        samples, each as in get_intraday_samples."""
         night_day = required_date(day, "day")
         points = _max_points(max_points)
         async with readonly_session() as session:
@@ -394,7 +425,8 @@ def register_wellness_tools(mcp: MCPServer) -> None:
     ) -> dict[str, Any]:
         """Compare average sleep (time asleep, deep and REM minutes, sleep
         score, sleeping heart rate) between two local date ranges. Period A
-        is the baseline; ``delta_b_minus_a`` is B minus A."""
+        is the baseline; ``delta_b_minus_a`` is B minus A. Each period has
+        the fields of get_sleep_summary."""
         a = await _sleep_summary(
             start_date=required_date(period_a_start, "period_a_start"),
             end_date=required_date(period_a_end, "period_a_end"),
@@ -413,7 +445,13 @@ def register_wellness_tools(mcp: MCPServer) -> None:
     async def get_wellness_summary(start_date: str, end_date: str) -> dict[str, Any]:
         """Summarize daily wellness for a local date range: resting heart
         rate, overnight HRV, respiration, SpO2, skin temperature deviation,
-        steps, and the recovery score, plus the latest day."""
+        steps, and the recovery score, plus the latest day.
+
+        Values are averages over the days that report them, except
+        ``min_resting_hr``, ``max_resting_hr`` and ``total_steps``.
+        ``day_count`` is the number of days with any wellness data.
+        ``latest_day`` has the fields of list_daily_wellness, where the
+        values are explained."""
         return await _wellness_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -426,7 +464,19 @@ def register_wellness_tools(mcp: MCPServer) -> None:
         """List daily wellness values in a local date range, newest first:
         resting heart rate, HRV, respiration, SpO2, skin temperature
         deviation, steps, calories, and the recovery score with its parts.
-        At most ``limit`` days (default 25, max 100)."""
+        At most ``limit`` days (default 25, max 100).
+
+        Night values belong to the day the night ends. ``resting_hr`` is
+        bpm. ``hrv_ms`` is the night's average RMSSD. ``respiration`` is
+        breaths per minute. ``spo2_avg`` / ``spo2_min`` are percent, during
+        sleep. ``skin_temp_deviation_c`` is the nightly skin temperature
+        minus the personal baseline the provider keeps, in °C.
+        ``active_kcal`` is energy burned by movement, ``total_kcal``
+        includes the resting metabolism. ``recovery_score`` is null when it
+        could not be computed, else ``score`` and ``parts``; the part
+        values are: ``hrv`` the night's HRV as a ratio of its 30-day median,
+        ``resting_hr`` bpm above (+) or below (-) its 30-day median,
+        ``sleep`` the night's sleep score."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
@@ -456,7 +506,7 @@ def register_wellness_tools(mcp: MCPServer) -> None:
         """Compare average resting heart rate, HRV, respiration, SpO2, skin
         temperature deviation, steps, and recovery score between two local
         date ranges. Period A is the baseline; ``delta_b_minus_a`` is B
-        minus A."""
+        minus A. Each period has the fields of get_wellness_summary."""
         a = await _wellness_summary(
             start_date=required_date(period_a_start, "period_a_start"),
             end_date=required_date(period_a_end, "period_a_end"),
@@ -481,7 +531,14 @@ def register_wellness_tools(mcp: MCPServer) -> None:
         it, at the device's own resolution: per minute for some, hourly
         averages for others). SpO2 is ``display_only``: it has no min/max/avg;
         compare nights with ``spo2_avg``/``spo2_min`` from the wellness tools.
-        Downsampled to at most ``max_points`` (default 300, max 2000)."""
+        Downsampled to at most ``max_points`` (default 300, max 2000) by
+        keeping every nth sample.
+
+        ``points`` is a list of ``[timestamp, value]``, oldest first.
+        ``count`` is the number of stored samples and ``returned`` the
+        number in ``points``. ``interval_seconds`` is the typical gap
+        between samples. ``min``, ``max`` and ``avg`` cover all stored
+        samples, not only the returned ones."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         check_range(start, end)

@@ -13,6 +13,7 @@ from sqlalchemy import Select, desc, func, select
 
 from config import config
 from mcp_server.common import (
+    ArgumentError,
     check_range,
     clamp_limit,
     downsample as _downsample,
@@ -32,7 +33,7 @@ from mcp_server.common import (
 )
 from mcp_server.records import register_record_tools
 from mcp_server.wellness import register_wellness_tools
-from metrics import get_hr_zone_boundaries, get_power_zone_boundaries
+from metrics import ZONE_WEIGHTS, get_hr_zone_boundaries, get_power_zone_boundaries
 from models import (
     ACTIVITY_VISIBLE,
     Activity,
@@ -52,18 +53,53 @@ from resting_hr import resting_hr_on
 APP_NAME = "TrainingPulse MCP"
 
 
-mcp = MCPServer(
-    APP_NAME,
-    instructions=(
-        "Read-only access to TrainingPulse: activities, training load "
-        "(CTL/ATL/TSB), the athlete profile, gear, body measurements, "
-        "blood pressure, nutrition, and data coverage. Data from several providers is "
-        "deduplicated, so each workout or day is counted once. All dates are "
-        f"local calendar days in {config.athlete.timezone}, and date ranges "
-        "include both ends. compare_* tools treat period A as the baseline and "
-        "report deltas as B minus A. Credentials are never exposed."
-    ),
+_TRIMP_WEIGHTS = ", ".join(
+    f"zone {zone}: {weight:g}" for zone, weight in sorted(ZONE_WEIGHTS.items())
 )
+
+# What every tool shares: conventions, and the meaning of the values
+# TrainingPulse computes itself. Tool descriptions refer to these terms
+# instead of repeating them (see "MCP" in docs/developers.md).
+INSTRUCTIONS = f"""\
+Read-only access to TrainingPulse: activities, training load (CTL/ATL/TSB), \
+the athlete profile, gear, body measurements, blood pressure, nutrition, \
+sleep, daily wellness, intraday samples, and data coverage. Credentials are \
+never exposed.
+
+Conventions:
+- Dates are YYYY-MM-DD local calendar days in {config.athlete.timezone}; date \
+ranges include both ends. Timestamps are ISO 8601 in that zone, with offset.
+- Data from several providers is deduplicated, so each workout or day is \
+counted once. `provider` names the source of a row.
+- Field names carry their unit (`_km`, `_m`, `_minutes`, `_hours`, `_kg`, \
+`_pct`, `_ms`, `_mmhg`, `_bpm`, `_kmh`). Heart rates are bpm, power is watts, \
+`calories` and `kcal` are kilocalories.
+- null means not measured or not computable; it never means zero.
+- compare_* tools treat period A as the baseline and report deltas as B minus A.
+
+Values TrainingPulse computes itself, the same way for every provider \
+(providers' own scores are not imported):
+- TRIMP: the training load of one activity. Minutes in each heart-rate zone \
+times the zone's weight ({_TRIMP_WEIGHTS}); zones are in get_athlete_profile. \
+It is not Banister's TRIMP and not TSS, so thresholds published for those do \
+not apply. An activity without heart-rate data gets an estimate from its \
+sport and moving time.
+- CTL (fitness) and ATL (fatigue): exponentially weighted averages of daily \
+TRIMP with time constants of 42 and 7 days. TSB (form) is CTL minus ATL.
+- Sleep score and recovery score: 0-100, higher is better. `parts` maps each \
+part to `value` (the raw input, in the part's own unit), `score` (0-100) and \
+`weight` (percent). A part without data has a null score and is left out; \
+the other weights are scaled up. Both scores compare with the athlete's own \
+30-day median, so they are null or partial until 7 of the previous 30 days \
+have data.
+- calories: computed by TrainingPulse where it can; `calories_method` says \
+how, most reliable first: `power` (measured power), `acsm` (ACSM walking or \
+running equation from distance, elevation and body weight), `hr_power` (power \
+estimated from average heart rate and FTP), `imported` (the provider's own \
+number), `met` (sport MET value times body weight and time).
+"""
+
+mcp = MCPServer(APP_NAME, instructions=INSTRUCTIONS)
 
 
 # ── Activities ──────────────────────────────────────────────────────
@@ -138,6 +174,16 @@ async def list_activities(
 ) -> dict[str, Any]:
     """List activities, newest first, optionally filtered by local date range,
     sport type, or gear. Returns at most ``limit`` rows (default 25, max 100).
+
+    ``sport_type`` and ``gear_name`` match the whole value, ignoring case.
+    Sport types are the providers' names such as ``Ride``, ``VirtualRide``,
+    ``Run``, ``Walk``, ``Hike``, ``Swim``, ``WeightTraining``; take them from
+    the ``sport_type`` of returned rows. Gear names come from get_gear_usage.
+
+    ``distance_km`` and ``moving_time_minutes`` are 0 when the activity has
+    none; ``elevation_m`` is the ascent. ``detail_synced`` and ``streams_synced``
+    are false while the activity still waits for its details or streams;
+    its TRIMP and calories can change until then.
     """
     start = parse_date(start_date, "start_date")
     end = parse_date(end_date, "end_date")
@@ -166,6 +212,18 @@ async def list_activities(
 async def get_activity(activity_id: str) -> dict[str, Any]:
     """Get one activity: summary, HR/power zone seconds, power curve, stream
     availability, and the training load of the day it falls on.
+
+    - ``hr_zone_seconds`` / ``power_zone_seconds``: seconds per zone, keyed
+      ``zone_1``... as in get_athlete_profile. Empty ``hr_zone_seconds``
+      means there was no heart-rate stream, so ``trimp`` is an estimate.
+    - ``power_curve``: best average watts keyed by duration in seconds.
+      ``best_20min_power`` is the best 20-minute average;
+      ``weighted_average_power`` is normalized power.
+    - ``average_cadence`` / ``max_cadence``: revolutions per minute when
+      cycling, steps per minute on foot.
+    - ``kilojoules``: mechanical work, only with measured power.
+    - ``day_training_load``: CTL and ATL before and after the activity's
+      day. The "after" values include every activity of that day.
 
     Activity ids are provider-prefixed strings, e.g. ``icu_i55610271``,
     ``strava_123``, ``ghealth_<id>``, or ``hammerhead_<id>``. A duplicate
@@ -292,10 +350,16 @@ async def get_activity_streams(
     """Return raw time-series streams (HR, power, etc.) for an activity.
 
     Use this to analyze the full workout profile beyond zone buckets.
-    ``stream_types`` is a comma-separated list of: time, heartrate, watts,
-    cadence, altitude, velocity_smooth, grade_smooth, distance, latlng, temp.
+    ``stream_types`` is a comma-separated list of: time (seconds since the
+    start), heartrate (bpm), watts, cadence (rpm cycling, steps per minute on
+    foot), altitude (m), velocity_smooth (m/s), grade_smooth (%), distance
+    (m since the start), latlng ([latitude, longitude]), temp (°C).
     Defaults to time, heartrate, and watts; time is always included.
-    Large streams are downsampled to max_points (default 500, max 2000).
+
+    ``streams`` maps each type to a list; all lists have the same length and
+    index i is the same moment in each. Large streams are downsampled to ``max_points`` (default 500,
+    max 2000) by keeping every nth sample, so short peaks can be missing;
+    ``sample_count`` is the full length.
     """
     if max_points is None:
         max_points = DEFAULT_MAX_POINTS
@@ -405,7 +469,14 @@ async def get_training_summary(
     sport_type: str | None = None,
 ) -> dict[str, Any]:
     """Summarize training volume and load (count, distance, time, TRIMP,
-    elevation, calories, average HR and power) for a local date range."""
+    elevation, calories, average HR and power) for a local date range.
+
+    Distance, time, TRIMP, elevation and calories are totals.
+    ``average_heart_rate`` and ``average_power`` are the mean of the
+    activities' averages, one vote per activity that has the value, not
+    weighted by duration. ``trimp_per_hour`` is total TRIMP per moving hour.
+    ``sport_type`` matches as in list_activities.
+    """
     return await _training_summary(
         start_date=required_date(start_date, "start_date"),
         end_date=required_date(end_date, "end_date"),
@@ -424,6 +495,7 @@ async def compare_training_periods(
     """Compare training volume and load between two local date ranges.
 
     Period A is the baseline; ``delta_b_minus_a`` is B minus A per field.
+    Each period has the fields of get_training_summary.
     """
     period_a = await _training_summary(
         start_date=required_date(period_a_start, "period_a_start"),
@@ -448,8 +520,10 @@ async def get_gear_usage(
     end_date: str | None = None,
     sport_type: str | None = None,
 ) -> dict[str, Any]:
-    """Group activity volume and load by gear name, optionally within a local
-    date range or for one sport type."""
+    """Group activity volume and load (totals of distance, moving time,
+    TRIMP and ascent) by gear name, most distance first, optionally within a
+    local date range or for one sport type. Activities without gear are
+    grouped as ``Unspecified gear``."""
     start = parse_date(start_date, "start_date")
     end = parse_date(end_date, "end_date")
     check_range(start, end)
@@ -516,8 +590,11 @@ async def get_training_load(
     """Daily fitness (CTL), fatigue (ATL), and form (TSB) for a local date
     range, plus the change over it. Defaults to the last 42 days; at most 366.
 
-    CTL and ATL are end-of-day values. ``tsb`` is start-of-day form;
-    ``tsb_end_of_day`` includes that day's training.
+    CTL and ATL are end-of-day values. ``tsb`` is start-of-day form
+    (yesterday's CTL minus ATL); ``tsb_end_of_day`` includes that day's
+    training. ``trimp`` is the day's total. In ``summary``, ``ctl_change``
+    and ``atl_change`` are last day minus first day, and ``metrics_as_of``
+    is when the values were last recomputed.
     """
     end = parse_date(end_date, "end_date") or today_local()
     start = parse_date(start_date, "start_date") or end - timedelta(
@@ -525,7 +602,7 @@ async def get_training_load(
     )
     check_range(start, end)
     if (end - start).days + 1 > MAX_LOAD_DAYS:
-        raise ValueError(
+        raise ArgumentError(
             f"date range is limited to {MAX_LOAD_DAYS} days; split the request"
         )
 
@@ -584,8 +661,15 @@ async def get_athlete_profile() -> dict[str, Any]:
     """Return the athlete's max/resting HR, FTP (configured and estimated),
     time zone, and the HR and power zone boundaries used for zone seconds.
     ``rest_hr`` is the value in use today: the median of the last 7 imported
-    days when there are any, else the configured value (see
-    ``rest_hr_source``)."""
+    days when there are any, else the configured value. ``rest_hr_source``
+    says which: ``source`` (``imported`` or ``config``), the number of
+    ``days`` behind the median, and their ``provider``.
+
+    ``ftp`` is the configured value in watts and the one power zones use;
+    ``estimated_ftp`` is 95 % of the best recorded 20-minute power and is
+    null without power data. Zones are keyed ``zone_1``... as in the zone seconds of
+    get_activity; the top zone has no maximum (null).
+    """
     athlete = config.athlete
     async with readonly_session() as session:
         settings = (
@@ -655,7 +739,14 @@ async def get_data_coverage() -> dict[str, Any]:
     """Report what data is stored, per kind: visible row counts per provider,
     hidden duplicates, the first and last day, and for activities how many
     still lack detail, streams, or heart rate, and how many the provider no
-    longer serves. Use it to tell missing data from a quiet period."""
+    longer serves. Use it to tell missing data from a quiet period.
+
+    ``superseded_duplicates`` are copies of a workout or day that another
+    provider also reported; they are hidden from every other tool.
+    ``missing_detail`` and ``missing_streams`` count activities still
+    waiting for enrichment, ``without_heart_rate`` those whose TRIMP is an
+    estimate. ``intraday.by_metric`` counts samples per metric. ``scores``
+    counts the days that have a sleep or recovery score."""
     visible = ACTIVITY_VISIBLE
     gone = Activity.deleted_upstream_at != None  # noqa: E711
     activity_count = func.count(Activity.id)

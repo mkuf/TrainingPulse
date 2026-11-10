@@ -249,7 +249,12 @@ def register_record_tools(mcp: MCPServer) -> None:
         """Summarize body measurements (weight min/max/avg, average fat %,
         muscle mass, bone mass, body water % and visceral fat rating, latest
         weigh-in) for a local date range. Fields a scale doesn't measure are
-        null."""
+        null.
+
+        Averages count every measurement once, so a day with several
+        weigh-ins weighs more. ``latest_vs_avg_kg`` is the latest weight
+        minus the period average. ``latest`` has the fields of
+        list_body_measurements."""
         return await _body_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -261,7 +266,11 @@ def register_record_tools(mcp: MCPServer) -> None:
     ) -> dict[str, Any]:
         """List body measurements (weight, fat %, muscle mass, bone mass, body
         water %, visceral fat rating) in a local date range, newest first. At
-        most ``limit`` rows (default 25, max 100)."""
+        most ``limit`` rows (default 25, max 100).
+
+        ``fat_pct`` and ``body_water_pct`` are percent of body weight.
+        ``visceral_fat`` is the scale's own rating without a unit; its range
+        depends on the manufacturer, so compare it only for one ``device``."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
@@ -283,7 +292,9 @@ def register_record_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def get_latest_body_measurement() -> dict[str, Any]:
-        """Return the most recent body measurement, whenever it was taken."""
+        """Return the most recent body measurement, whenever it was taken.
+        ``available`` is false when none is stored; ``measurement`` has the
+        fields of list_body_measurements."""
         async with readonly_session() as session:
             row = (
                 await session.scalars(
@@ -306,7 +317,8 @@ def register_record_tools(mcp: MCPServer) -> None:
     ) -> dict[str, Any]:
         """Compare average weight, fat %, muscle mass, bone mass, body water %
         and visceral fat rating between two local date ranges. Period A is the
-        baseline; ``delta_b_minus_a`` is B minus A.
+        baseline; ``delta_b_minus_a`` is B minus A. Each period has the
+        fields of get_body_summary.
         """
         a = await _body_summary(
             start_date=required_date(period_a_start, "period_a_start"),
@@ -328,7 +340,8 @@ def register_record_tools(mcp: MCPServer) -> None:
     ) -> dict[str, Any]:
         """Summarize blood pressure readings (systolic and diastolic
         average/min/max in mmHg, average pulse, latest reading) for a local
-        date range."""
+        date range. Averages count every reading once. ``latest`` has the
+        fields of list_blood_pressure_readings."""
         return await _blood_pressure_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -338,9 +351,9 @@ def register_record_tools(mcp: MCPServer) -> None:
     async def list_blood_pressure_readings(
         start_date: str, end_date: str, limit: int | None = None
     ) -> dict[str, Any]:
-        """List blood pressure readings (systolic, diastolic, pulse) in a
-        local date range, newest first. At most ``limit`` rows (default 25,
-        max 100)."""
+        """List blood pressure readings (systolic and diastolic in mmHg, the
+        pulse during the reading in bpm) in a local date range, newest
+        first. At most ``limit`` rows (default 25, max 100)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
@@ -362,7 +375,13 @@ def register_record_tools(mcp: MCPServer) -> None:
 
     @mcp.tool()
     async def get_nutrition_summary(start_date: str, end_date: str) -> dict[str, Any]:
-        """Summarize daily nutrition (kcal and macros) for a local date range."""
+        """Summarize daily nutrition (kcal and macros) for a local date range.
+
+        Averages are per logged day: ``day_count`` is the number of days
+        with a food log, and days without one are left out, not counted as
+        zero. ``total_kcal``, ``min_kcal`` and ``max_kcal`` are the sum and
+        the lowest and highest logged day. ``latest_day`` has the fields of
+        list_daily_nutrition."""
         return await _nutrition_summary(
             start_date=required_date(start_date, "start_date"),
             end_date=required_date(end_date, "end_date"),
@@ -372,8 +391,11 @@ def register_record_tools(mcp: MCPServer) -> None:
     async def list_daily_nutrition(
         start_date: str, end_date: str, limit: int | None = None
     ) -> dict[str, Any]:
-        """List daily nutrition totals in a local date range, newest first.
-        At most ``limit`` rows (default 25, max 100)."""
+        """List daily nutrition totals in a local date range, newest first:
+        energy eaten in kcal, and protein, carbohydrates, sugar (part of the
+        carbohydrates), fat and fiber in grams. A day holds what was logged,
+        so a low value can be an incomplete log. At most ``limit`` rows
+        (default 25, max 100)."""
         start = required_date(start_date, "start_date")
         end = required_date(end_date, "end_date")
         stmt = _visible_between(
@@ -401,7 +423,8 @@ def register_record_tools(mcp: MCPServer) -> None:
         period_b_end: str,
     ) -> dict[str, Any]:
         """Compare average daily kcal and macros between two local date ranges.
-        Period A is the baseline; ``delta_b_minus_a`` is B minus A."""
+        Period A is the baseline; ``delta_b_minus_a`` is B minus A. Each
+        period has the fields of get_nutrition_summary."""
         a = await _nutrition_summary(
             start_date=required_date(period_a_start, "period_a_start"),
             end_date=required_date(period_a_end, "period_a_end"),

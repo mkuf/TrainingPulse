@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The **Asleep** panel on the Sleep and recovery dashboard shows hours and minutes (for example `7h:37m`) instead of rounding to the full hour.
+- The MCP server explains its values to agents: the server instructions define TRIMP, CTL/ATL/TSB, the sleep and recovery scores with their parts, and the calorie methods, and the tool descriptions give units, value lists, and how averages are formed.
+- An MCP tool that gets an invalid argument now says what is wrong, for example `metric must be one of heart_rate, hrv, spo2`. Before, the client got only `Error executing tool`.
+- The MCP sleep tools return `null` instead of `0` for a value the device does not report, for example deep and REM minutes from a device without sleep stages.
 - TRIMP weights a minute in heart-rate zone 5 with 6 instead of 8. Activities processed from now on use the new weight; stored TRIMP, CTL, ATL and TSB change only when an activity is processed again (a full refresh or resync).
 
 ## [1.5.1] - 2026-11-06

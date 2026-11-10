@@ -13,6 +13,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, AsyncIterator, Mapping
 from zoneinfo import ZoneInfo
 
+from mcp.server.mcpserver.exceptions import ToolError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,25 +36,36 @@ async def readonly_session() -> AsyncIterator[AsyncSession]:
 # ── Arguments ───────────────────────────────────────────────────────
 
 
+class ArgumentError(ToolError, ValueError):
+    """An argument the caller can correct.
+
+    The MCP SDK passes the message of a ``ToolError`` to the client and hides
+    the message of every other exception, so a plain ``ValueError`` would
+    tell the agent nothing about what to change.
+    """
+
+
 def parse_date(value: str | None, field_name: str) -> date | None:
     if value is None or value == "":
         return None
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError(f"{field_name} must be an ISO date like YYYY-MM-DD") from exc
+        raise ArgumentError(
+            f"{field_name} must be an ISO date like YYYY-MM-DD"
+        ) from exc
 
 
 def required_date(value: str, field_name: str) -> date:
     parsed = parse_date(value, field_name)
     if parsed is None:
-        raise ValueError(f"{field_name} is required")
+        raise ArgumentError(f"{field_name} is required")
     return parsed
 
 
 def check_range(start: date | None, end: date | None) -> None:
     if start is not None and end is not None and start > end:
-        raise ValueError("start_date must not be after end_date")
+        raise ArgumentError("start_date must not be after end_date")
 
 
 def clamp_limit(value: int | None) -> int:
@@ -97,6 +109,16 @@ def seconds_to_hours(value: Any) -> float:
 
 def seconds_to_minutes(value: Any) -> float:
     return round(float(value or 0) / 60.0, 1)
+
+
+def hours_or_none(value: Any) -> float | None:
+    """Seconds as hours; ``None`` stays ``None`` (not measured)."""
+    return None if value is None else seconds_to_hours(value)
+
+
+def minutes_or_none(value: Any) -> float | None:
+    """Seconds as minutes; ``None`` stays ``None`` (not measured)."""
+    return None if value is None else seconds_to_minutes(value)
 
 
 def meters_to_km(value: Any) -> float:

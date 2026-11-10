@@ -6,6 +6,8 @@ Before adding or changing a provider, a mapper, a stored field, a sample metric,
 - Never map a provider's own scores, statuses, or indexes.
 - Mappers only translate; anything derivable from samples or streams is computed in the core, from visible rows only.
 
+Before adding or changing an MCP tool or a field it returns, read "Explaining values to agents" in [docs/developers.md](docs/developers.md#explaining-values-to-agents). An agent sees only the server instructions, the tool descriptions, and the field names.
+
 On the status page, text appears only when the user needs to act:
 
 - A working account shows no hint, because its status already says so.
