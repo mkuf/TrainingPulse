@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 
 # ── TRIMP zone weights ──────────────────────────────────────────────
 # Time in each zone is multiplied by this weight.
-# Zone 5 is weighted 8x Zone 1 to reflect the disproportionate
-# cardiovascular stress of high-intensity work.
+# Zones 1-4 follow Edwards' linear weights. Zone 5 is weighted 6 instead of
+# 5, which approximates Banister's exponential curve at that intensity.
 ZONE_WEIGHTS = {
     1: 1.0,  # Recovery   (50-60% max HR)
     2: 2.0,  # Endurance  (60-70% max HR)
     3: 3.0,  # Tempo      (70-80% max HR)
     4: 4.0,  # Threshold  (80-90% max HR)
-    5: 8.0,  # VO2max     (90-100% max HR)
+    5: 6.0,  # VO2max    (90-100% max HR)
 }
 
 # Fallback TRIMP-per-minute estimates for activities without HR data

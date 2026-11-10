@@ -353,7 +353,7 @@ Computed in [`app/metrics.py`](../app/metrics.py) and stored alongside activitie
 
 | Metric | Also known as | Description |
 |--------|---------------|-------------|
-| TRIMP | Training Impulse | Banister-style load from HR streams (or sport estimate without HR) |
+| TRIMP | Training Impulse | Zone-weighted load from HR streams: minutes in heart-rate zones 1–5 times 1, 2, 3, 4, 6 (Edwards' method with a heavier zone 5; not Banister's formula). Without HR, a per-minute estimate by sport |
 | CTL | Fitness | 42-day EMA of daily TRIMP |
 | ATL | Fatigue | 7-day EMA of daily TRIMP |
 | TSB | Form | CTL − ATL |

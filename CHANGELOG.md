@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The **Asleep** panel on the Sleep and recovery dashboard shows hours and minutes (for example `7h:37m`) instead of rounding to the full hour.
+- TRIMP weights a minute in heart-rate zone 5 with 6 instead of 8. Activities processed from now on use the new weight; stored TRIMP, CTL, ATL and TSB change only when an activity is processed again (a full refresh or resync).
 
 ## [1.5.1] - 2026-11-06
 
