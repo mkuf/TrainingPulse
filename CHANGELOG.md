@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The **Asleep** panel on the Sleep and recovery dashboard shows hours and minutes (for example `7h:37m`) instead of rounding to the full hour.
+
 ## [1.5.1] - 2026-11-06
 
 ### Changed

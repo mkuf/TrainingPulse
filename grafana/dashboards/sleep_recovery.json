@@ -62,8 +62,8 @@
             "fixedColor": "#5794F2",
             "mode": "fixed"
           },
-          "decimals": 0,
-          "unit": "s",
+          "decimals": 1,
+          "unit": "clocks",
           "noValue": "–"
         },
         "overrides": []
