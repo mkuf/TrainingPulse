@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The MCP sleep tools return `null` instead of `0` for a value the device does not report, for example deep and REM minutes from a device without sleep stages.
 - TRIMP weights a minute in heart-rate zone 5 with 6 instead of 8. Activities processed from now on use the new weight; stored TRIMP, CTL, ATL and TSB change only when an activity is processed again (a full refresh or resync).
 
+### Fixed
+
+- FDDB sugar and fiber were always stored as `0`. They are now read from the diary page. A value the page does not show is stored as empty, not as `0`. Days inside `refresh_days` correct themselves on the next sync; older days need a resync of nutrition.
+
 ## [1.5.1] - 2026-11-06
 
 ### Changed

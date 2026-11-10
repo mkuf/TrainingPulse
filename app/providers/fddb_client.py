@@ -43,17 +43,18 @@ class FddbParseError(Exception):
 class DailyNutritionData:
     day: date
     kcal: float
-    protein_g: float
-    carbs_g: float
-    sugar_g: float
-    fat_g: float
-    fiber_g: float
+    protein_g: float | None
+    carbs_g: float | None
+    sugar_g: float | None
+    fat_g: float | None
+    fiber_g: float | None
 
 
-def _extract_number(text: str) -> float:
+def _extract_number(text: str) -> float | None:
+    """The first number in ``text``; None when there is none (not a zero)."""
     match = re.search(r"-?\d+(?:[.,]\d+)?", text)
     if not match:
-        return 0.0
+        return None
     return float(match.group(0).replace(",", "."))
 
 
@@ -137,15 +138,23 @@ def parse_diary_html(html: str, day: date) -> DailyNutritionData:
     )
 
 
-def _find_summary_value(soup: BeautifulSoup, labels: tuple[str, ...]) -> float:
-    for row in soup.select("table tbody tr"):
-        cells = row.find_all("td")
+def _find_summary_value(
+    soup: BeautifulSoup, labels: tuple[str, ...]
+) -> float | None:
+    """A value from the nutrient summary below the diary; None if not shown.
+
+    FDDB serves the tables without ``<tbody>`` (a page saved from a browser
+    has one), so rows are matched as ``table tr``. The diary table is left
+    out: its first column holds product names, which can contain a label.
+    """
+    for row in soup.select("table:not(.myday-table-std) tr"):
+        cells = row.find_all("td", recursive=False)
         if len(cells) < 2:
             continue
         label = cells[0].get_text(" ", strip=True).lower()
         if any(part in label for part in labels):
             return _extract_number(cells[1].get_text())
-    return 0.0
+    return None
 
 
 class FddbClient:

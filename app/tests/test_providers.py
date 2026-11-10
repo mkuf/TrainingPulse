@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -389,6 +390,37 @@ def test_parse_diary_redesign_layout():
     assert data.protein_g == 282.75
     assert data.sugar_g == 12.5
     assert data.fiber_g == 23.75
+
+
+def test_parse_diary_as_served():
+    """The page as FDDB serves it has no <tbody>, unlike one saved from a browser."""
+    html = (FDDB_FIXTURES / "valid-response-served.html").read_text(encoding="utf-8")
+    assert "<tbody" not in html
+    data = parse_diary_html(html, date(2026, 11, 5))
+    assert data.kcal == 1994
+    assert data.fat_g == 50.6
+    assert data.carbs_g == 192.3
+    assert data.protein_g == 129.7
+    assert data.sugar_g == 25.4
+    assert data.fiber_g == 10.1
+
+
+def test_parse_diary_without_nutrient_summary_leaves_sugar_and_fiber_empty():
+    """A value the page does not show is None, never 0 (data rule 2)."""
+    html = (FDDB_FIXTURES / "valid-response-served.html").read_text(encoding="utf-8")
+    # A product named after a label must not stand in for the missing summary.
+    html = html.replace("10 g Testprodukt 1<", "10 g Ballaststoffe davon Zucker<")
+    start = html.index("<table class='fddb-myday-nutrients'")
+    html = html[:start] + html[html.index("</table>", start) + len("</table>"):]
+
+    data = parse_diary_html(html, date(2026, 11, 5))
+
+    assert data.kcal == 1994
+    assert data.sugar_g is None
+    assert data.fiber_g is None
+    record = map_day(asdict(data))
+    assert record.sugar_g is None
+    assert record.fiber_g is None
 
 
 # ── Gone upstream ───────────────────────────────────────────────────
