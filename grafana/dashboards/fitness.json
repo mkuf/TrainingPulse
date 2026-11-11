@@ -60,35 +60,6 @@
             "mode": "fixed",
             "fixedColor": "#73BF69"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#F2495C",
-                "value": null
-              },
-              {
-                "color": "#F2495C",
-                "value": -25
-              },
-              {
-                "color": "#FF9830",
-                "value": -10
-              },
-              {
-                "color": "#FADE2A",
-                "value": 0
-              },
-              {
-                "color": "#73BF69",
-                "value": 5
-              },
-              {
-                "color": "#56A64B",
-                "value": 15
-              }
-            ]
-          },
           "mappings": [],
           "unit": "none",
           "decimals": 1
@@ -117,7 +88,7 @@
         "justifyMode": "auto"
       },
       "title": "Fitness (CTL)",
-      "description": "Chronic Training Load (42-day avg). Represents long-term fitness.\n- 0-40: Low\n- 40-70: Intermediate\n- 70-110: Advanced\n- 110+: Elite",
+      "description": "Long-term fitness: your average daily training load (TRIMP) of the last 42 days. The value depends on your heart-rate zones. Compare it with your own past values, not with other athletes.",
       "type": "stat",
       "targets": [
         {
@@ -191,7 +162,7 @@
         "justifyMode": "auto"
       },
       "title": "Fatigue (ATL)",
-      "description": "Acute Training Load (7-day avg). Represents short-term fatigue.\nShould be higher than CTL during build blocks and lower during recovery.",
+      "description": "Short-term fatigue: your average daily training load (TRIMP) of the last 7 days. It is higher than fitness in a build block and lower in a recovery week.",
       "type": "stat",
       "targets": [
         {
@@ -223,30 +194,26 @@
                 "value": null
               },
               {
-                "color": "#F2495C",
-                "value": -25
+                "color": "#73BF69",
+                "value": -30
               },
               {
-                "color": "#FF9830",
+                "color": "#8E8E8E",
                 "value": -10
               },
               {
-                "color": "#FADE2A",
-                "value": 0
-              },
-              {
-                "color": "#73BF69",
+                "color": "#5794F2",
                 "value": 5
               },
               {
-                "color": "#56A64B",
-                "value": 15
+                "color": "#FADE2A",
+                "value": 25
               }
             ]
           },
           "mappings": [],
-          "unit": "none",
-          "decimals": 1
+          "unit": "percent",
+          "decimals": 0
         },
         "overrides": []
       },
@@ -271,8 +238,8 @@
         "graphMode": "area",
         "justifyMode": "auto"
       },
-      "title": "Form (TSB)",
-      "description": "Training Stress Balance (CTL - ATL). Represents freshness.\n- +5 to +25: Fresh (Peak)\n- -10 to +5: Neutral\n- -30 to -10: Productive Overload\n- Below -30: Danger Zone",
+      "title": "Form (TSB %)",
+      "description": "Freshness: fitness minus fatigue, in percent of fitness.\n- Above +25 %: Transition, you lose fitness\n- +5 to +25 %: Fresh\n- −10 to +5 %: Neutral\n- −30 to −10 %: Optimal training\n- Below −30 %: High risk",
       "type": "stat",
       "targets": [
         {
@@ -280,7 +247,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT date AS time, tsb AS \"Form\" FROM daily_metrics WHERE $__timeFilter(date) ORDER BY date",
+          "rawSql": "SELECT date AS time, 100.0 * tsb / ctl AS \"Form\" FROM daily_metrics WHERE $__timeFilter(date) AND ctl > 0 ORDER BY date",
           "format": "time_series",
           "refId": "A"
         },
@@ -289,7 +256,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  CASE\n    WHEN tsb < -25 THEN 'Overreaching'\n    WHEN tsb < -10 THEN 'Training Hard'\n    WHEN tsb < 5 THEN 'Neutral'\n    WHEN tsb < 15 THEN 'Rested'\n    ELSE 'Race Ready'\n  END AS \"State\"\nFROM daily_metrics\nWHERE $__timeFilter(date)\nORDER BY date DESC\nLIMIT 1",
+          "rawSql": "SELECT\n  CASE\n    WHEN 100.0 * tsb / ctl < -30 THEN 'High risk'\n    WHEN 100.0 * tsb / ctl < -10 THEN 'Optimal training'\n    WHEN 100.0 * tsb / ctl < 5 THEN 'Neutral'\n    WHEN 100.0 * tsb / ctl < 25 THEN 'Fresh'\n    ELSE 'Transition'\n  END AS \"State\"\nFROM daily_metrics\nWHERE $__timeFilter(date) AND ctl > 0\nORDER BY date DESC\nLIMIT 1",
           "format": "table",
           "refId": "B",
           "editorMode": "code"
@@ -368,7 +335,7 @@
         "justifyMode": "auto"
       },
       "title": "FTP",
-      "description": "Left: Current FTP from athlete settings. Right: Estimated FTP based on 95% of your best 20-minute power.",
+      "description": "Left: FTP from your athlete settings. Right: 95 % of your best 20-minute power.",
       "type": "stat",
       "targets": [
         {
@@ -387,7 +354,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Consecutive calendar weeks (Monday start, same as **This week vs corridor**) with at least one logged activity. Counting starts from the **last week that contains any activity** when **this week is still empty** — so you see how long your run was without forcing **0** before you train. **Highlight**: current week already has an activity (live streak). **Grey**: current week has no activity yet (same number = run ending at your last active week; logging this week applies the highlight).",
+      "description": "Weeks in a row with at least one activity. Weeks start on Monday. **Grey** means that this week has no activity yet. The number then counts to your last active week.",
       "fieldConfig": {
         "defaults": {
           "decimals": 0,
@@ -626,7 +593,7 @@
           "editorMode": "code"
         }
       ],
-      "description": "**Fitness (CTL)** is the 42-day and **fatigue (ATL)** the 7-day exponentially weighted average of daily TRIMP. **Form (TSB)** is fitness minus fatigue. The bars show the daily TRIMP (right axis)."
+      "description": "**Fitness (CTL)** is your average daily TRIMP of the last 42 days. **Fatigue (ATL)** is the same for the last 7 days. **Form (TSB)** is fitness minus fatigue. The bars show the daily TRIMP (right axis)."
     },
     {
       "collapsed": false,
@@ -771,7 +738,7 @@
         }
       },
       "title": "Weekly training load by sport",
-      "description": "Stacked weekly TRIMP by sport. The grey band is a **training load corridor**: floor = 80% and ceiling = 125% of the rolling average of your **previous four** complete weeks’ total weekly TRIMP (current week excluded), so it reflects recent load without double-counting the week you are viewing.",
+      "description": "The grey band is your usual load: 80 % to 125 % of the average of the four weeks before.",
       "type": "timeseries",
       "targets": [
         {
@@ -899,7 +866,7 @@
         "justifyMode": "center"
       },
       "title": "This week vs corridor",
-      "description": "Numbers for the **calendar week containing today** (ISO week, Monday start). **Floor** and **Ceiling** use the same rule as the chart: 80% and 125% of the average total weekly TRIMP from the **four complete weeks before** this week. **This week** is your summed TRIMP so far in the current week. **Floor** / **Ceiling** tiles use **blue** / **purple** backgrounds. **This week** tile color is **grey** under the floor, **green** between floor and ceiling (inclusive), and a **warning highlight** above the ceiling (when the corridor is defined).",
+      "description": "TRIMP of the current week (Monday to today) against the grey band of the chart. **Floor** and **Ceiling** are 80 % and 125 % of the average of the last four full weeks. **This week** is grey below the floor, green in the band, and highlighted above the ceiling.",
       "transformations": [
         {
           "id": "configFromData",
@@ -1052,7 +1019,7 @@
         }
       },
       "title": "Power duration curve",
-      "description": "Best average power for each duration. **All time** uses every activity; **Selected range** only activities in the dashboard time range.",
+      "description": "**All time** uses all activities. **Selected range** uses only the activities in the time range.",
       "type": "trend",
       "targets": [
         {
@@ -1408,7 +1375,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Source of each visible activity. Duplicates recorded by several sources count once, under the source that won.",
+      "description": "If more than one source recorded an activity, it counts once, for the source that TrainingPulse shows.",
       "fieldConfig": {
         "defaults": {
           "color": {

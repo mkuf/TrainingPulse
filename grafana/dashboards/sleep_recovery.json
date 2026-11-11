@@ -55,7 +55,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Time asleep in the latest night of the range (naps excluded).",
+      "description": "Naps are not included.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -110,7 +110,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "How good the night was, on a fixed scale that is the same for every provider. 100 is a night that meets your sleep need, undisturbed and at your regular time. The Sleep score parts panel shows what it is made of.",
+      "description": "The scale is the same for all providers. 100 is a night that meets your sleep need, with no disturbance, at your usual time.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -165,7 +165,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "HRV and resting heart rate against your usual values of the last 30 days. 70 is a usual day for you. 85 or more is above normal, 60–84 normal, 40–59 below normal, under 40 well below normal.",
+      "description": "HRV and resting heart rate against your usual values of the last 30 days. 70 is a usual day for you. 85 or more is above normal, 60–84 normal, 40–59 below normal, below 40 well below normal.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -420,7 +420,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Nights are dated by the day they end.",
+      "description": "Each night has the date of the day it ends.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -541,7 +541,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "The two scores have different scales. The sleep score is fixed: 100 is a night that meets your sleep need, undisturbed and at your regular time. The recovery score compares with your usual values: 70 is a usual day.",
+      "description": "The two scores have different scales. Sleep score: 100 is a night that meets your sleep need, with no disturbance, at your usual time. Recovery score: 70 is a usual day for you.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -634,7 +634,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Each part scores 0–100. Weights: duration 35 %, efficiency 20 %, restfulness 15 %, regularity 10 %, physiology 20 %.",
+      "description": "Each part has a score from 0 to 100. Weights: duration 35 %, efficiency 20 %, restfulness 15 %, regularity 10 %, physiology 20 %.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -695,7 +695,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Naps are daytime sleep on that day, not part of the night.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -814,7 +814,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "70 is a usual day for you. 85 or more is above normal, 60–84 normal, 40–59 below normal, under 40 well below normal.",
+      "description": "70 is a usual day for you. 85 or more is above normal, 60–84 normal, 40–59 below normal, below 40 well below normal.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -905,7 +905,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Sleeping heart rate is TrainingPulse's average of the heart-rate samples while asleep.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1025,7 +1025,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "The night's average RMSSD. The band is your usual range: the median of the previous 30 days plus and minus one standard deviation, shown from 14 days of data. The recovery score measures each night against it.",
+      "description": "Average HRV (RMSSD) of the night. The band is your usual range from the last 30 days. It shows after 14 days of data. The recovery score compares each night with this band.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1167,7 +1167,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Empty for devices that do not record SpO2 (Garmin with Pulse Ox off).",
+      "description": "Empty if your device does not record SpO2, for example a Garmin with Pulse Ox off.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1348,7 +1348,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Nightly skin temperature minus the device's personal baseline. Empty for devices without a temperature sensor.",
+      "description": "The baseline comes from your device. Empty if your device has no temperature sensor.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1513,7 +1513,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Sleep stages over time, for providers that report a stage timeline (Google Health). Garmin reports stage totals only, so its nights stay empty here.",
+      "description": "Only for providers that report the stages over time (Google Health). Garmin reports only the total time in each stage, so Garmin nights are empty here.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1754,7 +1754,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "At the device's own resolution: one value per minute from Google Health, hourly averages from Garmin. For display only; compare nights with the daily SpO2 panel.",
+      "description": "At the resolution of the device: one value each minute from Google Health, hourly averages from Garmin. To compare nights, use the daily **SpO2** panel.",
       "fieldConfig": {
         "defaults": {
           "custom": {

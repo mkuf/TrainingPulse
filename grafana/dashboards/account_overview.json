@@ -43,7 +43,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Totals for fixed periods up to now. They do not depend on the dashboard time range. **Calories** sum the calories TrainingPulse computed (from power, distance or heart rate) and, where an activity has none, the imported value.",
+      "description": "Totals from the start of each period to now. The dashboard time range does not change them. **Calories** come from power, pace or heart rate. If an activity has none of these, the calories come from the provider.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -176,7 +176,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Monthly volume trend in the selected dashboard time range.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -266,7 +266,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Monthly training load and moving time in the selected dashboard time range.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -366,7 +366,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Months in the dashboard time range. **Calories** sum the calories TrainingPulse computed (from power, distance or heart rate) and, where an activity has none, the imported value.",
+      "description": "**Calories** come from power, pace or heart rate. If an activity has none of these, the calories come from the provider.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -530,7 +530,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Yearly volume trend in the selected dashboard time range.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -620,7 +620,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Yearly training load and moving time in the selected dashboard time range.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -720,7 +720,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Years in the dashboard time range. **Calories** sum the calories TrainingPulse computed (from power, distance or heart rate) and, where an activity has none, the imported value.",
+      "description": "**Calories** come from power, pace or heart rate. If an activity has none of these, the calories come from the provider.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -882,7 +882,7 @@
     {
       "id": 12,
       "title": "Where you train",
-      "description": "Density of GPS points of the activities in the dashboard time range. Rare outliers (outside the 2nd–98th percentile) are left out, so the map fits where you usually train.",
+      "description": "Points far from your usual area do not show.",
       "type": "geomap",
       "datasource": {
         "type": "grafana-postgresql-datasource",

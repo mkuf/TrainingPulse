@@ -57,7 +57,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Average daily intake in the time range.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: kcal",
@@ -113,7 +113,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Average daily energy expenditure in the time range, as reported by your wearable.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: kcal",
@@ -169,7 +169,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Average of intake minus total burned, over the finished days that have both.",
+      "description": "Only finished days that have both intake and burned values count.",
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: kcal",
@@ -225,7 +225,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Latest 7-day average weight. Hidden. Switch on **Show weight** at the top to see it.",
+      "description": "Average weight of the last 7 days. To see it, switch on **Show weight** at the top.",
       "fieldConfig": {
         "defaults": {
           "unit": "masskg",
@@ -294,7 +294,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "**Intake** from your nutrition diary. **Total burned** is the daily energy expenditure your wearable reports (resting and active). **Activities** are the calories of the recorded activities.",
+      "description": "**Total burned** comes from your wearable and includes resting and active calories. **Activities** are only the calories of your recorded activities.",
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: kcal",
@@ -442,7 +442,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Grams of protein, carbohydrates and fat per day.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "unit": "massg",
@@ -559,7 +559,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Each measurement as a point, the line is the average of the last 7 calendar days. **Body fat** (right axis) shows when your scale reports it. Hidden. Switch on **Show weight** at the top to see it.",
+      "description": "The line is the average of the last 7 days. **Body fat** (right axis) shows only if your scale measures it. To see this panel, switch on **Show weight** at the top.",
       "fieldConfig": {
         "defaults": {
           "unit": "masskg",
@@ -688,7 +688,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Bars: the average daily intake minus total burned of each week (orange is a surplus, blue a deficit). Line: the change of the weekly average weight against the week before (right axis). About 7700 kcal of balance correspond to one kilogram of body weight. The weight line is hidden until you switch on **Show weight**.",
+      "description": "Bars: average daily intake minus burned for each week. Orange is a surplus, blue is a deficit. Line: change of the weekly average weight from the week before (right axis). 7700 kcal are approximately 1 kg of body weight. To see the line, switch on **Show weight**.",
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: kcal",
@@ -812,7 +812,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Daily averages from scales that measure them: **body water** (share of body weight) and **visceral fat** (the scale's rating, without a unit) on the left axis, **bone mass** on the right axis. Garmin and Withings scales report these; other providers leave them empty. Hidden. Switch on **Show weight** at the top to see it.",
+      "description": "**Visceral fat** is a rating from the scale, with no unit. Only Garmin and Withings scales report these values. To see this panel, switch on **Show weight** at the top.",
       "fieldConfig": {
         "defaults": {
           "decimals": 1,
@@ -943,7 +943,7 @@
         "type": "grafana-postgresql-datasource",
         "uid": "${DS_POSTGRESQL}"
       },
-      "description": "Each reading from a blood pressure monitor: **systolic** and **diastolic** pressure on the left axis, **pulse** on the right axis.",
+      "description": "",
       "fieldConfig": {
         "defaults": {
           "unit": "suffix: mmHg",
@@ -1081,7 +1081,7 @@
         "type": "switch",
         "name": "show_weight",
         "label": "Show weight",
-        "description": "Weight, body fat and weight change stay hidden until you switch this on.",
+        "description": "Switch on to show weight, body fat and weight change.",
         "value": "false",
         "enabledValue": "true",
         "disabledValue": "false",

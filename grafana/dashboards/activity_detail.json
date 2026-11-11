@@ -259,7 +259,7 @@
     {
       "id": 6,
       "title": "Energy",
-      "description": "Calories and mechanical work that TrainingPulse calculated: from measured power, else from pace (walks and runs), else from heart rate. A **\\*** marks a value imported from the provider, shown only when TrainingPulse could not calculate one.",
+      "description": "TrainingPulse calculates calories and work from power. Without power, it uses pace (walks and runs) or heart rate. A **\\*** marks a value from the provider. It shows only when TrainingPulse cannot calculate a value.",
       "type": "stat",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -358,7 +358,7 @@
           "editorMode": "code"
         }
       ],
-      "description": "Normalized power, computed by TrainingPulse from the power stream (30-second rolling average, fourth-power mean).",
+      "description": "The constant power that gives the same load as the actual power of the activity. Hard efforts count more than in average power.",
       "gridPos": {
         "h": 4,
         "w": 4,
@@ -428,7 +428,7 @@
     {
       "id": 10,
       "title": "Source",
-      "description": "Provider this activity was imported from. The name links to the activity on the provider's site, where it has one.",
+      "description": "Click the name to open the activity on the provider's site, if the site has one.",
       "type": "text",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -458,7 +458,7 @@
     {
       "id": 11,
       "title": "Also recorded by",
-      "description": "Other sources that recorded the same activity. Their copies are hidden as duplicates of this one.",
+      "description": "TrainingPulse hides the copies from these sources as duplicates.",
       "type": "text",
       "datasource": {
         "type": "grafana-postgresql-datasource",

@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The MCP server explains its values to agents: the server instructions define TRIMP, CTL/ATL/TSB, the sleep and recovery scores with their parts, and the calorie methods, and the tool descriptions give units, value lists, and how averages are formed.
 - An MCP tool that gets an invalid argument now says what is wrong, for example `metric must be one of heart_rate, hrv, spo2`. Before, the client got only `Error executing tool`.
 - The MCP sleep tools return `null` instead of `0` for a value the device does not report, for example deep and REM minutes from a device without sleep stages.
+- The Grafana panel descriptions are shorter and use simple English (ASD-STE100). They tell what a panel shows and leave out how TrainingPulse calculates it.
+- The **Form** panel on the Fitness dashboard shows form in percent of fitness, so the bands fit every athlete: above +25 % **Transition**, +5 to +25 % **Fresh**, −10 to +5 % **Neutral**, −30 to −10 % **Optimal training**, below −30 % **High risk**. Before, the panel used fixed TSB values from the TSS scale, and its colors, its state name, and its description used three different sets of bands.
+- The **Fitness (CTL)** panel no longer shows the bands Low, Intermediate, Advanced and Elite. They came from the TSS scale, and TRIMP values are much higher, so most athletes showed as Elite.
 - TRIMP weights a minute in heart-rate zone 5 with 6 instead of 8. Activities processed from now on use the new weight; stored TRIMP, CTL, ATL and TSB change only when an activity is processed again (a full refresh or resync).
 
 ### Fixed
