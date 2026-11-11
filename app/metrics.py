@@ -55,6 +55,36 @@ SPORT_TRIMP_PER_MIN = {
 }
 DEFAULT_TRIMP_PER_MIN = 1.0
 
+# ── Form bands ──────────────────────────────────────────────────────
+# Form in percent: TSB divided by the CTL it was computed from. Fixed TSB
+# limits fit only one scale of load, so the bands use this ratio instead.
+#: Lowest form in percent of each status, highest first. The Form panel on
+#: the Fitness dashboard uses the same limits (checked by a test).
+FORM_STATUSES = (
+    (25.0, "transition"),
+    (5.0, "fresh"),
+    (-10.0, "neutral"),
+    (-30.0, "optimal_training"),
+    (float("-inf"), "high_risk"),
+)
+
+
+def form_pct(tsb: float | None, ctl: float | None) -> float | None:
+    """TSB in percent of ``ctl``, the fitness that TSB was computed from.
+
+    ``None`` without TSB or without fitness (CTL 0 or less).
+    """
+    if tsb is None or ctl is None or ctl <= 0:
+        return None
+    return 100.0 * tsb / ctl
+
+
+def form_status(pct: float | None) -> str | None:
+    """The status a form in percent reads as, ``None`` without a value."""
+    if pct is None:
+        return None
+    return next(name for lowest, name in FORM_STATUSES if pct >= lowest)
+
 
 def get_hr_zone_boundaries(
     max_hr: int, rest_hr: int, custom_zones: list[dict] | None = None

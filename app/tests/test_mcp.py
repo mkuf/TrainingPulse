@@ -174,3 +174,27 @@ def test_spo2_series_are_display_only_whatever_their_resolution():
         assert "min" not in payload and "avg" not in payload
     assert (hourly["interval_seconds"], minutely["interval_seconds"]) == (3600, 60)
     assert len(hourly["points"]) == 3
+
+
+def test_load_day_form_uses_the_prior_days_fitness():
+    from types import SimpleNamespace
+
+    row = SimpleNamespace(
+        date=date(2026, 11, 10),
+        daily_trimp=150.0,
+        activity_count=1,
+        ctl=82.0,
+        atl=95.0,
+        tsb=-16.0,
+    )
+    day = server._load_day(row, prior_ctl=80.0)
+    assert day["form_pct"] == -20.0
+    assert day["form_status"] == "optimal_training"
+    assert server._load_day(row, prior_ctl=None)["form_pct"] is None
+
+
+def test_instructions_name_every_form_status():
+    from metrics import FORM_STATUSES
+
+    for _, name in FORM_STATUSES:
+        assert f"`{name}`" in server.INSTRUCTIONS

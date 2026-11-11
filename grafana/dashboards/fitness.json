@@ -247,16 +247,17 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT date AS time, 100.0 * tsb / ctl AS \"Form\" FROM daily_metrics WHERE $__timeFilter(date) AND ctl > 0 ORDER BY date",
+          "rawSql": "SELECT d.date AS time, 100.0 * d.tsb / p.ctl AS \"Form\"\nFROM daily_metrics d\nJOIN daily_metrics p ON p.athlete_id = d.athlete_id AND p.date = d.date - 1\nWHERE $__timeFilter(d.date) AND p.ctl > 0\nORDER BY d.date",
           "format": "time_series",
-          "refId": "A"
+          "refId": "A",
+          "editorMode": "code"
         },
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "SELECT\n  CASE\n    WHEN 100.0 * tsb / ctl < -30 THEN 'High risk'\n    WHEN 100.0 * tsb / ctl < -10 THEN 'Optimal training'\n    WHEN 100.0 * tsb / ctl < 5 THEN 'Neutral'\n    WHEN 100.0 * tsb / ctl < 25 THEN 'Fresh'\n    ELSE 'Transition'\n  END AS \"State\"\nFROM daily_metrics\nWHERE $__timeFilter(date) AND ctl > 0\nORDER BY date DESC\nLIMIT 1",
+          "rawSql": "SELECT\n  CASE\n    WHEN 100.0 * d.tsb / p.ctl < -30 THEN 'High risk'\n    WHEN 100.0 * d.tsb / p.ctl < -10 THEN 'Optimal training'\n    WHEN 100.0 * d.tsb / p.ctl < 5 THEN 'Neutral'\n    WHEN 100.0 * d.tsb / p.ctl < 25 THEN 'Fresh'\n    ELSE 'Transition'\n  END AS \"State\"\nFROM daily_metrics d\nJOIN daily_metrics p ON p.athlete_id = d.athlete_id AND p.date = d.date - 1\nWHERE $__timeFilter(d.date) AND p.ctl > 0\nORDER BY d.date DESC\nLIMIT 1",
           "format": "table",
           "refId": "B",
           "editorMode": "code"

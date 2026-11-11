@@ -33,7 +33,14 @@ from mcp_server.common import (
 )
 from mcp_server.records import register_record_tools
 from mcp_server.wellness import register_wellness_tools
-from metrics import ZONE_WEIGHTS, get_hr_zone_boundaries, get_power_zone_boundaries
+from metrics import (
+    FORM_STATUSES,
+    ZONE_WEIGHTS,
+    form_pct,
+    form_status,
+    get_hr_zone_boundaries,
+    get_power_zone_boundaries,
+)
 from models import (
     ACTIVITY_VISIBLE,
     Activity,
@@ -60,6 +67,13 @@ _TRIMP_WEIGHTS = ", ".join(
 
 _RECOVERY_STATUSES = ", ".join(
     f"`{name}` from {lowest:g}" for lowest, name in reversed(ws.RECOVERY_STATUSES)
+)
+
+_FORM_STATUSES = ", ".join(
+    f"`{name}` below {FORM_STATUSES[-2][0]:g}"
+    if lowest == float("-inf")
+    else f"`{name}` from {lowest:g}"
+    for lowest, name in reversed(FORM_STATUSES)
 )
 
 # What every tool shares: conventions, and the meaning of the values
@@ -90,7 +104,12 @@ It is not Banister's TRIMP and not TSS, so thresholds published for those do \
 not apply. An activity without heart-rate data gets an estimate from its \
 sport and moving time.
 - CTL (fitness) and ATL (fatigue): exponentially weighted averages of daily \
-TRIMP with time constants of 42 and 7 days. TSB (form) is CTL minus ATL.
+TRIMP with time constants of 42 and 7 days. TSB (form) is CTL minus ATL. \
+How large CTL and TSB get depends on the athlete's heart-rate zones, so \
+compare them with the athlete's own past values, not with fixed limits.
+- form_pct: TSB in percent of the CTL it was computed from. Use it, not TSB, \
+for limits such as "fresh enough for a race". `form_status` names the band: \
+{_FORM_STATUSES}. Both are null while CTL is 0.
 - Sleep score and recovery score: 0-100, higher is better. `parts` maps each \
 part to `value` (the raw input, in the part's own unit), `score` (0-100) and \
 `weight` (percent). A part without data has a null score and is left out; \
@@ -235,8 +254,9 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
     - ``average_cadence`` / ``max_cadence``: revolutions per minute when
       cycling, steps per minute on foot.
     - ``kilojoules``: mechanical work, only with measured power.
-    - ``day_training_load``: CTL and ATL before and after the activity's
-      day. The "after" values include every activity of that day.
+    - ``day_training_load``: CTL, ATL, TSB, form_pct and form_status
+      before and after the activity's day. The "after" values include every
+      activity of that day.
 
     Activity ids are provider-prefixed strings, e.g. ``icu_i55610271``,
     ``strava_123``, ``ghealth_<id>``, or ``hammerhead_<id>``. A duplicate
@@ -276,6 +296,9 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
     if current is not None:
         # CTL/ATL are daily values: with several workouts on one day, the
         # "after" values include all of them, not just this activity.
+        tsb_after = current.ctl - current.atl
+        pct_before = form_pct(current.tsb, prior.ctl) if prior else None
+        pct_after = form_pct(tsb_after, current.ctl)
         day_training_load = {
             "day": day.isoformat(),
             "day_trimp": round_or_none(current.daily_trimp, 1),
@@ -285,7 +308,11 @@ async def get_activity(activity_id: str) -> dict[str, Any]:
             "atl_before": round_or_none(prior.atl, 1) if prior else None,
             "atl_after": round_or_none(current.atl, 1),
             "tsb_before": round_or_none(current.tsb, 1),
-            "tsb_after": round_or_none(current.ctl - current.atl, 1),
+            "tsb_after": round_or_none(tsb_after, 1),
+            "form_pct_before": round_or_none(pct_before, 0),
+            "form_status_before": form_status(pct_before),
+            "form_pct_after": round_or_none(pct_after, 0),
+            "form_status_after": form_status(pct_after),
         }
 
     average_speed_kmh = (
@@ -582,7 +609,10 @@ DEFAULT_LOAD_DAYS = 42
 MAX_LOAD_DAYS = 366
 
 
-def _load_day(row: DailyMetrics) -> dict[str, Any]:
+def _load_day(row: DailyMetrics, prior_ctl: float | None) -> dict[str, Any]:
+    """One day of ``get_training_load``. ``prior_ctl`` is the CTL of the day
+    before, which the day's start-of-day TSB was computed from."""
+    pct = form_pct(row.tsb, prior_ctl)
     return {
         "day": row.date.isoformat(),
         "trimp": round_or_none(row.daily_trimp, 1),
@@ -592,6 +622,8 @@ def _load_day(row: DailyMetrics) -> dict[str, Any]:
         # Start-of-day form (yesterday's CTL - ATL), as on the dashboards.
         "tsb": round_or_none(row.tsb, 1),
         "tsb_end_of_day": round_or_none(row.ctl - row.atl, 1),
+        "form_pct": round_or_none(pct, 0),
+        "form_status": form_status(pct),
     }
 
 
@@ -605,9 +637,11 @@ async def get_training_load(
 
     CTL and ATL are end-of-day values. ``tsb`` is start-of-day form
     (yesterday's CTL minus ATL); ``tsb_end_of_day`` includes that day's
-    training. ``trimp`` is the day's total. In ``summary``, ``ctl_change``
-    and ``atl_change`` are last day minus first day, and ``metrics_as_of``
-    is when the values were last recomputed.
+    training. ``form_pct`` and ``form_status`` belong to ``tsb``.
+    ``trimp`` is the day's total. In ``summary``, ``ctl_change`` and
+    ``atl_change`` are last day minus first day, ``lowest_form_pct`` is the
+    lowest ``form_pct`` of the range, and ``metrics_as_of`` is when the values
+    were last recomputed.
     """
     end = parse_date(end_date, "end_date") or today_local()
     start = parse_date(start_date, "start_date") or end - timedelta(
@@ -621,13 +655,18 @@ async def get_training_load(
 
     stmt = (
         select(DailyMetrics)
-        .where(DailyMetrics.date >= start, DailyMetrics.date <= end)
+        # The day before the range gives the first day's prior CTL.
+        .where(DailyMetrics.date >= start - timedelta(days=1), DailyMetrics.date <= end)
         .order_by(DailyMetrics.date)
     )
     async with readonly_session() as session:
-        rows = (await session.scalars(stmt)).all()
+        fetched = (await session.scalars(stmt)).all()
 
-    days = [_load_day(row) for row in rows]
+    ctl_by_day = {row.date: row.ctl for row in fetched}
+    rows = [row for row in fetched if row.date >= start]
+    days = [
+        _load_day(row, ctl_by_day.get(row.date - timedelta(days=1))) for row in rows
+    ]
     summary = None
     if rows:
         first, last = rows[0], rows[-1]
@@ -641,6 +680,10 @@ async def get_training_load(
             "peak_ctl_day": peak.date.isoformat(),
             "lowest_tsb": round_or_none(lowest_form.tsb, 1),
             "lowest_tsb_day": lowest_form.date.isoformat(),
+            "lowest_form_pct": min(
+                (d["form_pct"] for d in days if d["form_pct"] is not None),
+                default=None,
+            ),
             "metrics_as_of": local_time(max(r.updated_at for r in rows)),
         }
     return {
