@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-11
+
 ### Changed
 
 - The **recovery score** has a new scale. It now measures HRV (60 %) and resting heart rate (40 %) against your usual values in units of your own day-to-day variation: 70 is a usual day, and each standard deviation better or worse moves the score 15 points. Before, 50 was a usual day and fixed limits (±20 % HRV, ±5 bpm) applied to everyone. The sleep score is no longer part of it. All stored recovery scores are calculated again on the next sync, so past values change. See [Sleep and recovery scores](docs/sleep-and-recovery.md).
@@ -107,7 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards, a status page, an HTTP API, and an MCP server.
 - Container image on `ghcr.io/mkuf/trainingpulse`.
 
-[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/mkuf/TrainingPulse/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/mkuf/TrainingPulse/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/mkuf/TrainingPulse/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/mkuf/TrainingPulse/compare/v1.3.0...v1.4.0
