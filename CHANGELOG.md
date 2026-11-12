@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-12
+
 ### Added
 
 - A **weekly load target**: the training load (TRIMP) of a Monday-to-Sunday week against 7 × your fitness (CTL) at the start of the week. At the target, your fitness stays the same. Up to the upper limit (130 % of the target), it increases. Above it, the load increases faster than you can usually sustain. The target shows after 6 weeks of training history.
@@ -121,7 +123,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards, a status page, an HTTP API, and an MCP server.
 - Container image on `ghcr.io/mkuf/trainingpulse`.
 
-[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/mkuf/TrainingPulse/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/mkuf/TrainingPulse/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/mkuf/TrainingPulse/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/mkuf/TrainingPulse/compare/v1.4.0...v1.5.0
