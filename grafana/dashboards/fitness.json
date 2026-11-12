@@ -1433,33 +1433,6 @@
           "refId": "A"
         }
       ]
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 60
-      },
-      "id": 19,
-      "title": "Reference",
-      "type": "row"
-    },
-    {
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 61
-      },
-      "id": 20,
-      "options": {
-        "content": "### 🏃 Fitness (CTL) - Long Term (42 days)\n*   **0-40:** Low / Beginner\n*   **40-70:** Intermediate / Regular\n*   **70-110:** Advanced / High Volume\n*   **110+:** Elite / Professional\n*   **Ramp Rate:** Aim for +3 to +6 points per week. >10 is the \"Danger Zone\".\n\n### ⚖️ Form (TSB) - Freshness (CTL - ATL)\n*   **+5 to +25:** **Fresh (Peak Zone)** - Ideal for racing/hard efforts.\n*   **-10 to +5:** **Neutral** - Maintenance/Transition.\n*   **-10 to -30:** **Productive Overload** - Optimal training zone.\n*   **Below -30:** **Danger Zone** - High risk of injury/burnout.\n\n### 🔋 Fatigue (ATL) - Short Term (7 days)\nRepresents your current tiredness. Should be higher than CTL during build phases and lower during recovery/tapering.",
-        "mode": "markdown"
-      },
-      "title": "Training Load Reference Values",
-      "type": "text"
     }
   ],
   "schemaVersion": 39,
