@@ -384,7 +384,7 @@ code {
 }
 
 @media (max-width: 1000px) {
-    /* Sleep and nutrition across, recovery and form side by side. */
+    /* Sleep and nutrition across, recovery and training side by side. */
     .today-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .tile:first-child, .tile:last-child { grid-column: 1 / -1; }
 }
@@ -672,8 +672,9 @@ code {
     .page-header .split-button { width: 100%; }
     .page-header .split-main { flex: 1; }
     .menu { left: 0; }
-    /* Recovery and form share a line here, too narrow for two columns of facts. */
-    .tile-facts:not(.tile-facts-3, .tile-facts-4) { grid-template-columns: minmax(0, 1fr); }
+    /* One tile per line: two narrow tiles would be under the 13rem that a
+       header with a Today/Week toggle needs. */
+    .today-grid { grid-template-columns: minmax(0, 1fr); }
     .kind-name { width: 100%; }
     .section { margin-top: 2rem; }
 }
