@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The **Form** tile in the Today summary shows form in percent instead of TSB, with its band (for example **Optimal training**) and a bar that marks the value in the bands, like the Recovery tile.
+- The Fitness dashboard no longer has the **Reference** section. Its fitness bands, form bands and ramp rate came from the TSS scale and disagreed with the panels above it. The panel descriptions now give the bands that apply.
 
 ## [1.6.0] - 2026-11-11
 
