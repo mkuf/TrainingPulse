@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A **weekly load target**: the training load (TRIMP) of a Monday-to-Sunday week against 7 × your fitness (CTL) at the start of the week. At the target, your fitness stays the same. Up to the upper limit (130 % of the target), it increases. Above it, the load increases faster than you can usually sustain. The target shows after 6 weeks of training history.
+- The Today summary's **Form** tile is now **Training**, with a **Week** view: this week's load, how much is still missing to the target, and a bar that marks the load against the target and the upper limit.
+- The MCP tool `get_training_weeks` returns the weekly load, the target, the upper limit, and the status (`in_progress`, `below_target`, `on_target`, `above_limit`) for each week of a date range.
+
 ### Changed
 
+- The grey band of the **Weekly training load by sport** panel on the Fitness dashboard shows the weekly load target instead of 80 % to 125 % of the average of the four weeks before. The **This week vs corridor** panel is now **This week vs target**. The old band followed whatever you trained in the last four weeks, so a rest week made the next weeks easier to reach, and it did not agree with fitness (CTL).
 - The **Form** tile in the Today summary shows form in percent instead of TSB, with its band (for example **Optimal training**) and a bar that marks the value in the bands, like the Recovery tile.
 - The Fitness dashboard no longer has the **Reference** section. Its fitness bands, form bands and ramp rate came from the TSS scale and disagreed with the panels above it. The panel descriptions now give the bands that apply.
 

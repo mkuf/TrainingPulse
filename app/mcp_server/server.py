@@ -35,11 +35,16 @@ from mcp_server.records import register_record_tools
 from mcp_server.wellness import register_wellness_tools
 from metrics import (
     FORM_STATUSES,
+    WEEK_TARGET,
+    WEEK_TARGET_MIN_DAYS,
+    WEEK_UPPER_LIMIT,
     ZONE_WEIGHTS,
+    TrainingWeek,
     form_pct,
     form_status,
     get_hr_zone_boundaries,
     get_power_zone_boundaries,
+    training_weeks,
 )
 from models import (
     ACTIVITY_VISIBLE,
@@ -110,6 +115,14 @@ compare them with the athlete's own past values, not with fixed limits.
 - form_pct: TSB in percent of the CTL it was computed from. Use it, not TSB, \
 for limits such as "fresh enough for a race". `form_status` names the band: \
 {_FORM_STATUSES}. Both are null while CTL is 0.
+- Weekly load target: the TRIMP of a Monday-to-Sunday week against 7 x the \
+CTL at the end of the Sunday before (`start_ctl`). At the target \
+({100 * WEEK_TARGET:g} %), fitness stays where it is; below it, fitness drops; \
+up to the upper limit ({100 * WEEK_UPPER_LIMIT:g} %), it grows; above it, load \
+rises faster than is usually sustainable. `status` is `in_progress` (week not \
+over, target not reached yet), `below_target` (week over, target missed), \
+`on_target` or `above_limit`. Target and status are null until there are \
+{WEEK_TARGET_MIN_DAYS} days of training-load history before the week.
 - Sleep score and recovery score: 0-100, higher is better. `parts` maps each \
 part to `value` (the raw input, in the part's own unit), `score` (0-100) and \
 `weight` (percent). A part without data has a null score and is left out; \
@@ -691,6 +704,62 @@ async def get_training_load(
         "end_date": end.isoformat(),
         "summary": summary,
         "days": days,
+    }
+
+
+DEFAULT_WEEKS = 8
+MAX_WEEKS = 53
+
+
+def _week(week: TrainingWeek) -> dict[str, Any]:
+    """One week of ``get_training_weeks``."""
+    return {
+        "week_start": week.start.isoformat(),
+        "week_end": week.end.isoformat(),
+        "through": week.through.isoformat(),
+        "finished": week.finished,
+        "trimp": round(week.load, 1),
+        "start_ctl": round_or_none(week.start_ctl, 1),
+        "target_trimp": round_or_none(week.target, 0),
+        "upper_limit_trimp": round_or_none(week.upper_limit, 0),
+        "pct_of_target": round_or_none(week.pct_of_target, 0),
+        "remaining_trimp": round_or_none(week.remaining, 0),
+        "status": week.status,
+    }
+
+
+@mcp.tool()
+async def get_training_weeks(
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """Weekly training load against the weekly load target, for each
+    Monday-to-Sunday week that overlaps a local date range. Defaults to the
+    last 8 weeks including the current one; at most 53 weeks.
+
+    ``trimp`` is the week's total up to ``through`` (Sunday, or today for the
+    current week, then ``finished`` is false). ``target_trimp`` and
+    ``upper_limit_trimp`` are the limits of the weekly load target,
+    ``pct_of_target`` is ``trimp`` in percent of ``target_trimp``, and
+    ``remaining_trimp`` is what is still missing to the target (0 once
+    reached). Weeks after today are left out.
+    """
+    today = today_local()
+    end = parse_date(end_date, "end_date") or today
+    start = parse_date(start_date, "start_date") or end - timedelta(
+        days=7 * (DEFAULT_WEEKS - 1)
+    )
+    check_range(start, end)
+    if (end - start).days + 1 > 7 * MAX_WEEKS:
+        raise ArgumentError(
+            f"date range is limited to {MAX_WEEKS} weeks; split the request"
+        )
+    async with readonly_session() as session:
+        weeks = await training_weeks(session, start, end, today)
+    return {
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "weeks": [_week(week) for week in weeks],
     }
 
 

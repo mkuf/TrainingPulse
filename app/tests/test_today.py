@@ -8,12 +8,15 @@ import pytest
 from today import (
     FORM_BAR_MAX,
     FORM_BAR_MIN,
+    WEEK_BAR_MAX,
     duration,
     form_bands,
     form_marker,
     nutrition_window,
     recovery_bands,
     sleep_stages,
+    week_bands,
+    week_marker,
 )
 
 
@@ -104,3 +107,20 @@ def test_form_bands_cover_the_bar_lowest_first():
 )
 def test_form_marker_stays_on_the_bar(pct, left):
     assert form_marker(pct) == left
+
+
+def test_week_bands_cover_the_bar_lowest_first():
+    bands = week_bands()
+
+    assert [band for band, _, _ in bands] == ["below_target", "on_target", "above_limit"]
+    assert [label for _, label, _ in bands] == [
+        "Below target: under 100 %",
+        "Target reached: 100 to 130 %",
+        "Above upper limit: over 130 %",
+    ]
+    assert sum(width for _, _, width in bands) == WEEK_BAR_MAX
+
+
+@pytest.mark.parametrize("pct, left", [(0, 0.0), (80, 50.0), (WEEK_BAR_MAX, 100.0), (400, 100.0)])
+def test_week_marker_stays_on_the_bar(pct, left):
+    assert week_marker(pct) == left

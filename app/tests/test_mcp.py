@@ -48,6 +48,7 @@ EXPECTED_TOOLS = {
     "compare_training_periods",
     "get_gear_usage",
     "get_training_load",
+    "get_training_weeks",
     "get_athlete_profile",
     "get_data_coverage",
     "get_body_summary",
@@ -198,3 +199,28 @@ def test_instructions_name_every_form_status():
 
     for _, name in FORM_STATUSES:
         assert f"`{name}`" in server.INSTRUCTIONS
+
+
+def test_instructions_name_every_week_status():
+    from metrics import WEEK_STATUSES
+
+    for name in WEEK_STATUSES:
+        assert f"`{name}`" in server.INSTRUCTIONS
+
+
+def test_week_reports_its_target_and_what_is_missing():
+    from metrics import TrainingWeek
+
+    week = server._week(
+        TrainingWeek(
+            start=date(2026, 11, 9),
+            through=date(2026, 11, 12),
+            load=300.0,
+            start_ctl=60.0,
+            finished=False,
+        )
+    )
+    assert week["week_end"] == "2026-11-15"
+    assert (week["target_trimp"], week["upper_limit_trimp"]) == (420, 546)
+    assert (week["pct_of_target"], week["remaining_trimp"]) == (71, 120)
+    assert week["status"] == "in_progress"

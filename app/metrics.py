@@ -5,10 +5,12 @@ Implements:
 - CTL (Chronic Training Load) — 42-day exponential moving average ("Fitness")
 - ATL (Acute Training Load) — 7-day exponential moving average ("Fatigue")
 - TSB (Training Stress Balance) — CTL - ATL ("Form")
+- Weekly load target — 7 × start-of-week CTL, the weekly TRIMP that keeps CTL flat
 - Normalized power — 4th-power mean of 30-second rolling power
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -84,6 +86,136 @@ def form_status(pct: float | None) -> str | None:
     if pct is None:
         return None
     return next(name for lowest, name in FORM_STATUSES if pct >= lowest)
+
+
+# ── Weekly load target ──────────────────────────────────────────────
+# CTL is an average of daily TRIMP, so a week with 7 × CTL of TRIMP keeps
+# fitness where it is. The target of a Monday-to-Sunday week is 7 × the CTL
+# at the end of the Sunday before, so it does not move during the week.
+#: Weekly TRIMP in multiples of 7 × start-of-week CTL. At the target, fitness
+#: stays where it is; up to the upper limit it grows by up to about 5 % a
+#: week; above it, load rises faster than is usually sustainable.
+WEEK_TARGET = 1.0
+WEEK_UPPER_LIMIT = 1.3
+#: Days of training-load history before a week's start CTL counts as a
+#: target: one CTL time constant. Before that, CTL is still climbing from 0.
+WEEK_TARGET_MIN_DAYS = 42
+#: Statuses of a week. ``in_progress`` is a week that is not over and has not
+#: reached its target yet; when it is over, it becomes ``below_target``.
+WEEK_STATUSES = ("in_progress", "below_target", "on_target", "above_limit")
+
+
+@dataclass(frozen=True)
+class TrainingWeek:
+    """The TRIMP of one Monday-to-Sunday week against its load target."""
+
+    start: date
+    #: Last day counted: Sunday, or today while the week is not over.
+    through: date
+    load: float
+    #: CTL at the end of the Sunday before; None without enough history.
+    start_ctl: float | None
+    #: Today is past Sunday.
+    finished: bool
+
+    @property
+    def end(self) -> date:
+        return self.start + timedelta(days=6)
+
+    @property
+    def target(self) -> float | None:
+        return None if self.start_ctl is None else 7 * self.start_ctl * WEEK_TARGET
+
+    @property
+    def upper_limit(self) -> float | None:
+        return (
+            None if self.start_ctl is None else 7 * self.start_ctl * WEEK_UPPER_LIMIT
+        )
+
+    @property
+    def pct_of_target(self) -> float | None:
+        return None if self.target is None else 100.0 * self.load / self.target
+
+    @property
+    def remaining(self) -> float | None:
+        """TRIMP still needed to reach the target, 0 once reached."""
+        return None if self.target is None else max(0.0, self.target - self.load)
+
+    @property
+    def status(self) -> str | None:
+        return week_status(self.load, self.target, self.upper_limit, self.finished)
+
+
+def week_status(
+    load: float, target: float | None, upper_limit: float | None, finished: bool
+) -> str | None:
+    """The status of a week's load, ``None`` without a target."""
+    if target is None or upper_limit is None:
+        return None
+    if load > upper_limit:
+        return "above_limit"
+    if load >= target:
+        return "on_target"
+    return "below_target" if finished else "in_progress"
+
+
+def week_start(day: date) -> date:
+    """The Monday of the week ``day`` is in."""
+    return day - timedelta(days=day.weekday())
+
+
+async def training_weeks(
+    session: AsyncSession, first: date, last: date, today: date
+) -> list[TrainingWeek]:
+    """The weeks from the one ``first`` is in to the one ``last`` is in.
+
+    Load is the sum of daily TRIMP (visible activities, local days) up to
+    today. Weeks after today and weeks without any training-load history
+    yet are left out.
+    """
+    first_monday = week_start(first)
+    last_monday = week_start(min(last, today))
+    history_start = await session.scalar(select(func.min(DailyMetrics.date)))
+    if history_start is None or last_monday < first_monday:
+        return []
+    rows = (
+        await session.execute(
+            select(DailyMetrics.date, DailyMetrics.daily_trimp, DailyMetrics.ctl).where(
+                DailyMetrics.date >= first_monday - timedelta(days=1),
+                DailyMetrics.date <= min(last_monday + timedelta(days=6), today),
+            )
+        )
+    ).all()
+    trimp_by_day = {row.date: row.daily_trimp for row in rows}
+    ctl_by_day = {row.date: row.ctl for row in rows}
+
+    weeks = []
+    monday = max(first_monday, week_start(history_start))
+    while monday <= last_monday:
+        sunday = monday + timedelta(days=6)
+        through = min(sunday, today)
+        start_ctl = ctl_by_day.get(monday - timedelta(days=1))
+        if (
+            start_ctl is None
+            or start_ctl <= 0
+            or (monday - history_start).days < WEEK_TARGET_MIN_DAYS
+        ):
+            start_ctl = None
+        load = sum(
+            trimp_by_day.get(monday + timedelta(days=offset), 0.0)
+            for offset in range((through - monday).days + 1)
+        )
+        weeks.append(
+            TrainingWeek(
+                start=monday,
+                through=through,
+                load=load,
+                start_ctl=start_ctl,
+                finished=today > sunday,
+            )
+        )
+        monday += timedelta(days=7)
+    return weeks
 
 
 def get_hr_zone_boundaries(

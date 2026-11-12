@@ -64,6 +64,7 @@ async def test_every_mcp_tool_answers(seeded):
             "compare_training_periods": periods,
             "get_gear_usage": period,
             "get_training_load": period,
+            "get_training_weeks": period,
             "get_athlete_profile": {},
             "get_data_coverage": {},
             "get_body_summary": period,
@@ -98,6 +99,8 @@ async def test_every_mcp_tool_answers(seeded):
         assert pressure["readings"], pressure
         body = await _call(client, "get_body_summary", **period)
         assert body["avg_body_water_pct"] is not None, body
+        weeks = await _call(client, "get_training_weeks")
+        assert weeks["weeks"][-1]["target_trimp"] is not None, weeks
 
 
 async def test_mcp_tool_errors_reach_the_client(seeded):

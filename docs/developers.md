@@ -358,6 +358,7 @@ Computed in [`app/metrics.py`](../app/metrics.py) and stored alongside activitie
 | ATL | Fatigue | 7-day EMA of daily TRIMP |
 | TSB | Form | CTL − ATL |
 | Form % | `form_pct` | Start-of-day TSB ÷ the previous day's CTL × 100. `form_status` names its band (`FORM_STATUSES` in `metrics.py`); the Form panel on the Fitness dashboard uses the same limits |
+| Weekly load target | `get_training_weeks` | 7 × CTL at the end of the Sunday before a Monday-to-Sunday week: the weekly TRIMP that keeps CTL flat. The upper limit is 1.3 × that (CTL grows by about 5 % a week). Null until 42 days of training-load history before the week. Limits in `WEEK_TARGET` / `WEEK_UPPER_LIMIT` in `metrics.py`; the status page and the Fitness dashboard use the same ones |
 | Estimated FTP | — | 95% of best 20-minute power across activities |
 | Normalized power | NP, `weighted_average_watts` | 4th-power mean of 30-second rolling power, from the power stream |
 
@@ -370,7 +371,7 @@ Tools, by area:
 | Area | Tools | Module |
 | --- | --- | --- |
 | Activities | `list_activities`, `get_activity`, `get_activity_streams`, `get_training_summary`, `compare_training_periods`, `get_gear_usage` | [`mcp_server/server.py`](../app/mcp_server/server.py) |
-| Training load | `get_training_load` (daily CTL / ATL / TSB, form % and status) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
+| Training load | `get_training_load` (daily CTL / ATL / TSB, form % and status), `get_training_weeks` (weekly TRIMP against the weekly load target) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 | Athlete | `get_athlete_profile` (HR, FTP, zone boundaries; `rest_hr` is the imported 7-day median when available, see `rest_hr_source`) | [`mcp_server/server.py`](../app/mcp_server/server.py) |
 | Body | `get_body_summary`, `list_body_measurements`, `get_latest_body_measurement`, `compare_body_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
 | Nutrition | `get_nutrition_summary`, `list_daily_nutrition`, `compare_nutrition_periods` | [`mcp_server/records.py`](../app/mcp_server/records.py) |
@@ -421,6 +422,7 @@ A `DeprecationWarning` fails the tests (`filterwarnings` in [`pytest.ini`](../ap
 - `tests/test_wellness_scores.py` — sleep and recovery score parts, baselines, and bedtime regularity
 - `tests/test_mcp.py` — MCP tool registry, local-day bounds, period deltas, zone and stream helpers, training-load days
 - `tests/test_form.py` — form in percent and its bands, and that the Form panel on the Fitness dashboard uses the same limits
+- `tests/test_week_load.py` — the weekly load target and its statuses, and that the weekly load panels on the Fitness dashboard use the same limits
 - `integration_tests/test_sync.py` — schema creation and its idempotency, and full syncs against Postgres: intervals.icu and FDDB answered from recorded payloads through `httpx.MockTransport`, then detail, streams, derived metrics, re-sync, and an activity gone upstream
 - `integration_tests/test_seeded.py` — on the demo data set: every MCP tool through an in-process MCP client, and the FastAPI app with its lifespan, scheduler, templates, and static files
 

@@ -73,38 +73,71 @@
             {% endif %}
         </article>
 
-        <article class="tile">
+        <article class="tile" data-views="training">
             <header class="tile-head">
-                <h3>Form</h3>
-                {% if today.form and today.form.day != today.today %}<span class="tile-when">{{ today.form.day.strftime("%a %-d %b") }}</span>{% endif %}
-                <a class="tile-link" href="{{ grafana_url }}/d/trainingpulse-fitness" target="_blank" rel="noopener" aria-label="Fitness and freshness dashboard">{{ arrow_up_right() }}</a>
-            </header>
-            {% if today.form %}
-            {% set f = today.form %}
-            <div class="tile-summary">
-                <p class="tile-value">{{ f.form_pct|signed if f.form_pct is not none else "–" }}<span>%</span></p>
-                {% if f.status %}<p class="tile-sub">{{ f.status_label }}</p>{% endif %}
-            </div>
-            <div class="tile-foot{{ ' tile-foot-bar' if f.status }}">
-                {% if f.status %}
-                <div class="range-bar" role="img" aria-label="Form {{ f.form_pct|signed }} %: {{ f.status_label }}">
-                    <div class="range-bands">
-                        {% for status, label, width in f.bands %}<span class="range-{{ status }}{{ ' range-current' if status == f.status }}" style="flex-grow: {{ width }}" title="{{ label }}"></span>{% endfor %}
+                <h3>Training</h3>
+                {% if today.form and today.form.day != today.today %}<span class="tile-when" data-panel="day">{{ today.form.day.strftime("%a %-d %b") }}</span>{% endif %}
+                <div class="tile-actions">
+                    <div class="segmented" role="group" aria-label="Training period">
+                        <button type="button" data-view="day" aria-pressed="true">Today</button>
+                        <button type="button" data-view="week" aria-pressed="false">Week</button>
                     </div>
-                    <span class="range-marker" style="left: {{ f.marker }}%"></span>
+                    <a class="tile-link" href="{{ grafana_url }}/d/trainingpulse-fitness" target="_blank" rel="noopener" aria-label="Fitness and freshness dashboard">{{ arrow_up_right() }}</a>
                 </div>
+            </header>
+            <div data-panel="day">
+                {% if today.form %}
+                {% set f = today.form %}
+                <div class="tile-summary">
+                    <p class="tile-value">{{ f.form_pct|signed if f.form_pct is not none else "–" }}<span>% form</span></p>
+                    {% if f.status %}<p class="tile-sub">{{ f.status_label }}</p>{% endif %}
+                </div>
+                <div class="tile-foot{{ ' tile-foot-bar' if f.status }}">
+                    {% if f.status %}
+                    <div class="range-bar" role="img" aria-label="Form {{ f.form_pct|signed }} %: {{ f.status_label }}">
+                        <div class="range-bands">
+                            {% for status, label, width in f.bands %}<span class="range-{{ status }}{{ ' range-current' if status == f.status }}" style="flex-grow: {{ width }}" title="{{ label }}"></span>{% endfor %}
+                        </div>
+                        <span class="range-marker" style="left: {{ f.marker }}%"></span>
+                    </div>
+                    {% endif %}
+                <dl class="tile-facts">
+                    <div><dt>Fitness</dt><dd>{{ f.fitness }} <span>CTL</span></dd></div>
+                    <div><dt>Fatigue</dt><dd>{{ f.fatigue }} <span>ATL</span></dd></div>
+                </dl>
+                </div>
+                {% else %}
+                <p class="tile-empty muted">No training load yet</p>
                 {% endif %}
-            <dl class="tile-facts">
-                <div><dt>Fitness</dt><dd>{{ f.fitness }} <span>CTL</span></dd></div>
-                <div><dt>Fatigue</dt><dd>{{ f.fatigue }} <span>ATL</span></dd></div>
-            </dl>
             </div>
-            {% else %}
-            <p class="tile-empty muted">No training load yet</p>
-            {% endif %}
+            <div data-panel="week" hidden>
+                {% if today.week_load %}
+                {% set w = today.week_load %}
+                <div class="tile-summary">
+                    <p class="tile-value">{{ w.load|num }} <span>{% if w.target is not none %}of {{ w.target|num }} {% endif %}TRIMP</span></p>
+                    <p class="tile-sub">{% if w.status == "in_progress" %}{{ w.remaining|num }} to go{% elif w.status %}{{ w.status_label }}{% else %}No target yet{% endif %}</p>
+                </div>
+                <div class="tile-foot{{ ' tile-foot-bar' if w.status }}">
+                    {% if w.status %}
+                    <div class="range-bar" role="img" aria-label="Training load {{ w.pct_of_target }} % of the weekly target: {{ w.status_label }}">
+                        <div class="range-bands">
+                            {% for band, label, width in w.bands %}<span class="range-week-{{ band }}{{ ' range-current' if band == w.band }}" style="flex-grow: {{ width }}" title="{{ label }}"></span>{% endfor %}
+                        </div>
+                        <span class="range-marker" style="left: {{ w.marker }}%"></span>
+                    </div>
+                    <dl class="tile-facts">
+                        <div><dt>Reached</dt><dd>{{ w.pct_of_target }} <span>%</span></dd></div>
+                        <div><dt>Upper limit</dt><dd>{{ w.upper_limit|num }} <span>TRIMP</span></dd></div>
+                    </dl>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p class="tile-empty muted">No training load yet</p>
+                {% endif %}
+            </div>
         </article>
 
-        <article class="tile" data-views>
+        <article class="tile" data-views="nutrition">
             <header class="tile-head">
                 <h3>Nutrition</h3>
                 <div class="tile-actions">

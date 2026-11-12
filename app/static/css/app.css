@@ -340,8 +340,8 @@ code {
 .stage-light { background: var(--stage-light); }
 .stage-awake { background: var(--stage-awake); }
 
-/* The whole 0–100 range of the recovery score, or −50 to +40 % of form, in
-   its status bands, with a marker at the value. The band the score is in keeps its full color. The
+/* The whole 0–100 range of the recovery score, −50 to +40 % of form, or 0 to
+   160 % of the weekly load target, in its status bands, with a marker at the value. The band the score is in keeps its full color. The
    bands are divided by borders, not gaps, so the marker's percent is exact. */
 .range-bar { position: relative; }
 .range-bands {
@@ -362,6 +362,9 @@ code {
 .range-neutral { background: var(--text-3); }
 .range-fresh { background: var(--stage-light); }
 .range-transition { background: var(--warn); }
+.range-week-below_target { background: var(--text-3); }
+.range-week-on_target { background: var(--ok); }
+.range-week-above_limit { background: var(--warn); }
 .range-marker {
     position: absolute;
     top: -0.25rem;

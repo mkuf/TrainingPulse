@@ -80,9 +80,12 @@
         open.querySelector("summary").focus();
     });
 
-    // Tiles with views (Nutrition: today or this week). The choice is a
-    // convenience per browser, so storage that fails is ignored.
-    const VIEW_KEY = "tp.nutrition.view";
+    // Tiles with views (Training and Nutrition: today or this week). The
+    // choice is a convenience per browser and tile, so storage that fails is
+    // ignored.
+    function viewKey(tile) {
+        return "tp." + tile.dataset.views + ".view";
+    }
 
     function showView(tile, view) {
         tile.querySelectorAll("[data-view]").forEach(function (button) {
@@ -96,24 +99,23 @@
     document.addEventListener("click", function (event) {
         const button = event.target.closest("[data-views] [data-view]");
         if (!button) return;
-        showView(button.closest("[data-views]"), button.dataset.view);
+        const tile = button.closest("[data-views]");
+        showView(tile, button.dataset.view);
         try {
-            localStorage.setItem(VIEW_KEY, button.dataset.view);
+            localStorage.setItem(viewKey(tile), button.dataset.view);
         } catch (e) {
             // Private window or blocked storage.
         }
     });
 
-    try {
-        const saved = localStorage.getItem(VIEW_KEY);
-        if (saved === "day" || saved === "week") {
-            document.querySelectorAll("[data-views]").forEach(function (tile) {
-                showView(tile, saved);
-            });
+    document.querySelectorAll("[data-views]").forEach(function (tile) {
+        try {
+            const saved = localStorage.getItem(viewKey(tile));
+            if (saved === "day" || saved === "week") showView(tile, saved);
+        } catch (e) {
+            // Keep the default view.
         }
-    } catch (e) {
-        // Keep the default view.
-    }
+    });
 
     document.addEventListener("visibilitychange", function () {
         if (document.visibilityState === "visible") refresh();

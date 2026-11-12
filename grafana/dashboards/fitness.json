@@ -634,7 +634,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Floor"
+              "options": "Target"
             },
             "properties": [
               {
@@ -676,7 +676,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Ceiling"
+              "options": "Upper limit"
             },
             "properties": [
               {
@@ -700,7 +700,7 @@
               },
               {
                 "id": "custom.fillBelowTo",
-                "value": "Floor"
+                "value": "Target"
               },
               {
                 "id": "color",
@@ -739,7 +739,7 @@
         }
       },
       "title": "Weekly training load by sport",
-      "description": "The grey band is your usual load: 80 % to 125 % of the average of the four weeks before.",
+      "description": "The grey band is the weekly load target. At the lower line, your fitness stays the same. In the band, your fitness increases. Above the band, the load increases faster than you can usually sustain. The target is 7 × your fitness at the start of the week. It shows after 6 weeks of training history.",
       "type": "timeseries",
       "targets": [
         {
@@ -747,7 +747,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', current_date) AS max_date\n  FROM active_activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN active_activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n)\nSELECT\n  time,\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) * 1.25)::numeric, 0) AS \"Ceiling\"\nFROM weekly_load\nWHERE $__timeFilter(time)\nORDER BY time",
+          "rawSql": "WITH bounds AS (\n  SELECT MIN(date) AS history_start, MAX(date) AS last_day\n  FROM daily_metrics\n),\nweeks AS (\n  SELECT\n    generate_series(date_trunc('week', history_start), date_trunc('week', last_day), '1 week'::interval)::date AS time,\n    history_start\n  FROM bounds\n)\nSELECT\n  w.time,\n  ROUND((7 * d.ctl * 1.0)::numeric, 0) AS \"Target\",\n  ROUND((7 * d.ctl * 1.3)::numeric, 0) AS \"Upper limit\"\nFROM weeks w\nJOIN daily_metrics d ON d.date = w.time - 1\nWHERE w.time - w.history_start >= 42 AND d.ctl > 0 AND $__timeFilter(w.time)\nORDER BY w.time",
           "format": "time_series",
           "refId": "B"
         },
@@ -780,7 +780,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Floor"
+              "options": "Target"
             },
             "properties": [
               {
@@ -792,14 +792,14 @@
               },
               {
                 "id": "displayName",
-                "value": "Floor (80%)"
+                "value": "Target"
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Ceiling"
+              "options": "Upper limit"
             },
             "properties": [
               {
@@ -811,14 +811,14 @@
               },
               {
                 "id": "displayName",
-                "value": "Ceiling (125%)"
+                "value": "Upper limit"
               }
             ]
           },
           {
             "matcher": {
               "id": "byName",
-              "options": "Week total"
+              "options": "This week"
             },
             "properties": [
               {
@@ -830,7 +830,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Week total color"
+              "options": "This week color"
             },
             "properties": [
               {
@@ -866,8 +866,8 @@
         "graphMode": "none",
         "justifyMode": "center"
       },
-      "title": "This week vs corridor",
-      "description": "TRIMP of the current week (Monday to today) against the grey band of the chart. **Floor** and **Ceiling** are 80 % and 125 % of the average of the last four full weeks. **This week** is grey below the floor, green in the band, and highlighted above the ceiling.",
+      "title": "This week vs target",
+      "description": "Training load (TRIMP) of the current week, Monday to today, against the grey band of the chart.\n- **Target**: at this load, your fitness stays the same.\n- **Upper limit**: above this load, the load increases faster than you can usually sustain.\n\n**This week** is grey below the target, green from the target to the upper limit, and orange above the upper limit. It is grey during the week until you reach the target.",
       "transformations": [
         {
           "id": "configFromData",
@@ -875,11 +875,11 @@
             "configRefId": "A",
             "applyTo": {
               "id": "byName",
-              "options": "Week total"
+              "options": "This week"
             },
             "mappings": [
               {
-                "fieldName": "Week total color",
+                "fieldName": "This week color",
                 "handlerKey": "color"
               }
             ]
@@ -893,7 +893,7 @@
             "type": "grafana-postgresql-datasource",
             "uid": "${DS_POSTGRESQL}"
           },
-          "rawSql": "WITH bounds AS (\n  SELECT\n    date_trunc('week', MIN(start_date)) AS min_date,\n    date_trunc('week', CURRENT_DATE) AS max_date\n  FROM active_activities\n),\ndate_series AS (\n  SELECT generate_series(min_date, max_date, '1 week'::interval)::date AS time\n  FROM bounds\n),\nweekly_load AS (\n  SELECT\n    ds.time,\n    COALESCE(SUM(a.trimp), 0) AS total_load\n  FROM date_series ds\n  LEFT JOIN active_activities a ON date_trunc('week', a.start_date)::date = ds.time\n  GROUP BY ds.time\n),\ncorridor AS (\n  SELECT\n    time,\n    total_load,\n    AVG(total_load) OVER (ORDER BY time ROWS BETWEEN 4 PRECEDING AND 1 PRECEDING) AS prior_four_avg\n  FROM weekly_load\n)\nSELECT\n  ROUND((prior_four_avg * 0.8)::numeric, 0) AS \"Floor\",\n  ROUND((prior_four_avg * 1.25)::numeric, 0) AS \"Ceiling\",\n  ROUND(total_load::numeric, 0) AS \"Week total\",\n  CASE\n    WHEN prior_four_avg IS NULL THEN '#B4B4B6'\n    WHEN total_load < prior_four_avg * 0.8 THEN '#8e8e90'\n    WHEN total_load <= prior_four_avg * 1.25 THEN '#56A64B'\n    ELSE '#FF9830'\n  END AS \"Week total color\"\nFROM corridor\nWHERE time = date_trunc('week', CURRENT_DATE)::date",
+          "rawSql": "WITH bounds AS (\n  SELECT MIN(date) AS history_start, date_trunc('week', MAX(date))::date AS monday\n  FROM daily_metrics\n),\nweek AS (\n  SELECT\n    CASE\n      WHEN b.monday - b.history_start >= 42 AND p.ctl > 0 THEN 7 * p.ctl\n    END AS target,\n    (SELECT COALESCE(SUM(daily_trimp), 0) FROM daily_metrics WHERE date >= b.monday) AS load\n  FROM bounds b\n  LEFT JOIN daily_metrics p ON p.date = b.monday - 1\n)\nSELECT\n  ROUND((target * 1.0)::numeric, 0) AS \"Target\",\n  ROUND((target * 1.3)::numeric, 0) AS \"Upper limit\",\n  ROUND(load::numeric, 0) AS \"This week\",\n  CASE\n    WHEN target IS NULL THEN '#B4B4B6'\n    WHEN load > target * 1.3 THEN '#FF9830'\n    WHEN load >= target * 1.0 THEN '#56A64B'\n    ELSE '#8e8e90'\n  END AS \"This week color\"\nFROM week",
           "format": "table",
           "refId": "A"
         }

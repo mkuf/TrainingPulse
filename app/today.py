@@ -1,7 +1,8 @@
 """The "Today" summary on the status page: the numbers worth a glance on a phone.
 
 Reads only values the core already stores (sleep, daily wellness, the derived
-sleep and recovery scores, CTL/ATL/TSB and form in percent), today's visible nutrition row, and
+sleep and recovery scores, CTL/ATL/TSB and form in percent), this week's
+training load against its target, today's visible nutrition row, and
 the average of the visible nutrition rows of the current week (Monday to
 Sunday). Today is still being logged, so the
 average covers the finished days only; on a Monday that is last week. Nothing
@@ -17,7 +18,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from metrics import FORM_STATUSES, form_pct, form_status
+from metrics import (
+    FORM_STATUSES,
+    WEEK_TARGET,
+    WEEK_UPPER_LIMIT,
+    form_pct,
+    form_status,
+    training_weeks,
+)
 from models import DailyMetrics, DailyNutrition, DailyScores, DailyWellness, SleepSession
 from wellness_scores import RECOVERY_STATUSES, recovery_status
 
@@ -39,6 +47,17 @@ FORM_STATUS_LABELS = {
     "optimal_training": "Optimal training",
     "high_risk": "High risk",
 }
+
+WEEK_STATUS_LABELS = {
+    "in_progress": "In progress",
+    "below_target": "Below target",
+    "on_target": "Target reached",
+    "above_limit": "Above upper limit",
+}
+
+#: End of the week bar, in percent of the target. Load can go past it; the
+#: marker then stays at the end.
+WEEK_BAR_MAX = 160
 
 #: Ends of the form bar, in percent. Form can go past them; the marker then
 #: stays at the end.
@@ -95,6 +114,27 @@ def form_marker(pct: int) -> float:
     """Where ``pct`` sits on the form bar, in percent of its width."""
     clamped = min(FORM_BAR_MAX, max(FORM_BAR_MIN, pct))
     return round(100 * (clamped - FORM_BAR_MIN) / (FORM_BAR_MAX - FORM_BAR_MIN), 1)
+
+
+def week_bands() -> tuple[tuple[str, str, int], ...]:
+    """(band, label with its range, width in percent points), lowest first.
+
+    The bands of the week bar in percent of the target, read from
+    ``WEEK_TARGET`` and ``WEEK_UPPER_LIMIT``.
+    """
+    target = round(100 * WEEK_TARGET)
+    upper = round(100 * WEEK_UPPER_LIMIT)
+    return (
+        ("below_target", f"Below target: under {target} %", target),
+        ("on_target", f"Target reached: {target} to {upper} %", upper - target),
+        ("above_limit", f"Above upper limit: over {upper} %", WEEK_BAR_MAX - upper),
+    )
+
+
+def week_marker(pct: int) -> float:
+    """Where ``pct`` of the target sits on the week bar, in percent of its width."""
+    clamped = min(WEEK_BAR_MAX, max(0, pct))
+    return round(100 * clamped / WEEK_BAR_MAX, 1)
 
 
 @dataclass(frozen=True)
@@ -154,6 +194,36 @@ class FormView:
 
 
 @dataclass(frozen=True)
+class WeekLoadView:
+    start: date
+    #: Last day counted (today).
+    through: date
+    #: TRIMP of the week so far.
+    load: int
+    #: 7 × CTL at the start of the week; None without enough history.
+    target: int | None
+    upper_limit: int | None
+    pct_of_target: int | None
+    #: TRIMP still needed to reach the target.
+    remaining: int | None
+    status: str | None
+    status_label: str | None
+
+    @property
+    def bands(self) -> tuple[tuple[str, str, int], ...]:
+        return week_bands()
+
+    @property
+    def band(self) -> str | None:
+        """The band of the bar the load is in."""
+        return "below_target" if self.status == "in_progress" else self.status
+
+    @property
+    def marker(self) -> float | None:
+        return None if self.pct_of_target is None else week_marker(self.pct_of_target)
+
+
+@dataclass(frozen=True)
 class DayNutritionView:
     kcal: int | None
     protein_g: int | None
@@ -181,6 +251,8 @@ class TodayView:
     sleep: SleepView | None
     recovery: RecoveryView | None
     form: FormView | None
+    #: This week's training load against its target.
+    week_load: WeekLoadView | None
     #: What is logged for today so far.
     nutrition_today: DayNutritionView | None
     nutrition: WeekNutritionView | None
@@ -314,6 +386,23 @@ async def today_view(session: AsyncSession, tz: ZoneInfo) -> TodayView:
             status_label=FORM_STATUS_LABELS.get(status),
         )
 
+    week_load = None
+    weeks = await training_weeks(session, today, today, today)
+    if weeks:
+        this_week = weeks[-1]
+        pct = this_week.pct_of_target
+        week_load = WeekLoadView(
+            start=this_week.start,
+            through=this_week.through,
+            load=round(this_week.load),
+            target=_int(this_week.target),
+            upper_limit=_int(this_week.upper_limit),
+            pct_of_target=_int(pct),
+            remaining=_int(this_week.remaining),
+            status=this_week.status,
+            status_label=WEEK_STATUS_LABELS.get(this_week.status),
+        )
+
     logged_today = await session.scalar(
         select(DailyNutrition).where(
             DailyNutrition.superseded_by == None,  # noqa: E711
@@ -368,6 +457,7 @@ async def today_view(session: AsyncSession, tz: ZoneInfo) -> TodayView:
         sleep=sleep,
         recovery=recovery,
         form=form,
+        week_load=week_load,
         nutrition_today=nutrition_today,
         nutrition=nutrition,
     )

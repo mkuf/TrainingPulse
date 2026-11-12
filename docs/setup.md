@@ -89,8 +89,8 @@ The top of the status page shows the most important values. It is easy to read o
 
 - **Sleep:** the sleep score of the last night, the time asleep, the sleep stages, and the sleeping heart rate.
 - **Recovery:** the recovery score with its status (for example **Normal**), a bar that shows where the score is in the range from 0 to 100, HRV, and resting heart rate. HRV and resting heart rate show the difference to your usual values of the last 30 days.
-- **Form:** form (TSB), fitness (CTL), and fatigue (ATL).
-- **Nutrition:** the calories, protein, carbohydrates, and fat that you logged today. Click **Week** to see the average per day of this week (Monday to Sunday). The average does not include today, because you are possibly still logging it. On Monday, it shows last week. The browser keeps your selection.
+- **Training:** form in percent of fitness with its band, fitness (CTL), and fatigue (ATL). Click **Week** to see the training load (TRIMP) of this week against the weekly target. At the target, your fitness stays the same. Between the target and the upper limit (130 % of the target), your fitness increases. Above the upper limit, the load increases faster than you can usually sustain. The target is 7 × your fitness at the end of last Sunday, so it does not change during the week. It shows after 6 weeks of training history.
+- **Nutrition:** the calories, protein, carbohydrates, and fat that you logged today. Click **Week** to see the average per day of this week (Monday to Sunday). The average does not include today, because you are possibly still logging it. On Monday, it shows last week. The browser keeps your selection for each box.
 
 If a value is older than today, the date shows next to the name. Values older than 3 days do not show. The arrow in each box opens the related Grafana dashboard.
 
