@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-12
+
+### Fixed
+
+- On a phone, the **Training** box in the Today summary no longer runs over its edge. The Today boxes now show one per line, so the box has room for its **Today**/**Week** switch.
+
 ## [1.7.0] - 2026-11-12
 
 ### Added
 
 - A **weekly load target**: the training load (TRIMP) of a Monday-to-Sunday week against 7 × your fitness (CTL) at the start of the week. At the target, your fitness stays the same. Up to the upper limit (130 % of the target), it increases. Above it, the load increases faster than you can usually sustain. The target shows after 6 weeks of training history.
-- The Today summary's **Form** tile is now **Training**, with a **Week** view: this week's load, how much is still missing to the target, and a bar that marks the load against the target and the upper limit. On a phone, the Today boxes show one per line, so the **Training** box has room for its **Today**/**Week** switch.
+- The Today summary's **Form** tile is now **Training**, with a **Week** view: this week's load, how much is still missing to the target, and a bar that marks the load against the target and the upper limit.
 - The MCP tool `get_training_weeks` returns the weekly load, the target, the upper limit, and the status (`in_progress`, `below_target`, `on_target`, `above_limit`) for each week of a date range.
 
 ### Changed
@@ -123,7 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboards, a status page, an HTTP API, and an MCP server.
 - Container image on `ghcr.io/mkuf/trainingpulse`.
 
-[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/mkuf/TrainingPulse/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/mkuf/TrainingPulse/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/mkuf/TrainingPulse/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/mkuf/TrainingPulse/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/mkuf/TrainingPulse/compare/v1.5.0...v1.5.1
