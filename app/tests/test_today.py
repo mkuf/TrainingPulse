@@ -5,7 +5,16 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from today import duration, nutrition_window, recovery_bands, sleep_stages
+from today import (
+    FORM_BAR_MAX,
+    FORM_BAR_MIN,
+    duration,
+    form_bands,
+    form_marker,
+    nutrition_window,
+    recovery_bands,
+    sleep_stages,
+)
 
 
 @pytest.mark.parametrize(
@@ -67,3 +76,31 @@ def test_recovery_bands_cover_the_whole_range_lowest_first():
         "Above normal: 85–100",
     ]
     assert sum(width for _, _, width in bands) == 100
+
+
+def test_form_bands_cover_the_bar_lowest_first():
+    bands = form_bands()
+
+    assert [status for status, _, _ in bands] == [
+        "high_risk",
+        "optimal_training",
+        "neutral",
+        "fresh",
+        "transition",
+    ]
+    assert [label for _, label, _ in bands] == [
+        "High risk: below \u221230 %",
+        "Optimal training: \u221230 to \u221210 %",
+        "Neutral: \u221210 to +5 %",
+        "Fresh: +5 to +25 %",
+        "Transition: from +25 %",
+    ]
+    assert sum(width for _, _, width in bands) == FORM_BAR_MAX - FORM_BAR_MIN
+
+
+@pytest.mark.parametrize(
+    "pct, left",
+    [(FORM_BAR_MIN, 0.0), (FORM_BAR_MAX, 100.0), (-200, 0.0), (90, 100.0), (-30, 22.2)],
+)
+def test_form_marker_stays_on_the_bar(pct, left):
+    assert form_marker(pct) == left

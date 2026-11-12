@@ -1,7 +1,7 @@
 """The "Today" summary on the status page: the numbers worth a glance on a phone.
 
 Reads only values the core already stores (sleep, daily wellness, the derived
-sleep and recovery scores, CTL/ATL/TSB), today's visible nutrition row, and
+sleep and recovery scores, CTL/ATL/TSB and form in percent), today's visible nutrition row, and
 the average of the visible nutrition rows of the current week (Monday to
 Sunday). Today is still being logged, so the
 average covers the finished days only; on a Monday that is last week. Nothing
@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from metrics import FORM_STATUSES, form_pct, form_status
 from models import DailyMetrics, DailyNutrition, DailyScores, DailyWellness, SleepSession
 from wellness_scores import RECOVERY_STATUSES, recovery_status
 
@@ -31,7 +32,18 @@ RECOVERY_STATUS_LABELS = {
     "well_below_normal": "Well below normal",
 }
 
+FORM_STATUS_LABELS = {
+    "transition": "Transition",
+    "fresh": "Fresh",
+    "neutral": "Neutral",
+    "optimal_training": "Optimal training",
+    "high_risk": "High risk",
+}
 
+#: Ends of the form bar, in percent. Form can go past them; the marker then
+#: stays at the end.
+FORM_BAR_MIN = -50
+FORM_BAR_MAX = 40
 
 
 def recovery_bands() -> tuple[tuple[str, str, int], ...]:
@@ -48,6 +60,41 @@ def recovery_bands() -> tuple[tuple[str, str, int], ...]:
         bands.append((status, label, upper - low))
         upper = low
     return tuple(reversed(bands))
+
+
+def _pct(value: float) -> str:
+    return f"+{value:g}" if value > 0 else f"{value:g}".replace("-", "\u2212")
+
+
+def form_bands() -> tuple[tuple[str, str, int], ...]:
+    """(status, label with its range, width in percent points), lowest first.
+
+    The bands of the form bar, read from ``FORM_STATUSES`` and cut to the
+    bar's ends.
+    """
+    bands = []
+    upper: float | None = None
+    for lowest, status in FORM_STATUSES:
+        low = None if lowest == float("-inf") else lowest
+        name = FORM_STATUS_LABELS[status]
+        if upper is None:
+            label = f"{name}: from {_pct(low)} %"
+        elif low is None:
+            label = f"{name}: below {_pct(upper)} %"
+        else:
+            label = f"{name}: {_pct(low)} to {_pct(upper)} %"
+        width = (FORM_BAR_MAX if upper is None else upper) - (
+            FORM_BAR_MIN if low is None else low
+        )
+        bands.append((status, label, int(width)))
+        upper = low
+    return tuple(reversed(bands))
+
+
+def form_marker(pct: int) -> float:
+    """Where ``pct`` sits on the form bar, in percent of its width."""
+    clamped = min(FORM_BAR_MAX, max(FORM_BAR_MIN, pct))
+    return round(100 * (clamped - FORM_BAR_MIN) / (FORM_BAR_MAX - FORM_BAR_MIN), 1)
 
 
 @dataclass(frozen=True)
@@ -90,7 +137,20 @@ class FormView:
     day: date
     fitness: int
     fatigue: int
-    form: int
+    #: Start-of-day TSB in percent of the previous day's CTL; None without it.
+    form_pct: int | None
+    #: The band form falls in, e.g. "fresh".
+    status: str | None
+    #: The same for reading, e.g. "Fresh".
+    status_label: str | None
+
+    @property
+    def bands(self) -> tuple[tuple[str, str, int], ...]:
+        return form_bands()
+
+    @property
+    def marker(self) -> float | None:
+        return None if self.form_pct is None else form_marker(self.form_pct)
 
 
 @dataclass(frozen=True)
@@ -235,16 +295,24 @@ async def today_view(session: AsyncSession, tz: ZoneInfo) -> TodayView:
         .order_by(DailyMetrics.date.desc())
         .limit(1)
     )
-    form = (
-        FormView(
+    form = None
+    if metrics is not None:
+        prior_ctl = await session.scalar(
+            select(DailyMetrics.ctl).where(
+                DailyMetrics.athlete_id == metrics.athlete_id,
+                DailyMetrics.date == metrics.date - timedelta(days=1),
+            )
+        )
+        pct = form_pct(metrics.tsb, prior_ctl)
+        status = form_status(pct)
+        form = FormView(
             day=metrics.date,
             fitness=round(metrics.ctl),
             fatigue=round(metrics.atl),
-            form=round(metrics.tsb),
+            form_pct=None if pct is None else round(pct),
+            status=status,
+            status_label=FORM_STATUS_LABELS.get(status),
         )
-        if metrics is not None
-        else None
-    )
 
     logged_today = await session.scalar(
         select(DailyNutrition).where(

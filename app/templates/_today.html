@@ -81,11 +81,24 @@
             </header>
             {% if today.form %}
             {% set f = today.form %}
-            <div class="tile-summary"><p class="tile-value">{{ f.form|signed }} <span>TSB</span></p></div>
+            <div class="tile-summary">
+                <p class="tile-value">{{ f.form_pct|signed if f.form_pct is not none else "–" }}<span>%</span></p>
+                {% if f.status %}<p class="tile-sub">{{ f.status_label }}</p>{% endif %}
+            </div>
+            <div class="tile-foot{{ ' tile-foot-bar' if f.status }}">
+                {% if f.status %}
+                <div class="range-bar" role="img" aria-label="Form {{ f.form_pct|signed }} %: {{ f.status_label }}">
+                    <div class="range-bands">
+                        {% for status, label, width in f.bands %}<span class="range-{{ status }}{{ ' range-current' if status == f.status }}" style="flex-grow: {{ width }}" title="{{ label }}"></span>{% endfor %}
+                    </div>
+                    <span class="range-marker" style="left: {{ f.marker }}%"></span>
+                </div>
+                {% endif %}
             <dl class="tile-facts">
                 <div><dt>Fitness</dt><dd>{{ f.fitness }} <span>CTL</span></dd></div>
                 <div><dt>Fatigue</dt><dd>{{ f.fatigue }} <span>ATL</span></dd></div>
             </dl>
+            </div>
             {% else %}
             <p class="tile-empty muted">No training load yet</p>
             {% endif %}

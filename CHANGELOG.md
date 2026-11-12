@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The **Form** tile in the Today summary shows form in percent instead of TSB, with its band (for example **Optimal training**) and a bar that marks the value in the bands, like the Recovery tile.
+
 ## [1.6.0] - 2026-11-11
 
 ### Changed
