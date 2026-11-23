@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The stack uses PostgreSQL 19. PostgreSQL 19 cannot open the data of PostgreSQL 18, so move your data with a dump before you start the new release. The steps are in [Upgrading](docs/upgrading.md#from-a-release-with-postgresql-18).
+
 ## [1.7.1] - 2026-11-12
 
 ### Fixed

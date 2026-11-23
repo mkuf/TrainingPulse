@@ -14,6 +14,61 @@ An upgrade keeps your activity history. TrainingPulse changes the database schem
    docker compose up -d --build
    ```
 
+## From a release with PostgreSQL 18
+
+The stack now uses PostgreSQL 19. PostgreSQL 19 cannot open the data of PostgreSQL 18. If you start the new release on the old data, the `db` container stops with an error, and the other containers do not start. Your data does not change.
+
+To move the data, make a dump with PostgreSQL 18 and restore it into PostgreSQL 19. Do steps 1 to 3 before you get the new release.
+
+1. Stop all containers except the database:
+
+   ```bash
+   docker compose stop app mcp grafana
+   ```
+
+2. Make a dump of the database:
+
+   ```bash
+   docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > trainingpulse.sql
+   ```
+
+   Make sure that the dump is complete. This command must show `1`:
+
+   ```bash
+   grep -c "PostgreSQL database dump complete" trainingpulse.sql
+   ```
+
+3. Stop the stack and delete the database volume:
+
+   ```bash
+   docker compose down -v
+   ```
+
+   > **Caution:** This deletes all data in the database. Do this step only when the dump in `trainingpulse.sql` is complete.
+
+4. Get the new release.
+5. Start the database. PostgreSQL 19 creates an empty database with the credentials from `.env`:
+
+   ```bash
+   docker compose up -d --wait db
+   ```
+
+6. Restore the dump:
+
+   ```bash
+   docker compose exec -T db sh -c 'psql -q -o /dev/null -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < trainingpulse.sql
+   ```
+
+   If the command shows an error, the restore stops. Fix the cause, then do steps 3, 5, and 6 again with the same `trainingpulse.sql`.
+
+7. Start the stack:
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+Keep `trainingpulse.sql` until you have checked your data on the status page and in Grafana.
+
 ## From a release with the dashboards in the General folder
 
 The dashboards are now in a **TrainingPulse** folder. The bundled Grafana moves them when it starts.
