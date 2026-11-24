@@ -4,7 +4,7 @@ sqlalchemy[asyncio]==2.1.9
 asyncpg==0.32.0
 httpx==0.28.1
 pydantic==2.14.4
-PyYAML==6.0.3
+PyYAML==6.0.4
 jinja2==3.1.6
 apscheduler==3.11.3
 mcp==2.3.0
